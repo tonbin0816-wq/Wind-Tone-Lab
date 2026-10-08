@@ -24518,12 +24518,15 @@ console.log("\n========== 検証51: 便G データタブ(D1〜D4) ==========");
     check("51.3 D3 CommunityTab.jsx: 既定の export が landTab と onLanded を受ける(既定は null)",
       // 【便BP 2026-10-03】はじめの一手の印を立てる口 onOnboarding(既定 null)が末尾に加わった。landTab / onLanded の形は同じ。
       // 【便BV 2026-10-04】iPad の判定を配る口 wide(既定 false)が末尾に加わった。landTab / onLanded の形は同じ。
-      /export default function CommunityTab\(\{ sessions, tuningHz, onAdoptIdeal, landTab = null, onLanded = null, onOnboarding = null, wide = false \}\)/.test(comm51)
-      && /<CommunityTabBody [^>]*landTab=\{landTab\} onLanded=\{onLanded\} onOnboarding=\{onOnboarding\} wide=\{wide\} \/>/.test(comm51));
+      // 【便CB 2026-10-08】起動の最初の同意の記録を配る口 termsAgreed(既定 false)と、参加のカードで同意して参加できたときに記録を書く口
+      //   onTermsAgreed(既定 null)が wide の前に加わった。landTab / onLanded の形は同じ。
+      /export default function CommunityTab\(\{ sessions, tuningHz, onAdoptIdeal, landTab = null, onLanded = null, onOnboarding = null, termsAgreed = false, onTermsAgreed = null, wide = false \}\)/.test(comm51)
+      && /<CommunityTabBody [^>]*landTab=\{landTab\} onLanded=\{onLanded\} onOnboarding=\{onOnboarding\} termsAgreed=\{termsAgreed\} onTermsAgreed=\{onTermsAgreed\} wide=\{wide\} \/>/.test(comm51));
     check("51.3 D3 CommunityTabBody: 来ていればそれで始め、来たら state を合わせて onLanded で返す",
       // 【便BP 2026-10-03】末尾に onOnboarding = null が加わった(参加済みと分かったら印を立てる)。
       // 【便BV 2026-10-04】末尾に wide = false が加わった(参加前の見本・参加後の画面へ配るだけ)。
-      /function CommunityTabBody\(\{ sessions, tuningHz, onAdoptIdeal, landTab: landTabRequest = null, onLanded = null, onOnboarding = null, wide = false \}\)/.test(comm51)
+      // 【便CB 2026-10-08】wide の前に termsAgreed = false が加わった(参加のカードへ配るだけ)。
+      /function CommunityTabBody\(\{ sessions, tuningHz, onAdoptIdeal, landTab: landTabRequest = null, onLanded = null, onOnboarding = null, termsAgreed = false, onTermsAgreed = null, wide = false \}\)/.test(comm51)
       && /const \[landTab, setLandTab\] = useState\(landTabRequest \|\| "data"\);/.test(comm51)
       && /if \(!landTabRequest\) return;\s*setLandTab\(landTabRequest\);\s*if \(onLanded\) onLanded\(\);/.test(comm51));
     check("51.3 D3 CommunityTabBody: 開く子タブは今までどおり initialTab で JoinedView へ渡す",
@@ -30674,18 +30677,20 @@ console.log("\n========== 検証83: AD-1 一覧の空きで編集終了 / AD-2 �
       !/localStorage|sessionStorage/.test(app83) && !/localStorage|sessionStorage/.test(main83),
       (app83.match(/localStorage|sessionStorage/g) || []).join(" / ") || "0件");
     // main.jsx: 温めてから App を描く。**順序を位置で固定する**(呼ぶだけでは順序を言えない)。
+    // 【便CB 2026-10-08】描く根は同意の門(ConsentScreen.jsx の AppRoot)になった。温めは今までどおり App.jsx から読む。
     check("83.5 起動の入口が温めを呼ぶ(呼ぶのは1箇所)",
-      /import App, \{ warmPersistedStateCache \} from '\.\/App\.jsx'/.test(main83)
+      /import \{ warmPersistedStateCache \} from '\.\/App\.jsx'/.test(main83)
+      && /import AppRoot from '\.\/ConsentScreen\.jsx'/.test(main83)
       && count83(main83, /warmPersistedStateCache\(\)/g) === 1,
       `${count83(main83, /warmPersistedStateCache\(\)/g)}箇所`);
     check("83.5 **温めをいちばん先に始める**(React の用意より前。読みと用意が重なる)",
       main83.indexOf("warmPersistedStateCache()") > 0
       && main83.indexOf("warmPersistedStateCache()") < main83.indexOf("createRoot("),
       `温め=${main83.indexOf("warmPersistedStateCache()")} / createRoot=${main83.indexOf("createRoot(")}`);
-    check("83.5 **App を描くのは温めが終わってから**(順序を位置で固定する)",
+    check("83.5 **根(【便CB】AppRoot)を描くのは温めが終わってから**(順序を位置で固定する)",
       main83.indexOf("warming.finally(") > main83.indexOf("createRoot(")
-      && main83.indexOf("warming.finally(") < main83.indexOf("<App />"),
-      `finally=${main83.indexOf("warming.finally(")} / App=${main83.indexOf("<App />")}`);
+      && main83.indexOf("warming.finally(") < main83.indexOf("<AppRoot />"),
+      `finally=${main83.indexOf("warming.finally(")} / AppRoot=${main83.indexOf("<AppRoot />")}`);
     check("83.5 温めが失敗しても必ず App を描く(finally)",
       /const warming = warmPersistedStateCache\(\)/.test(main83)
       && /warming\.finally\(\(\) => \{/.test(main83));
@@ -31130,7 +31135,9 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
   const nav89 = codeOf(srcOfFn(src, "BottomNav"));
   const commRaw89 = readFileSync(join(__dirname, "..", "src", "community", "CommunityTab.jsx"), "utf8");
   const join89 = codeOf(srcOfFn(commRaw89, "JoinIntro"));
-  const agree89 = codeOf(srcOfFn(commRaw89, "AgreeRow"));
+  // 【便CB 2026-10-08】AgreeRow は src/agreeRow.jsx へ移った(起動の最初の同意の画面と共有。中身は不変)。
+  const agreeRaw89 = readFileSync(join(__dirname, "..", "src", "agreeRow.jsx"), "utf8");
+  const agree89 = codeOf(srcOfFn(agreeRaw89, "AgreeRow"));
   const count89 = (t, re) => (t.match(re) || []).length;
   check("89.0 読む関数を切り出せている(空回りしていない)",
     data89.length > 2000 && person89.length > 3000 && tabs89.length > 800 && mtabs89.length > 300 && tipFn89.length > 3000
@@ -31304,19 +31311,22 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     && /<circle cx="9" cy="8" r="3\.2" \/>/.test(nav89) && /<path d="M15\.5 13\.6 Q20\.5 13\.6 20\.5 18" \/>/.test(nav89));
 
   // --- 89.5 規約への同意 ------------------------------------------------------------
-  check("89.5 同意の行は導線(規約・ポリシー)の下・参加の一手の上。参加は同意まで disabled・地 --c-disabled",
+  // 【便CB 2026-10-08】起動の最初に同意済み(termsAgreed)なら同意の行を出さず、参加は押せる(canJoin = termsAgreed || agreed)。
+  //   記録が無いときは今までどおり(行を出し、入るまで disabled)。振る舞いは consentGate.test.jsx / agreeGate.test.jsx が描いて見る。
+  check("89.5 同意の行は導線(規約・ポリシー)の下・参加の一手の上。参加は同意まで disabled・地 --c-disabled(【便CB】起動の最初に同意済みなら行を出さない)",
     (() => {
-      const a = join89.indexOf('setLegal("privacy")'), b = join89.indexOf("<AgreeRow checked={agreed} onChange={setAgreed}>利用規約とプライバシーポリシーに同意します</AgreeRow>");
-      const c = join89.indexOf("disabled={busy || !agreed}");
+      const a = join89.indexOf('setLegal("privacy")'), b = join89.indexOf("{termsAgreed ? null : <AgreeRow checked={agreed} onChange={setAgreed}>利用規約とプライバシーポリシーに同意します</AgreeRow>}");
+      const c = join89.indexOf("disabled={busy || !canJoin}");
       return a > 0 && b > a && c > b;
     })()
-    && /background: agreed \? "var\(--c-accent\)" : "var\(--c-disabled\)"/.test(join89)
+    && /background: canJoin \? "var\(--c-accent\)" : "var\(--c-disabled\)"/.test(join89)
     && /const \[agreed, setAgreed\] = useState\(false\);/.test(join89)
-    && /if \(!agreed\) return;/.test(join89));
+    && /const canJoin = termsAgreed \|\| agreed;/.test(join89)
+    && /if \(!canJoin\) return;/.test(join89));
   check("89.5 同意の箱: ネイティブの checkbox を label が包む(行 --tap-min)・20px・角丸 6・枠 1.5px --c-line-strong・入ると --c-accent",
     /<label className="sans no-select" style=\{\{\s*\r?\n\s*minHeight: "var\(--tap-min\)"/.test(agree89)
     && /<input type="checkbox" checked=\{checked\}/.test(agree89)
-    && /const AGREE_BOX_PX = 20;/.test(codeOf(commRaw89)) && /borderRadius: 6,/.test(agree89)
+    && /export const AGREE_BOX_PX = 20;/.test(codeOf(agreeRaw89)) && /borderRadius: 6,/.test(agree89)
     && /border: `1\.5px solid \$\{checked \? "var\(--c-accent\)" : "var\(--c-line-strong\)"\}`/.test(agree89)
     && /background: checked \? "var\(--c-accent\)" : "transparent"/.test(agree89)
     && /color: "var\(--c-on-accent\)"/.test(agree89));
@@ -31731,7 +31741,9 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     const sheetBO3 = codeOf(srcOfFn(scrBO, "CohortAdoptSheet"));
     check("BO.6 便BO3 確認のシートの「目安に設定」は SHEET_PRIMARY_BUTTON_STYLE(--tap-min / --r-pill / --c-accent / --fs-md 700 / 影なし)",
       /<button type="button" onClick=\{onConfirm\} className="sans" style=\{SHEET_PRIMARY_BUTTON_STYLE\}>/.test(sheetBO3)
-      && /const SHEET_PRIMARY_BUTTON_STYLE = \{\s*\r?\n\s*width: "100%", minHeight: "var\(--tap-min\)", borderRadius: "var\(--r-pill\)", border: "none",\s*\r?\n\s*background: "var\(--c-accent\)", color: "var\(--c-on-accent\)", fontSize: "var\(--fs-md\)", fontWeight: 700, cursor: "pointer",\s*\r?\n\};/.test(scrBO));
+      // 【便CB 2026-10-08】定義は src/sheetButtonStyle.js へ移った(起動の最初の同意の画面も読む)。screens.jsx はそれを import して export し直す。
+      && /const SHEET_PRIMARY_BUTTON_STYLE = \{\s*\r?\n\s*width: "100%", minHeight: "var\(--tap-min\)", borderRadius: "var\(--r-pill\)", border: "none",\s*\r?\n\s*background: "var\(--c-accent\)", color: "var\(--c-on-accent\)", fontSize: "var\(--fs-md\)", fontWeight: 700, cursor: "pointer",\s*\r?\n\};/.test(readFileSync(join(__dirname, "..", "src", "sheetButtonStyle.js"), "utf8"))
+      && /import \{ SHEET_PRIMARY_BUTTON_STYLE \} from "\.\.\/sheetButtonStyle\.js";/.test(scrBO) && /export \{ SHEET_PRIMARY_BUTTON_STYLE \};/.test(scrBO));
     check("BO.6 便BO3 ADOPT_BUTTON_STYLE を読むのは人物のページの1箇所だけ",
       (codeOf(scrBO).match(/style=\{ADOPT_BUTTON_STYLE\}/g) || []).length === 1 && /style=\{ADOPT_BUTTON_STYLE\}/.test(codeOf(personPageSrc(scrBO))));
     check("BO.6 便BO3 名前・本文に中黒(·)を使わない。名前は全角の括弧と半角の空白",
@@ -32106,7 +32118,8 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     && /<JoinIntro\b[^>]*\n\s*wide=\{wide\}\n/.test(codeOf(srcOfFn(commBV, "CommunityTabBody")))
     && /<JoinedView\b[\s\S]*?\n\s*wide=\{wide\}\n/.test(codeOf(srcOfFn(commBV, "CommunityTabBody")))
     && /watchPhoto = null, wide = false \}\)/.test(joinedBV)
-    && /^function JoinIntro\(\{ onJoin, notice = null, wide = false \}\)/.test(joinBV));
+    // 【便CB 2026-10-08】JoinIntro の署名に termsAgreed = false が wide の前に加わった(wide は今までどおり既定 false)。
+    && /^function JoinIntro\(\{ onJoin, notice = null, termsAgreed = false, wide = false \}\)/.test(joinBV));
 
   // --- BV.2 器と形: 器(--pane-max-w)の中に 子タブの行・SwipePager[2ペイン, 2ペイン, 列, 列] -----------------------
   check("BV.2 器は --pane-max-w で中央。2ペイン(データ・順位)のときだけ高さ固定の枠(.pane-frame)・窓は fill。子タブの行と SwipePager の開き方は狭い木と同じ",
@@ -33471,12 +33484,55 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     };
     walk(join(__dirname, "..", "src"));
     check("BX.9 src 全体: 利用者に見える文(コメントを除くコード)に「機種」「機材」が無い", hits.length === 0, hits.join(" / "));
+    // 【便CB 2026-10-08 統括の指示】規約2枚(public/terms.html・privacy.html)も利用者が読む文なので同じ語を見張る。
+    //   (support.html は今回の範囲の外。まだ「機種変更」が残っている ── 起票)
+    const legalHits = ["terms.html", "privacy.html"].flatMap((f) => {
+      const m = readFileSync(join(__dirname, "..", "public", f), "utf8").replace(/<!--[\s\S]*?-->/g, "").match(/.{0,20}(機種|機材).{0,20}/g);
+      return m ? [`${f}: ${m.join(" | ")}`] : [];
+    });
+    check("CB.6 規約2枚(terms.html・privacy.html)に「機種」「機材」が無い", legalHits.length === 0, legalHits.join(" / "));
     const ds = rd("design/DESIGN-SYSTEM.md");
     const sec = ds.slice(ds.indexOf("## 4.5b"), ds.indexOf("\n## 5. "));
     check("BX.9 DESIGN-SYSTEM §4.5b に【便BX】・23 の段・「端末を替えるとき」・--c-accent-tint(カードの地)",
       /【便BX/.test(sec) && /印は23・段は23/.test(sec) && sec.includes("端末を替えるとき") && sec.includes("`--c-accent-tint`")
       && /`--c-accent-tint` \| `#EAEFF5` \| 選択状態の背景・はじめの案内のカードの地/.test(ds));
   }
+  console.log("  -> done");
+}
+
+console.log("========== 検証CB: 便CB 起動の最初の同意の画面 ==========");
+{
+  // 【便CB 2026-10-08 本人の依頼】振る舞い(出す・押せない・記録・1回だけ・既存の利用者・見本・参加のカード)は
+  // src/consentGate.test.jsx が根(AppRoot)を描いて見る。ここは検査が描かない**入口の配線**(main.jsx)と、見た目の値の出どころだけを見る。
+  const mainCB = codeOf(readFileSync(join(__dirname, "..", "src", "main.jsx"), "utf8"));
+  check("CB.1 main.jsx はアプリの根に同意の門(AppRoot)を描く(アプリ単体を直に描かない)",
+    /import AppRoot from '\.\/ConsentScreen\.jsx'/.test(mainCB) && /<AppRoot \/>/.test(mainCB) && !/<App \/>/.test(mainCB)
+    && /warming\.finally\(/.test(mainCB));
+  const gateRaw = readFileSync(join(__dirname, "..", "src", "ConsentScreen.jsx"), "utf8");
+  const gateFn = codeOf(srcOfFn(gateRaw, "AppRoot"));
+  const scrFn = codeOf(srcOfFn(gateRaw, "ConsentScreen"));
+  check("CB.0 読む関数を切り出せている", gateFn.length > 300 && scrFn.length > 800, `gate ${gateFn.length} / screen ${scrFn.length}`);
+  check("CB.2 同意の画面の間はアプリを描かない(同意の画面を返す枝にアプリが無い)・判断は needsConsentScreen",
+    /if \(needsConsentScreen\(\{ consent, onboardingDone: normalizeOnboardingDone\(onboardingRaw\) \}\)\) \{\s*return <ConsentScreen onAgree=\{\(\) => setConsent\(makeConsentRecord\(\)\)\} \/>;\s*\}/.test(gateFn)
+    && /return <WindToneLabPhaseMode termsAgreed=\{isConsentRecord\(consent\)\} onTermsAgreed=\{recordFromJoin\} \/>;/.test(gateFn)
+    && /const recordFromJoin = useCallback\(\(\) => setConsent\(makeConsentRecord\(\)\), \[setConsent\]\);/.test(gateFn)
+    && /if \(!previewAgreed\) return <ConsentScreen onAgree=\{\(\) => setPreviewAgreed\(true\)\} \/>;/.test(gateFn));
+  check("CB.3 見た目は既存の部品と値: AgreeRow・linkButtonStyle・SHEET_PRIMARY_BUTTON_STYLE・芽(LoadingRing の 100%)・.coach-line・規約は LegalSheet(外へ出ない)",
+    /<AgreeRow checked=\{agreed\} onChange=\{setAgreed\}>/.test(scrFn) && /style=\{linkButtonStyle\}>利用規約<\/button>/.test(scrFn)
+    && /style=\{linkButtonStyle\}>プライバシーポリシー<\/button>/.test(scrFn)
+    && /\.\.\.SHEET_PRIMARY_BUTTON_STYLE, background: agreed \? "var\(--c-accent\)" : "var\(--c-disabled\)"/.test(scrFn)
+    && /disabled=\{!agreed\}/.test(scrFn) && /<SproutMark p=\{1\} \/>/.test(scrFn) && /className="coach-line"/.test(scrFn)
+    && /<LegalSheet kind=\{legal\}/.test(scrFn) && !/href=/.test(scrFn) && !/window\.open|location\.href/.test(scrFn));
+  const gateCode = codeOf(gateRaw);
+  const pxCB = gateCode.match(/\b\d+px\b/g) || [];
+  check("CB.4 同意の画面の値はトークンと本人裁定の 22 だけ(新しい px を作らない)",
+    pxCB.length > 0 && pxCB.every((v) => v === "22px")
+    && /fontSize: "var\(--fs-xl\)"/.test(gateCode) && /fontFamily: "var\(--font-num\)"/.test(gateCode)
+    && /maxWidth: "var\(--page-max-w\)"/.test(gateCode) && /padding: "var\(--sp-5\) var\(--sp-4\) var\(--sp-4\)"/.test(gateCode)
+    && /env\(safe-area-inset-top\)/.test(gateCode) && /env\(safe-area-inset-bottom\)/.test(gateCode),
+    pxCB.join(","));
+  const dsCB = readFileSync(join(__dirname, "..", "design", "DESIGN-SYSTEM.md"), "utf8");
+  check("CB.5 DESIGN-SYSTEM に同意の画面の節(【便CB】)がある", /## 4\.5c 起動の最初の同意の画面（【便CB 2026-10-08/.test(dsCB));
   console.log("  -> done");
 }
 

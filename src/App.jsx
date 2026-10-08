@@ -3833,7 +3833,12 @@ function navRetapKeepsView(tappedKey, atMyDataTop) {
 // ============================================================
 // Main component
 // ============================================================
-export default function WindToneLabPhaseMode() {
+// 【便CB 2026-10-08 本人の依頼】termsAgreed = 起動の最初の同意の画面(src/ConsentScreen.jsx の AppRoot)で同意した記録がある。
+// このアプリは**同意が済んでから初めて描かれる**(AppRoot が同意の画面の間はこの要素を描かない)ので、マイク・ATT・広告・はじめの案内は
+// 構造的に同意のあとにしか始まらない。ここで読むのは参加のカードへ配る1つだけ(CommunityTab → JoinIntro。チェックを出すか)。
+// 渡されない(false)ときは今までどおり(参加のカードにチェックを出す)。検査はこの要素を直に描くので、今までの振る舞いのまま。
+// onTermsAgreed = 記録の無い人が参加のカードでチェックを入れて参加できたときに呼ぶ口(根が記録を書く)。渡されなければ何もしない。
+export default function WindToneLabPhaseMode({ termsAgreed = false, onTermsAgreed = null } = {}) {
   // 【便BT 2026-10-03 本人裁定】iPad の「広い」画面か(WIDE_LAYOUT_QUERY = 幅 ≥ 700 かつ 高さ ≥ 500)。判定はここで1回だけ行い、props で配る。
   // いまの読み手は MeasureView(環の上限)と【便BU】ReedsTab(リードタブの2ペイン)と【便BV】CommunityTab(コミュニティの2ペイン)。
   // jsdom(matchMedia が無い)では常に false。
@@ -5532,6 +5537,8 @@ export default function WindToneLabPhaseMode() {
               }}
               /* 【便BP】はじめの一手の印(参加した・人物のページを開いた)を立てる口。 */
               onOnboarding={markOnboarding}
+              /* 【便CB 2026-10-08】起動の最初に同意した記録があれば、参加のカードに同意のチェックを出さない。 */
+              termsAgreed={termsAgreed} onTermsAgreed={onTermsAgreed}
               /* 【便BV 2026-10-04 本人裁定(案B)】広い(iPad)なら、データ・順位は2ペイン(左 = 一覧・右 = 人物のページ)・
                  シェア・マイページは列(--page-max-w)。参加前の見本も2ペインの形。 */
               wide={wide}

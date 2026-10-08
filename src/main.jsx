@@ -1,6 +1,9 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import App, { warmPersistedStateCache } from './App.jsx'
+import { warmPersistedStateCache } from './App.jsx'
+// 【便CB 2026-10-08 本人の依頼】アプリの根は同意の門(AppRoot)。初めて開いたときは計測タブより前に同意の画面を出し、
+// 同意が済むまでアプリ(App.jsx の WindToneLabPhaseMode)を描かない(マイク・ATT・広告・はじめの案内は同意のあとにしか始まらない)。
+import AppRoot from './ConsentScreen.jsx'
 import '@fontsource/instrument-serif/400.css'
 import '@fontsource/instrument-serif/400-italic.css'
 import './index.css'
@@ -49,7 +52,7 @@ const root = ReactDOM.createRoot(document.getElementById('root'))
 warming.finally(() => {
   root.render(
     <React.StrictMode>
-      <App />
+      <AppRoot />
     </React.StrictMode>,
   )
 })

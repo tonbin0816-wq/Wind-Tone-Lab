@@ -61,6 +61,8 @@ import LoadingRing from "./LoadingRing.jsx";
 import LegalSheet from "./LegalSheet.jsx";
 // 【束3 2026-09-19 本人指示】お問い合わせもアプリの中で完結する(メールへ飛ばさない)。
 import FeedbackSheet from "./FeedbackSheet.jsx";
+// 【便CB 2026-10-08】規約への同意のチェックと導線の見た目。起動の最初の同意の画面(ConsentScreen.jsx)と共有する1つ。
+import { AgreeRow, linkButtonStyle } from "../agreeRow.jsx";
 
 // ------------------------------------------------------------------
 // コミュニティタブ。画面は3状態: 未参加 → 登録フォーム → プロフィール表示。
@@ -159,11 +161,13 @@ const DELETE_PARTIAL_NOTICE =
 // 呼ぶのは「参加済みと分かった("join")」の1つだけ(【便BQ】奏者を開く段は本人の指示で外した)。渡さなければ何も起きない。
 // 【便BV 2026-10-04 本人裁定(案B)】wide = iPad の「広い」画面か(App の useWideLayout)。参加後の画面(JoinedView)と参加前の見本
 // (JoinIntro)へ配るだけ。渡されない(false)ときは今までの木のまま(iPhone は1文字も変わらない)。
-export default function CommunityTab({ sessions, tuningHz, onAdoptIdeal, landTab = null, onLanded = null, onOnboarding = null, wide = false }) {
+// 【便CB 2026-10-08】termsAgreed = 起動の最初の同意の画面で同意した記録がある(App の根 ConsentScreen.jsx の AppRoot から)。
+// 参加のカード(JoinIntro)へ配るだけ。true なら参加のカードに同意のチェックを出さない。渡されない(false)ときは今までどおりチェックを出す。
+export default function CommunityTab({ sessions, tuningHz, onAdoptIdeal, landTab = null, onLanded = null, onOnboarding = null, termsAgreed = false, onTermsAgreed = null, wide = false }) {
   return (
     <>
       <AvatarSprite />
-      <CommunityTabBody sessions={sessions} tuningHz={tuningHz} onAdoptIdeal={onAdoptIdeal} landTab={landTab} onLanded={onLanded} onOnboarding={onOnboarding} wide={wide} />
+      <CommunityTabBody sessions={sessions} tuningHz={tuningHz} onAdoptIdeal={onAdoptIdeal} landTab={landTab} onLanded={onLanded} onOnboarding={onOnboarding} termsAgreed={termsAgreed} onTermsAgreed={onTermsAgreed} wide={wide} />
     </>
   );
 }
@@ -517,7 +521,7 @@ export function DeviceTransferSheet({ onClose }) {
 }
 
 // 【便BV 2026-10-04】wide = iPad の「広い」画面(CommunityTab から)。参加前の見本(JoinIntro)と参加後の画面(JoinedView)へ配るだけ。
-function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRequest = null, onLanded = null, onOnboarding = null, wide = false }) {
+function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRequest = null, onLanded = null, onOnboarding = null, termsAgreed = false, onTermsAgreed = null, wide = false }) {
   const [phase, setPhase] = useState("loading"); // loading | notJoined | form | profile | error
   const [uid, setUid] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -624,12 +628,17 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRe
         notice={notice}
         /* 【便BV】広いなら裏の見本を参加後と同じ2ペインの形で敷く。 */
         wide={wide}
+        /* 【便CB】起動の最初に同意した記録があれば、参加のカードに同意のチェックを出さない。 */
+        termsAgreed={termsAgreed}
         onJoin={async () => {
           // ここで初めて匿名アカウントが作られる。9項目を埋めきってから
           // 「圏外でした」と分かるより、押した瞬間に失敗を見せたほうが親切。
           try {
             setNotice(null);
             await ensureUid();
+            // 【便CB 統括の指示】記録の無い人(= このカードのチェックを入れて押した人)が参加できたら、同意の記録(日時と今の版)を書く。
+            // 書くのは成功のときだけ(失敗は下の catch へ行き、ここを通らない)。起動の最初に同意済みの人の記録は書き換えない。
+            if (!termsAgreed) onTermsAgreed?.();
             setPhase("form");
           } catch (e) {
             setErrorMsg(connectErrorOf(e));
@@ -806,45 +815,8 @@ function Centered({ children }) {
   return <div className="sans" style={{ padding: "var(--sp-6)", textAlign: "center", color: "var(--c-ink-3)", fontSize: "var(--fs-sm)", lineHeight: 1.7 }}>{children}</div>;
 }
 
-// 文章の中のリンクの見た目をした <button>。JoinIntro の規約・ポリシー用(押すとシートが開く)。
-// 以前の <a>(色だけ指定・下線はブラウザ既定)と同じ見え方にする。文字の大きさは行(noteStyle)を継ぐ。
-const linkButtonStyle = {
-  background: "none", border: "none", padding: 0, font: "inherit",
-  color: "var(--c-accent)", textDecoration: "underline", cursor: "pointer",
-};
-
-// 【便BC 2026-09-25 本人選定 ficus-block-mock.html「4. 参加の画面」】規約への同意のチェック。
-// 行全体が押せる <label>(高さ --tap-min)。中身はネイティブの checkbox なので読み上げはそのまま
-// 「チェックボックス・オン/オフ」。見た目だけ appearance を外して描き直す:
-// 箱 20px・角丸 6px・枠 1.5px --c-line-strong(モック .box の値)/ 入ると --c-accent の塗りに白いレ点。
-// 13歳以上の CheckRow(ネイティブの見た目 18px)とは別の部品 ── あちらは本人が見た目を決めていないので触らない。
-const AGREE_BOX_PX = 20;
-function AgreeRow({ checked, onChange, children }) {
-  return (
-    <label className="sans no-select" style={{
-      minHeight: "var(--tap-min)", display: "flex", alignItems: "center", gap: "var(--sp-2)",
-      fontSize: "var(--fs-sm)", color: "var(--c-ink)", cursor: "pointer",
-    }}>
-      <span style={{ position: "relative", flex: "none", width: AGREE_BOX_PX, height: AGREE_BOX_PX, display: "inline-flex" }}>
-        <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)}
-          style={{
-            appearance: "none", WebkitAppearance: "none", margin: 0, boxSizing: "border-box",
-            width: AGREE_BOX_PX, height: AGREE_BOX_PX, borderRadius: 6, cursor: "pointer",
-            border: `1.5px solid ${checked ? "var(--c-accent)" : "var(--c-line-strong)"}`,
-            background: checked ? "var(--c-accent)" : "transparent",
-          }} />
-        {checked ? (
-          <svg aria-hidden="true" focusable="false" viewBox="0 0 20 20" width={AGREE_BOX_PX} height={AGREE_BOX_PX}
-            fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-            style={{ position: "absolute", inset: 0, pointerEvents: "none", color: "var(--c-on-accent)" }}>
-            <polyline points="5.5,10.5 8.5,13.5 14.5,7" />
-          </svg>
-        ) : null}
-      </span>
-      <span>{children}</span>
-    </label>
-  );
-}
+// 【便CB 2026-10-08】規約・ポリシーの導線の見た目(linkButtonStyle)と同意のチェック(AgreeRow)は src/agreeRow.jsx へ移した
+// (起動の最初の同意の画面も読むため。中身は1文字も変えていない)。上の import で読む。
 
 // ------------------------------------------------------------------
 // 【便BS 2026-10-03 本人裁定(ficus-tutorial2.html「1. コミュニティ参加の画面を、カード1枚にまとめる」)】
@@ -888,13 +860,18 @@ function useJoinFrameHeight() {
 
 // 【便BV 2026-10-04 本人裁定(案B)】wide = iPad の「広い」画面。裏の見本を参加後のデータの子タブと同じ2ペインの形で敷く(仕様 §4.7)。
 // カード(中身・文言・ボタン)は触らない(幅の上限 --page-max-w・中央は index.css の .join-card が便BT で持っている)。
-export function JoinIntro({ onJoin, notice = null, wide = false }) {
+// 【便CB 2026-10-08 本人の依頼】termsAgreed = 起動の最初の同意の画面で同意した記録がある。そのときは同意のチェックを出さず、
+// 参加はチェック無しで押せる(同意は済んでいる)。記録が無い(古いバックアップを読み戻した・参加していた人がアカウントを消した等)ときだけ、
+// 今までどおりチェックを出す。
+export function JoinIntro({ onJoin, notice = null, termsAgreed = false, wide = false }) {
   const titleId = useId();
   const frameH = useJoinFrameHeight();
   const [busy, setBusy] = useState(false);
   // 【便BC 2026-09-25】規約とプライバシーポリシーへの同意。**保存しない**(この画面を開くたびに外れた状態から)。
   // 入るまで参加の一手は押せない。
   const [agreed, setAgreed] = useState(false);
+  // 【便CB】参加してよいか = 起動の最初に同意済み、またはこのカードのチェックが入っている。
+  const canJoin = termsAgreed || agreed;
   // 【便BB 2026-09-25 統括指示】参加していない人もアカウント引継(記録の書き出し・読み戻し)を開ける。
   // 以前はマイページ(参加済み)からしか行けず、参加していない人は計測データを書き出す手段が無かった。
   // 【便BX 2026-10-06 本人の決定 D1】開くのは参加の場面に絞った「端末を替えるとき」(DeviceTransferSheet)。処理は BackupPanel と同じ
@@ -910,7 +887,7 @@ export function JoinIntro({ onJoin, notice = null, wide = false }) {
   const busyRef = useRef(false);
   const join = async () => {
     if (busyRef.current) return; // 二度押しで signInAnonymously が二重に走らないようにする
-    if (!agreed) return; // 【便BC】同意の前は押せない(disabled と二重に守る)
+    if (!canJoin) return; // 【便BC】同意の前は押せない(disabled と二重に守る)。【便CB】起動の最初に同意済みなら押せる
     busyRef.current = true;
     setBusy(true);
     try { await onJoin(); } finally { busyRef.current = false; setBusy(false); }
@@ -947,13 +924,14 @@ export function JoinIntro({ onJoin, notice = null, wide = false }) {
             <button type="button" onClick={() => setLegal("privacy")} className="sans" style={linkButtonStyle}>プライバシーポリシー</button>
             <button type="button" onClick={() => setFeedbackOpen(true)} className="sans" style={linkButtonStyle}>お問い合わせ</button>
           </div>
-          {/* 【便BC 2026-09-25】規約・ポリシーの導線のすぐ下に同意のチェック。入るまで参加は押せない(地 --c-disabled)。 */}
-          <AgreeRow checked={agreed} onChange={setAgreed}>利用規約とプライバシーポリシーに同意します</AgreeRow>
+          {/* 【便BC 2026-09-25】規約・ポリシーの導線のすぐ下に同意のチェック。入るまで参加は押せない(地 --c-disabled)。
+              【便CB 2026-10-08】起動の最初に同意済み(termsAgreed)なら出さない。 */}
+          {termsAgreed ? null : <AgreeRow checked={agreed} onChange={setAgreed}>利用規約とプライバシーポリシーに同意します</AgreeRow>}
           {/* 【便BS】主ボタンはシートの主ボタンの標準(SHEET_PRIMARY_BUTTON_STYLE)。同意するまで地 --c-disabled で押せない(便BC)。
               (【便BP】の data-coach="join" は、参加の段をはじめの一手から外したので消した) */}
-          <button type="button" onClick={join} disabled={busy || !agreed} className="sans"
-            style={{ ...SHEET_PRIMARY_BUTTON_STYLE, background: agreed ? "var(--c-accent)" : "var(--c-disabled)",
-                     cursor: agreed ? "pointer" : "default", opacity: busy ? 0.6 : 1 }}>
+          <button type="button" onClick={join} disabled={busy || !canJoin} className="sans"
+            style={{ ...SHEET_PRIMARY_BUTTON_STYLE, background: canJoin ? "var(--c-accent)" : "var(--c-disabled)",
+                     cursor: canJoin ? "pointer" : "default", opacity: busy ? 0.6 : 1 }}>
             {busy ? "準備中…" : "参加する"}
           </button>
           {/* 【便BS】体裁はカードの一番下の細い導線(JOIN_QUIET_LINK_STYLE)。参加していない人の唯一の入口なので残す。

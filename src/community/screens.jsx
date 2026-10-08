@@ -19,6 +19,8 @@ import { termTipOpenWithin, inTermTip } from "../termTip.jsx";
 import { BACK_BUTTON_STYLE, BottomSheet, NoteAxisLineChart, formatSignedCents } from "../App.jsx";
 // 【便BI 2026-10-02】危険な一手の見た目(DANGER_OUTLINE_STYLE)も App.jsx の1つ。下で export し直す。
 import { DANGER_OUTLINE_STYLE } from "../App.jsx";
+// 【便CB 2026-10-08】シートの中の主ボタンの標準(SHEET_PRIMARY_BUTTON_STYLE)は src/sheetButtonStyle.js の1つ。下で export し直す。
+import { SHEET_PRIMARY_BUTTON_STYLE } from "../sheetButtonStyle.js";
 // 【便BV3 2026-10-04 統括の裁定(審査案 b)】iPad の2ペインの右(人物のページ)の「目安に設定」は、リードの「計測」と同じ浮かせるボタン
 // (FloatingAction pane="right"。body へ portal)と、その対の末尾の余白(FloatingActionSpacer)を使う。写しを作らない。
 import { FloatingAction, FloatingActionSpacer } from "../App.jsx";
@@ -2028,10 +2030,8 @@ export function cohortAdoptName(terms) {
 // (App.jsx)と同じ: 高さ --tap-min / --r-pill / 枠なし / 地 --c-accent / 字 --c-on-accent / --fs-md / 700 / 影なし。
 // 幅いっぱいは、縦に積む「やめる」(SHEET_QUIET_BUTTON_STYLE)と同じ。
 // 【便BS 2026-10-03】参加の画面のカードの「参加する」(CommunityTab.jsx の JoinIntro)も、この標準を読む(写しを作らない)。
-export const SHEET_PRIMARY_BUTTON_STYLE = {
-  width: "100%", minHeight: "var(--tap-min)", borderRadius: "var(--r-pill)", border: "none",
-  background: "var(--c-accent)", color: "var(--c-on-accent)", fontSize: "var(--fs-md)", fontWeight: 700, cursor: "pointer",
-};
+// 【便CB 2026-10-08】定義は src/sheetButtonStyle.js へ移した(起動の最初の同意の画面も読むため。値は1文字も変えていない)。ここは export し直すだけ。
+export { SHEET_PRIMARY_BUTTON_STYLE };
 function CohortAdoptSheet({ saxLabel, terms, count, error, onConfirm, onClose }) {
   return (
     <BottomSheet ariaLabel={COHORT_ADOPT_TITLE} onClose={onClose}>
