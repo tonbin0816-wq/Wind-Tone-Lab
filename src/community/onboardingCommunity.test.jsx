@@ -60,8 +60,8 @@ describe("参加(参加前の的・参加済みと分かったら印)", () => {
     account.uid = null; account.profile = null;
     const onOnboarding = vi.fn();
     const root = await drawTab(onOnboarding);
-    await waitFor(() => bodyText().includes("参加する"), "参加前の画面");
-    expect(document.querySelector("[data-join-card]")).not.toBe(null);
+    // 【便CD】「参加する」はカードの名前(aria-label)になり、字では出ない
+    await waitFor(() => document.querySelector("[data-join-card]"), "参加前の画面");
     expect(coachNamed("join")).toHaveLength(0);
     expect(document.querySelectorAll("[data-coach]")).toHaveLength(0);
     // 【便BQ】カードは画面の中央に置くので、重ねない印(便BP4 の data-coach-avoid)は片付けた
@@ -73,7 +73,7 @@ describe("参加(参加前の的・参加済みと分かったら印)", () => {
     account.uid = "me"; account.profile = null;
     const onOnboarding = vi.fn();
     const root = await drawTab(onOnboarding);
-    await waitFor(() => bodyText().includes("参加する"), "参加前の画面");
+    await waitFor(() => document.querySelector("[data-join-card]"), "参加前の画面");
     expect(onOnboarding).not.toHaveBeenCalled();
     await act(async () => root.unmount());
   });

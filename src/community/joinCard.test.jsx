@@ -10,9 +10,9 @@ import { join } from "node:path";
 // 参加していない人のコミュニティタブ(JoinIntro)を実際に描いて確かめる(jsdom)。
 //   ・3層: 裏(参加後の画面の見本。inert・aria-hidden・pointer-events: none)/ 暗幕(--c-coach-dim・タップを通す)/ カード(中央)
 //   ・カードの中身の順と文言(一字一句。期待値は版と以前の JoinIntro の文から手で書いた)
-//   ・「参加する」は最初から押せる(【便CC】同意のチェックは外した。同意は起動の最初の同意の画面で取る)。見た目はシートの主ボタンの標準
-//   ・カードの外を押しても・Escape でも消えない
-//   ・導線(規約・ポリシー・お問い合わせ)とアカウント引継は今と同じシートを開く
+//   ・【便CD 2026-10-08 本人「まででいい / それ以下の利用規約やボタン自体もいらない」】中身はアイコン・見出し・1行・説明2段落だけ。
+//     ボタン・導線は無い。**カードを押すと参加が始まる**(Enter / Space も)。読み上げではカード全体が「参加する」のボタン。準備中は押せない
+//   ・カードの外を押しても・Escape でも消えない(【便CD 統括の裁定】本人「参加しないという選択肢ないです」)
 //   ・下部タブは押せる(暗幕・枠・層はタップを通し、カードは見える範囲 = 下部タブの上端より上に収まる)
 // index.css をそのまま読み込む(jsdom は stylesheet の宣言を getComputedStyle に通す)。
 // 【守っていないもの】実寸の見た目と、375×667 でカードが切れないこと(headless Chrome で実測。報告の表)。
@@ -51,8 +51,8 @@ afterEach(() => {
 
 const card = () => document.querySelector("[data-join-card]");
 const buttonNamed = (name) => [...document.querySelectorAll("button")].filter((b) => b.textContent.trim() === name);
-const joinButton = () => buttonNamed("参加する")[0];
 const tick = (ms = 30) => act(async () => { await new Promise((r) => setTimeout(r, ms)); });
+const key = (el, k) => act(async () => { el.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true })); });
 // 下部タブの代わり(App の BottomNav と同じ目印)。JoinIntro の外に置く
 function Page({ onNav = () => {}, onJoin = async () => {} }) {
   return (
@@ -65,19 +65,19 @@ function Page({ onNav = () => {}, onJoin = async () => {} }) {
 const draw = async (props) => { await act(async () => { root.render(<Page {...props} />); }); };
 
 describe("参加の画面はカード1枚(便BS)", () => {
-  it("カードの中身の順と文言(一字一句)", async () => {
+  // 【便CD 2026-10-08 本人「コミュニティに参加しよう / みんなの計測データが見られます / (2段落) / まででいい / それ以下の利用規約やボタン自体もいらない」】
+  it("【便CD】カードの中身はアイコン・見出し・1行・説明2段落の5つだけ(文は4つ・一字一句)。ボタン・導線・チェックは無い", async () => {
     await draw();
     const c = card();
     expect(c).not.toBe(null);
-    expect(c.getAttribute("role")).toBe("dialog");
     const kids = [...c.children];
+    expect(kids).toHaveLength(5);
     // 1. 丸いアイコン(コミュニティの絵)
     expect(kids[0].className).toBe("coach-icon");
     expect(kids[0].querySelector("circle").getAttribute("cx")).toBe("9");
     // 2. 見出し / 3. 1行
     expect(kids[1].className).toBe("coach-title");
     expect(kids[1].textContent).toBe("コミュニティに参加しよう");
-    expect(c.getAttribute("aria-labelledby")).toBe(kids[1].id);
     expect(kids[2].className).toBe("coach-line");
     expect(kids[2].textContent).toBe("みんなの計測データが見られます");
     // 4. 説明(以前の JoinIntro の2段落のまま)。1段落目は --fs-sm、2段落目は小さく --c-ink-3
@@ -85,22 +85,32 @@ describe("参加の画面はカード1枚(便BS)", () => {
     expect(kids[3].textContent).toBe("参加すると匿名のアカウントが作られ、他の奏者のデータが見られるようになります。メールアドレスなどの個人情報は公表されません。");
     expect(kids[3].style.fontSize).toBe("var(--fs-sm)");
     expect(kids[4].textContent).toBe("匿名のアカウントはこの端末にだけ残ります。端末を替えたりアプリを削除したりすると失われ、元に戻せません。");
-    expect(c.textContent).not.toMatch(/機種/);
     expect([kids[4].style.fontSize, kids[4].style.color]).toEqual(["var(--fs-xs)", "var(--c-ink-3)"]);
-    // 5. 導線
-    expect([...kids[5].querySelectorAll("button")].map((b) => b.textContent)).toEqual(["利用規約", "プライバシーポリシー", "お問い合わせ"]);
-    // (【便CC 2026-10-08 本人「最初に同意撮るのでコミュニティで同意出すのはやめて」】6. 同意のチェックは外した。チェックボックスは1つも無い)
-    expect(c.querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
-    expect(c.querySelector("label")).toBe(null);
-    expect(c.textContent).not.toContain("同意します");
-    // 6. 主ボタン / 7. 細い導線
-    expect(kids[6].tagName).toBe("BUTTON");
-    expect(kids[6].textContent).toBe("参加する");
-    expect(kids[7].tagName).toBe("BUTTON");
-    expect(kids[7].textContent.trim()).toBe("端末を替えるとき");
-    expect(kids).toHaveLength(8);
+    // カードの文はこの4つをつないだものだけ(ほかの文が1字も無い)
+    expect(c.textContent).toBe(kids.slice(1).map((k) => k.textContent).join(""));
+    expect(c.textContent).not.toMatch(/機種/);
+    // 押せる部品(ボタン・リンク・入力)はカードの中に1つも無い。外した導線の語も無い
+    expect(c.querySelectorAll("button, a, input, label, select, textarea")).toHaveLength(0);
+    // (「参加する」は1段落目の「参加すると」に含まれるので語では見ない。上の textContent の一致が、ボタンの字が無いことを見ている)
+    for (const w of ["準備中", "利用規約", "プライバシーポリシー", "お問い合わせ", "端末を替えるとき", "アカウント引継", "同意"]) {
+      expect(c.textContent, w).not.toContain(w);
+    }
+    // カードの外(JoinIntro の全体)にもボタンは無い(下部タブの代わりの1つだけ)
+    // (裏の見本の子タブの行は inert の中の形だけなので数えない)
+    const back = document.querySelector("[data-join-preview]");
+    expect([...document.querySelectorAll("button")].filter((b) => !back.contains(b)).map((b) => b.getAttribute("aria-label") ?? b.textContent)).toEqual(["データ"]);
     // 以前の見出し「コミュニティ」・ボタンの文字「参加してプロフィールを作る」は無い
     expect(document.body.textContent).not.toContain("参加してプロフィールを作る");
+  });
+
+  it("【便CD】読み上げではカード全体が「参加する」のボタン(role・名前・フォーカスが入る)", async () => {
+    await draw();
+    const c = card();
+    expect(c.getAttribute("role")).toBe("button");
+    expect(c.getAttribute("aria-label")).toBe("参加する");
+    expect(c.tabIndex).toBe(0);
+    expect(c.hasAttribute("aria-disabled")).toBe(false);
+    expect(c.hasAttribute("aria-labelledby")).toBe(false);   // 名前は aria-label の1つ(見出しを名前にしない)
   });
 
   it("削除の結果の説明(notice)は見出しの1行のすぐ下に出る(機能を落とさない)", async () => {
@@ -110,41 +120,51 @@ describe("参加の画面はカード1枚(便BS)", () => {
     expect(kids[3].textContent).toBe("一部を消せませんでした");
   });
 
-  it("【便CC】「参加する」は最初から押せて onJoin(同意のチェックは無い)。見た目はシートの主ボタンの標準", async () => {
+  it("【便CD】カードを押すと参加が始まる(onJoin。今までの「参加する」と同じ口)。どこを押しても(見出し・段落・アイコン)同じ", async () => {
     let joined = 0;
     await draw({ onJoin: async () => { joined += 1; } });
-    expect(joinButton().disabled).toBe(false);
-    const s = joinButton().style;
-    // SHEET_PRIMARY_BUTTON_STYLE(--tap-min / --r-pill / 枠なし / --c-accent / --c-on-accent / --fs-md / 700・幅いっぱい)
-    expect([s.minHeight, s.borderRadius, s.background, s.color, s.fontSize, s.fontWeight, s.width])
-      .toEqual(["var(--tap-min)", "var(--r-pill)", "var(--c-accent)", "var(--c-on-accent)", "var(--fs-md)", "700", "100%"]);
-    expect(joinButton().getAttribute("style")).not.toMatch(/box-shadow/);
-    await act(async () => { joinButton().click(); });
+    await act(async () => { card().click(); });
     expect(joined).toBe(1);
+    for (const i of [0, 1, 4]) {
+      await act(async () => { card().children[i].click(); });
+    }
+    expect(joined).toBe(4);
+  });
+
+  it("【便CD】キーボード: Enter と Space で参加が始まる(ネイティブの button と同じ)。ほかのキーでは始まらない", async () => {
+    let joined = 0;
+    await draw({ onJoin: async () => { joined += 1; } });
+    await key(card(), "Enter");
+    expect(joined).toBe(1);
+    await key(card(), " ");
+    expect(joined).toBe(2);
+    await key(card(), "a");
+    await key(card(), "Escape");
+    expect(joined).toBe(2);
   });
 
   // 【便BS 審査 2026-10-03 統括の指示】二度押しの歯止めを振る舞いで守る(参加の処理 = 匿名のアカウント作りを二重に走らせない)。
-  // 続けて2回押す(2回目は描き直しの前 = ボタンがまだ disabled になっていない間)。onJoin は終わらせずに待たせておく。
-  it("二度押し: 参加の処理が終わる前にもう一度押しても onJoin は1回。終わればまた押せる", async () => {
+  // 続けて2回押す(2回目は描き直しの前)。onJoin は終わらせずに待たせておく。【便CD】押す先はカードそのもの。
+  it("準備中(参加の処理が終わる前)は押せない: もう一度押しても・Enter でも onJoin は1回。読み上げは aria-disabled。終わればまた押せる", async () => {
     let calls = 0; let finish = null;
-    // 主ボタン(文字は「参加する」⇄「準備中…」と変わるので、並び = カードの7つ目の子で探す。【便CC】同意の行は無くなった)
-    const mainButton = () => card().children[6];
     await draw({ onJoin: () => { calls += 1; return new Promise((r) => { finish = r; }); } });
-    await act(async () => { mainButton().click(); mainButton().click(); });
+    await act(async () => { card().click(); card().click(); });
     expect(calls).toBe(1);
-    expect(mainButton().textContent).toBe("準備中…");
-    expect(mainButton().disabled).toBe(true);
-    await act(async () => { mainButton().click(); });
+    expect(card().getAttribute("aria-disabled")).toBe("true");
+    await act(async () => { card().click(); });
+    await key(card(), "Enter");
     expect(calls).toBe(1);
     await act(async () => { finish(); });
-    expect(joinButton().textContent).toBe("参加する");
-    await act(async () => { joinButton().click(); });
+    expect(card().hasAttribute("aria-disabled")).toBe(false);
+    await act(async () => { card().click(); });
     expect(calls).toBe(2);
     await act(async () => { finish(); });
   });
 
-  it("カードの外(暗幕・裏)を押しても、Escape でも消えない", async () => {
-    await draw();
+  // 【便CD 2026-10-08 本人「参加しないという選択肢ないです」・統括の裁定】外を押しても閉じない(今までどおりの例外)。外を押しても参加も始まらない。
+  it("カードの外(暗幕・裏・枠)を押しても、Escape でも消えない。外を押しても参加は始まらない", async () => {
+    let joined = 0;
+    await draw({ onJoin: async () => { joined += 1; } });
     await act(async () => { document.querySelector(".coach-dim").click(); });
     await act(async () => { document.querySelector("[data-join-preview]").click(); });
     await act(async () => { document.querySelector(".join-frame").click(); });
@@ -153,36 +173,20 @@ describe("参加の画面はカード1枚(便BS)", () => {
     await tick();
     expect(card()).not.toBe(null);
     expect(document.querySelector("[data-join-layer]")).not.toBe(null);
+    expect(joined).toBe(0);
   });
 
-  it("導線: 利用規約・プライバシーポリシー・お問い合わせは今と同じシート。【便BX】「端末を替えるとき」は参加の場面に絞ったシート", async () => {
+  it("【便CD】規約・ポリシー・お問い合わせ・「端末を替えるとき」のシートは参加のカードから開かない(導線ごと外した)", async () => {
     await draw();
-    const sheet = (label) => document.querySelector(`[role="dialog"][aria-label="${label}"]`);
-    expect(buttonNamed("アカウント引継")).toHaveLength(0);
-    await act(async () => { buttonNamed("端末を替えるとき")[0].click(); });
-    const d = sheet("端末を替えるとき");
-    expect(d).not.toBe(null);
-    expect(sheet("アカウント引継")).toBe(null);
-    const inD = (name) => [...d.querySelectorAll("button")].filter((b) => b.textContent.trim() === name);
-    expect(inD("ファイルから読み戻す")).toHaveLength(1);
-    expect(inD("この端末の記録を書き出す")).toHaveLength(1);
-    expect(inD("ファイルに書き出す")).toHaveLength(0);
-    expect([...d.querySelectorAll("ol > li")].map((li) => li.textContent)).toEqual([
-      "1前の端末で書き出す(参加前はこの画面の下から、参加後はマイページから)", "2ファイルをこの端末に送る(AirDrop・メールなど)", "3ここで「ファイルから読み戻す」",
-    ]);
-    expect(d.textContent).not.toContain("記録の保存");
-    expect(d.textContent).toContain("記録(計測のデータとリード)はファイルで移せます。コミュニティの匿名アカウントは、この端末だけのもので移せません。参加し直すと新しいアカウントになります。");
-    // ほかの3つ: 押すと、今と同じシート(LegalSheet の「利用規約」「プライバシーポリシー」/ FeedbackSheet)が開く
-    for (const [name, label] of [["利用規約", "利用規約"], ["プライバシーポリシー", "プライバシーポリシー"], ["お問い合わせ", "お問い合わせ・要望/感想"]]) {
-      expect(sheet(label), label).toBe(null);
-      await act(async () => { buttonNamed(name)[0].click(); });
-      expect(sheet(label), label).not.toBe(null);
-    }
+    expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(0);
+    for (const name of ["利用規約", "プライバシーポリシー", "お問い合わせ", "端末を替えるとき", "アカウント引継"]) expect(buttonNamed(name), name).toHaveLength(0);
+    await act(async () => { card().click(); });
+    expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(0);
   });
 
   it("下部タブは押せる: 層・暗幕・枠はタップを通す。枠(カードの置き場)は下部タブの上端までで止まる。カードは中で縦にスクロールできる", async () => {
-    let nav = 0;
-    await draw({ onNav: () => { nav += 1; } });
+    let nav = 0; let joined = 0;
+    await draw({ onNav: () => { nav += 1; }, onJoin: async () => { joined += 1; } });
     const pe = (el) => getComputedStyle(el).pointerEvents;
     const layer = document.querySelector("[data-join-layer]");
     expect(layer.parentElement).toBe(document.body);
@@ -197,6 +201,7 @@ describe("参加の画面はカード1枚(便BS)", () => {
     expect(getComputedStyle(document.querySelector(".join-frame")).padding).toBe("22px");
     await act(async () => { document.querySelector('button[aria-label="データ"]').click(); });
     expect(nav).toBe(1);
+    expect(joined).toBe(0);   // 下部タブを押しても参加は始まらない(カードの外)
   });
 
   it("裏は参加後の画面の見本で、触れない(inert・aria-hidden・pointer-events: none)。子タブ・条件・平均カード・人の行3つ", async () => {

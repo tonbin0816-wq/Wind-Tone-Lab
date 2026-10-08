@@ -24986,15 +24986,14 @@ console.log("\n========== 検証52: 便H コミュニティ(C1〜C12) ==========
       && /<NavRow label="プライバシーポリシー" onClick=\{\(\) => setLegal\("privacy"\)\} last \/>/.test(profile52)
       && /<NavRow label="お問い合わせ" onClick=\{\(\) => setFeedbackOpen\(true\)\} \/>/.test(profile52)
       && /\{legal \? <LegalSheet kind=\{legal\} onClose=\{\(\) => setLegal\(null\)\} \/> : null\}/.test(profile52));
-    check("52.9 C11 JoinIntro(波及): 規約 / ポリシー / お問い合わせの3つとも <button> で同じ作法のシート",
-      /<button type="button" onClick=\{\(\) => setLegal\("terms"\)\} className="sans" style=\{linkButtonStyle\}>利用規約<\/button>/.test(join52)
-      && /<button type="button" onClick=\{\(\) => setLegal\("privacy"\)\} className="sans" style=\{linkButtonStyle\}>プライバシーポリシー<\/button>/.test(join52)
-      && /<button type="button" onClick=\{\(\) => setFeedbackOpen\(true\)\} className="sans" style=\{linkButtonStyle\}>お問い合わせ<\/button>/.test(join52)
-      && /\{legal \? <LegalSheet kind=\{legal\} onClose=\{\(\) => setLegal\(null\)\} \/> : null\}/.test(join52)
+    // 【便CD 2026-10-08 本人「それ以下の利用規約やボタン自体もいらない」】参加のカード(JoinIntro)の規約・ポリシー・お問い合わせの導線は外した
+    // (規約・ポリシーは起動の最初の同意の画面で読む = CB.7。お問い合わせはマイページ = 上の検査)。
+    check("52.9 C11 JoinIntro(波及): 【便CD】規約 / ポリシー / お問い合わせの導線もシートも持たない・path も読まない",
+      join52.length > 800 && !/setLegal|<LegalSheet|setFeedbackOpen|<FeedbackSheet|linkButtonStyle|利用規約|プライバシーポリシー|お問い合わせ/.test(join52)
       && countIn(join52, /TERMS_URL|PRIVACY_URL/g) === 0);
-    check("52.9 C11 CommunityTab.jsx は LegalSheet を import し、TERMS_URL / PRIVACY_URL を持たない(path は LegalSheet だけが読む)",
+    check("52.9 C11 CommunityTab.jsx は LegalSheet を import し、TERMS_URL / PRIVACY_URL を持たない(path は LegalSheet だけが読む)。【便CD】開く場所はマイページの1つ",
       /import LegalSheet from "\.\/LegalSheet\.jsx";/.test(comm52) && countIn(comm52, /TERMS_URL|PRIVACY_URL/g) === 0
-      && countIn(comm52, /<LegalSheet kind=\{legal\}/g) === 2);
+      && countIn(comm52, /<LegalSheet kind=\{legal\}/g) === 1 && countIn(profile52, /<LegalSheet kind=\{legal\}/g) === 1);
     // index.css の .legal-doc(スコープ付きの写し)
     const legalCss = css52.slice(css52.indexOf(".legal-doc {"));
     check("52.9 C11 index.css に .legal-doc のスコープ付き規則(h1 / h2 / p / li / ul / table / th / td / a / .updated / .lead)",
@@ -26760,7 +26759,8 @@ console.log("\n========== 検証64: 束3 お問い合わせのフォームとレ
     && count64(feed64, /saveProfile|setDoc|buildProfileDoc/g) === 0);
   check("64.3 3-B 差込口(signIn / send)の**既定は実物**。アプリ側の呼び手は1つも渡していない",
     /export default function FeedbackSheet\(\{ onClose, signIn = ensureSignedIn, send = sendFeedback \}\)/.test(feed64)
-    && count64(comm64, /<FeedbackSheet onClose=\{\(\) => setFeedbackOpen\(false\)\} \/>/g) === 2
+    // 【便CD】呼び手はマイページの1つ(参加のカードのお問い合わせは外した)
+    && count64(comm64, /<FeedbackSheet onClose=\{\(\) => setFeedbackOpen\(false\)\} \/>/g) === 1
     && count64(comm64, /signIn=|send=/g) === 0,
     `CommunityTab から渡している差込口 ${count64(comm64, /signIn=|send=/g)}件`);
   {
@@ -26791,11 +26791,12 @@ console.log("\n========== 検証64: 束3 お問い合わせのフォームとレ
     /<NavRow label="お問い合わせ" onClick=\{\(\) => setFeedbackOpen\(true\)\} \/>/.test(profile64)
     && /\{feedbackOpen \? <FeedbackSheet onClose=\{\(\) => setFeedbackOpen\(false\)\} \/> : null\}/.test(profile64)
     && count64(nav64, /\bsub\b/g) === 0 && count64(profile64, /\bsub=/g) === 0);
-  check("64.4 3-B 参加前の画面(JoinIntro)のリンクも同じシートに差し替わった",
-    /<button type="button" onClick=\{\(\) => setFeedbackOpen\(true\)\} className="sans" style=\{linkButtonStyle\}>お問い合わせ<\/button>/.test(join64)
-    && /\{feedbackOpen \? <FeedbackSheet onClose=\{\(\) => setFeedbackOpen\(false\)\} \/> : null\}/.test(join64));
-  check("64.4 3-B FeedbackSheet を開く場所は2つだけ(部品の定義は1つ。写しを作っていない)",
-    count64(comm64, /<FeedbackSheet /g) === 2 && count64(comm64, /import FeedbackSheet from "\.\/FeedbackSheet\.jsx";/g) === 1
+  // 【便CD 2026-10-08 本人「それ以下の利用規約やボタン自体もいらない」】参加のカードのお問い合わせの導線は外した(マイページの1つだけ)。
+  check("64.4 3-B 参加前の画面(JoinIntro)は【便CD】お問い合わせの導線もシートも持たない(メールへ飛ばす経路も無い)",
+    join64.length > 800 && !/setFeedbackOpen|<FeedbackSheet|お問い合わせ|mailto:/.test(join64));
+  check("64.4 3-B FeedbackSheet を開く場所は【便CD】マイページの1つだけ(部品の定義は1つ。写しを作っていない)",
+    count64(comm64, /<FeedbackSheet /g) === 1 && count64(profile64, /<FeedbackSheet /g) === 1
+    && count64(comm64, /import FeedbackSheet from "\.\/FeedbackSheet\.jsx";/g) === 1
     && count64(feed64, /export default function FeedbackSheet\(/g) === 1);
   check("64.4 3-B SUPPORT_EMAIL の定義は残る(読み手は src/support.test.js。public の2枚と綴りを突き合わせる)",
     /export const SUPPORT_EMAIL = "ficus\.help@gmail\.com";/.test(support64)
@@ -26858,7 +26859,9 @@ console.log("\n========== 検証64: 束3 お問い合わせのフォームとレ
   check("64.6 3-C null のときレビューの行は**出ない**(薄く出して押せなくもしない)",
     /\{APP_STORE_REVIEW_URL \? <NavRow label="レビューを送る" href=\{APP_STORE_REVIEW_URL\} \/> : null\}/.test(profile64)
     && count64(comm64, /レビューを送る/g) === 1
-    && count64(comm64, /disabled=\{true\}|aria-disabled/g) === 0);
+    // 【便CD】参加のカード(JoinIntro)は準備中の間だけ aria-disabled を持つ(カードそのものが「参加する」のボタン)。レビューの行とは別なので除いて数える
+    && count64(comm64.replace(join64, ""), /disabled=\{true\}|aria-disabled/g) === 0
+    && count64(join64, /aria-disabled=\{busy \? "true" : undefined\}/g) === 1);
   check("64.6 3-C 行はお問い合わせの**上**(URL が入った日にその位置で出る)",
     profile64.indexOf("レビューを送る") > 0
     && profile64.indexOf("レビューを送る") < profile64.indexOf('<NavRow label="お問い合わせ"'));
@@ -31051,12 +31054,15 @@ console.log("========== 検証88: 便BB ダブルタップの拡大・参加前�
   // 【便BS 2026-10-03 本人裁定(ficus-tutorial2.html)】参加の画面はカード1枚になり、入口はカードの一番下の細い導線(JOIN_QUIET_LINK_STYLE)。
   // 名前と開くシート(BackupSheet)はマイページと同じ。
   // 【便BX 2026-10-06 本人の決定 D1】導線の名前は「端末を替えるとき」(DEVICE_TRANSFER_TITLE)・開くのは参加の場面に絞ったシート。
-  check("88.2 参加前の画面(JoinIntro)に記録の移し方の入口(【便BS】カードの一番下の細い導線。【便BX】名前は「端末を替えるとき」)",
-    /<button type="button" onClick=\{\(\) => setBackup\(true\)\} className="sans" style=\{JOIN_QUIET_LINK_STYLE\}>\s*\n\s*\{DEVICE_TRANSFER_TITLE\}\s*\n\s*<\/button>/.test(join88)
+  // 【便CD 2026-10-08 本人「それ以下の利用規約やボタン自体もいらない」「参加しないという選択肢ないです」】参加のカードの入口は外した。
+  // 全員が参加し、記録の書き出しは参加後のマイページの「アカウント引継」(BackupSheet)から。細い導線の体裁(JOIN_QUIET_LINK_STYLE)は
+  // 「端末を替えるとき」のシートの中(DeviceTransferPanel)が読むので残る。
+  check("88.2 参加前の画面(JoinIntro)に【便CD】記録の移し方の入口は無い(「端末を替えるとき」もシートも持たない)。細い導線の体裁は残る",
+    join88.length > 800 && !/setBackup|DeviceTransferSheet|DEVICE_TRANSFER_TITLE|JOIN_QUIET_LINK_STYLE|BackupSheet/.test(join88)
     && /const JOIN_QUIET_LINK_STYLE = \{\s*\n\s*width: "100%", minHeight: "var\(--tap-min\)", padding: 0, background: "none", border: "none",\s*\n\s*color: "var\(--c-ink-2\)", fontSize: "var\(--fs-sm\)", fontWeight: 600, cursor: "pointer",\s*\n\};/.test(comm88));
-  check("88.2 【便BX】開くのは DeviceTransferSheet(処理は BackupPanel の useBackupActions)。マイページの BackupSheet(<BackupPanel /> 1件)は残る",
-    /\{backup \? <DeviceTransferSheet onClose=\{\(\) => setBackup\(false\)\} \/> : null\}/.test(join88)
-    && !/<BackupSheet/.test(join88)
+  check("88.2 【便CD】DeviceTransferSheet の呼び手は0(部品は残す)。マイページの BackupSheet(<BackupPanel /> 1件)は残る",
+    (codeOf(comm88).match(/<DeviceTransferSheet\b/g) || []).length === 0
+    && /<BackupSheet onClose=/.test(codeOf(comm88))
     && (comm88.match(/<BackupPanel \/>/g) || []).length === 1
     && /<BottomSheet ariaLabel="アカウント引継" onClose=\{onClose\}>\s*\n\s*<BackupPanel \/>/.test(comm88));
   check("88.2 「My Data の記録の保存」の誤ったコメントは残っていない",
@@ -31312,11 +31318,14 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
   // 【便CC 2026-10-08 本人「最初に同意撮るのでコミュニティで同意出すのはやめて」】参加のカードの同意のチェックは外した
   //   (同意は起動の最初の同意の画面で取る)。振る舞いは agreeGate.test.jsx / joinCard.test.jsx / consentGate.test.jsx が描いて見る。
   //   部品 AgreeRow は同意の画面の2枚目の帯が使う(下の箱の検査は agreeRow.jsx を読む)。
-  check("89.5 参加のカードに同意のチェックは無い(AgreeRow・同意の state を持たない)・参加は最初から押せる(disabled は準備中だけ)・規約の導線は残す",
+  // 【便CD 2026-10-08 本人「それ以下の利用規約やボタン自体もいらない」・統括の裁定】主ボタンと規約の導線は外し、カードそのものが「参加する」
+  //   (押すと参加が始まる・準備中は押せない = 二度押しの歯止めの ref)。振る舞いは joinCard.test.jsx / joinCardPress.test.jsx が描いて見る。
+  check("89.5 参加のカードに同意のチェックは無い(AgreeRow・同意の state を持たない)・【便CD】カードそのものが「参加する」(最初から押せる・準備中だけ aria-disabled)",
     !/AgreeRow|agreed|canJoin|termsAgreed|type="checkbox"/.test(join89)
-    && /<button type="button" onClick=\{join\} disabled=\{busy\} className="sans"/.test(join89)
-    && /style=\{\{ \.\.\.SHEET_PRIMARY_BUTTON_STYLE, opacity: busy \? 0\.6 : 1 \}\}/.test(join89)
-    && join89.includes('setLegal("terms")') && join89.includes('setLegal("privacy")'));
+    && /role="button" tabIndex=\{0\} aria-label=\{JOIN_ACTION\} aria-disabled=\{busy \? "true" : undefined\}\s*\n\s*onClick=\{join\} onKeyDown=\{onCardKey\} data-join-card=""/.test(join89)
+    && /const JOIN_ACTION = "参加する";/.test(codeOf(commRaw89))
+    && /if \(busyRef\.current\) return;/.test(join89)
+    && !/<button\b|SHEET_PRIMARY_BUTTON_STYLE|setLegal/.test(join89));
   check("89.5 同意の箱: ネイティブの checkbox を label が包む(行 --tap-min)・20px・角丸 6・枠 1.5px --c-line-strong・入ると --c-accent",
     /<label className="sans no-select" style=\{\{\s*\r?\n\s*minHeight: "var\(--tap-min\)"/.test(agree89)
     && /<input type="checkbox" checked=\{checked\}/.test(agree89)
@@ -33452,11 +33461,12 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
   {
     const ctRaw = rd("src/community/CommunityTab.jsx");
     const ji = codeOf(srcOfFn(ctRaw, "JoinIntro"));
-    check("BX.8 JoinIntro: 「機種変更」が無く「端末を替えたりアプリを削除したりすると失われ、元に戻せません。」がある・導線は {DEVICE_TRANSFER_TITLE}",
-      ji.length > 1000 && !/機種変更/.test(ji) && ji.includes("端末を替えたりアプリを削除したりすると失われ、元に戻せません。")
-      && /style=\{JOIN_QUIET_LINK_STYLE\}>\n\s*\{DEVICE_TRANSFER_TITLE\}\n\s*<\/button>/.test(ji));
-    check("BX.8 <DeviceTransferSheet onClose= は JoinIntro に1回・export function DeviceTransferSheet・BackupSheet の定義は便BX の前のまま",
-      (ji.match(/<DeviceTransferSheet onClose=/g) || []).length === 1
+    // 【便CD 2026-10-08】参加のカードの導線「端末を替えるとき」は外した(部品 DeviceTransferSheet / DeviceTransferPanel は残す)。
+    check("BX.8 JoinIntro: 「機種変更」が無く「端末を替えたりアプリを削除したりすると失われ、元に戻せません。」がある・【便CD】導線は無い",
+      ji.length > 800 && !/機種変更/.test(ji) && ji.includes("端末を替えたりアプリを削除したりすると失われ、元に戻せません。")
+      && !/JOIN_QUIET_LINK_STYLE|DEVICE_TRANSFER_TITLE/.test(ji));
+    check("BX.8 【便CD】<DeviceTransferSheet onClose= は JoinIntro に0回・export function DeviceTransferSheet・BackupSheet の定義は便BX の前のまま",
+      (ji.match(/<DeviceTransferSheet onClose=/g) || []).length === 0
       && /export function DeviceTransferSheet\(\{ onClose \}\) \{\n\s*return \(\n\s*<BottomSheet ariaLabel=\{DEVICE_TRANSFER_TITLE\} onClose=\{onClose\}>\n\s*<DeviceTransferPanel \/>/.test(ctRaw)
       && /export function BackupSheet\(\{ onClose \}\) \{\n  return \(\n    <BottomSheet ariaLabel="アカウント引継" onClose=\{onClose\}>\n      <BackupPanel \/>\n    <\/BottomSheet>\n  \);\n\}/.test(ctRaw)
       && /export const JOIN_QUIET_LINK_STYLE = \{/.test(ctRaw));
@@ -33520,9 +33530,13 @@ console.log("========== 検証CB: 便CB 起動の最初の同意の画面 ======
     && /if \(step === "welcome"\) return <WelcomeStep onStart=\{\(\) => setStep\("terms"\)\} \/>;/.test(scrFn)
     && /return <TermsStep onAgree=\{onAgree\} \/>;/.test(scrFn)
     && !/localStorage|sessionStorage|history\.|location\.|usePersistedState\(/.test(scrFn + welFn + trmFn));
-  check("CB.3 1枚目: 芽(LoadingRing の 100%)・Ficus・1行(.coach-line)・「はじめる」(SHEET_PRIMARY_BUTTON_STYLE・最初から押せる)だけ。チェックは無い",
+  // 【便CD 2026-10-08 本人「始めるを塗りつぶしじゃなくて枠線で」】「はじめる」は主ボタンの標準(形・高さ・字)の上に枠線の上書き(WELCOME_START_OUTLINE)。
+  // 地は抜き・字と枠は --c-accent・枠の太さ 1.5px(CB.4 が出どころ = カレンダーの「今日」の印を見る)。2枚目の「次へ」は塗りのまま(CB.7)。
+  check("CB.3 1枚目: 芽(LoadingRing の 100%)・Ficus・1行(.coach-line)・「はじめる」(SHEET_PRIMARY_BUTTON_STYLE に【便CD】枠線の上書き・最初から押せる)だけ。チェックは無い",
     /<SproutMark p=\{1\} \/>/.test(welFn) && /\{CONSENT_TITLE\}/.test(welFn) && /<p className="coach-line" style=\{\{ textAlign: "center" \}\}>\{CONSENT_LINE\}<\/p>/.test(welFn)
-    && /style=\{\{ \.\.\.SHEET_PRIMARY_BUTTON_STYLE, marginTop: "var\(--sp-4\)" \}\}>/.test(welFn) && /onClick=\{onStart\}/.test(welFn)
+    && /style=\{\{ \.\.\.SHEET_PRIMARY_BUTTON_STYLE, \.\.\.WELCOME_START_OUTLINE, marginTop: "var\(--sp-4\)" \}\}>/.test(welFn) && /onClick=\{onStart\}/.test(welFn)
+    && /const WELCOME_START_OUTLINE = \{\s*\n\s*background: "transparent", color: "var\(--c-accent\)", border: "1\.5px solid var\(--c-accent\)",\s*\n\};/.test(gateRaw)
+    && !/WELCOME_START_OUTLINE/.test(trmFn)
     && !/AgreeRow|checkbox|disabled/.test(welFn)
     && /export const CONSENT_LINE = "サックス奏者のためのチューナー&メトロノーム";/.test(gateRaw)
     && /export const CONSENT_START = "はじめる";/.test(gateRaw));
@@ -33541,11 +33555,17 @@ console.log("========== 検証CB: 便CB 起動の最初の同意の画面 ======
     && /href\.includes\(PRIVACY_URL\) \? "privacy" : href\.includes\(TERMS_URL\) \? "terms" : null/.test(trmFn)
     && !/window\.open|location\.href|<LegalSheet/.test(codeOf(gateRaw)));
   const gateCode = codeOf(gateRaw);
-  const pxCB = gateCode.match(/\b\d+px\b/g) || [];
+  // 【便CD】小数の px(1.5px)も1つの値として拾う(以前の \b\d+px\b は 1.5px を「5px」と読んでいた)。
+  const pxCB = gateCode.match(/(?<![\d.])\d+(?:\.\d+)?px\b/g) || [];
+  // 【便CD 2026-10-08】1.5px は「はじめる」の枠だけで、出どころは My Data のカレンダーの「今日」の印(App.jsx の inset 0 0 0 1.5px var(--c-accent))。
+  // 期待値は App.jsx から読む(同意の画面の側の定数から逆算しない)。
+  const todayRingCB = /boxShadow: !isSel && isToday \? "inset 0 0 0 (\d+(?:\.\d+)?px) var\(--c-accent\)"/.exec(readFileSync(join(__dirname, "..", "src", "App.jsx"), "utf8"));
   // 【便CC】1px は帯の上の罫(1px --c-line。§1.8 の罫の太さ)だけ
-  check("CB.4 同意の画面の値はトークンと本人裁定の 22 だけ(新しい px を作らない。1px は帯の上の罫だけ)",
-    pxCB.length > 0 && pxCB.every((v) => v === "22px" || v === "1px")
+  check("CB.4 同意の画面の値はトークンと本人裁定の 22 だけ(新しい px を作らない。1px は帯の上の罫だけ・【便CD】1.5px は「はじめる」の枠だけ = カレンダーの「今日」の印と同じ値)",
+    pxCB.length > 0 && !!todayRingCB
+    && pxCB.every((v) => v === "22px" || v === "1px" || v === todayRingCB[1])
     && pxCB.filter((v) => v === "1px").length === (gateCode.match(/borderTop: "1px solid var\(--c-line\)"/g) || []).length
+    && pxCB.filter((v) => v === todayRingCB[1]).length === (gateCode.match(new RegExp(`border: "${todayRingCB[1].replace(".", "\\.")} solid var\\(--c-accent\\)"`, "g")) || []).length
     && /env\(safe-area-inset-left\)/.test(gateCode) && /env\(safe-area-inset-right\)/.test(gateCode)
     && /paddingBottom: "calc\(var\(--sp-3\) \+ env\(safe-area-inset-bottom\)\)"/.test(gateCode)
     && /fontSize: "var\(--fs-xl\)"/.test(gateCode) && /fontFamily: "var\(--font-num\)"/.test(gateCode)
@@ -33556,6 +33576,30 @@ console.log("========== 検証CB: 便CB 起動の最初の同意の画面 ======
   check("CB.5 DESIGN-SYSTEM に同意の画面の節(【便CB】)があり、【便CC】の2枚の形で書かれている",
     /## 4\.5c 起動の最初の同意の画面（【便CB 2026-10-08/.test(dsCB) && /【便CC/.test(dsCB.slice(dsCB.indexOf("## 4.5c"), dsCB.indexOf("\n## 5. ")))
     && dsCB.includes("サックス奏者のためのチューナー&メトロノーム"));
+  console.log("  -> done");
+}
+
+console.log("========== 検証CD: 便CD 参加のカードは説明だけ(カードを押すと参加)・「はじめる」は枠線 ==========");
+{
+  // 【便CD 2026-10-08 本人の依頼】振る舞い(中身の4つの文・カードを押すと参加・準備中は押せない・外を押しても閉じない・案内の流れ)は
+  // vitest(joinCard / joinCardPress / joinCardFlow / consentGate)が描いて見る。ここは綴りの形と DESIGN-SYSTEM の記録だけ。
+  const ctCD = readFileSync(join(__dirname, "..", "src", "community", "CommunityTab.jsx"), "utf8");
+  const jiCD = codeOf(srcOfFn(ctCD, "JoinIntro"));
+  check("CD.1 参加のカードの最後の子は説明の2段落目(その後ろに部品が無い = カード → 枠 → 層が続けて閉じる)",
+    jiCD.length > 800
+    && /匿名のアカウントはこの端末にだけ残ります。端末を替えたりアプリを削除したりすると失われ、元に戻せません。\s*<\/div>\s*(?:\{\s*\}\s*)*<\/div>\s*<\/div>\s*<\/div>\s*\);/.test(jiCD)
+    && (jiCD.match(/<button\b/g) || []).length === 0);
+  check("CD.2 カードは role=\"button\"・名前は「参加する」・押すと join(onJoin)・Enter / Space も join",
+    /className="coach-card join-card sans" role="button" tabIndex=\{0\} aria-label=\{JOIN_ACTION\}/.test(jiCD)
+    && /onClick=\{join\} onKeyDown=\{onCardKey\}/.test(jiCD)
+    && /if \(e\.key !== "Enter" && e\.key !== " "\) return;\s*e\.preventDefault\(\);\s*join\(\);/.test(jiCD)
+    && /try \{ await onJoin\(\); \} finally \{ busyRef\.current = false; setBusy\(false\); \}/.test(jiCD));
+  const dsCD = readFileSync(join(__dirname, "..", "design", "DESIGN-SYSTEM.md"), "utf8");
+  const s45b = dsCD.slice(dsCD.indexOf("## 4.5b"), dsCD.indexOf("## 4.5c"));
+  const s45c = dsCD.slice(dsCD.indexOf("## 4.5c"), dsCD.indexOf("\n## 5. "));
+  check("CD.3 DESIGN-SYSTEM: §4.5b に【便CD】カードそのものが「参加する」・§4.5c に「はじめる」の枠線(WELCOME_START_OUTLINE・1.5px)",
+    s45b.length > 1000 && /【便CD/.test(s45b) && s45b.includes("カードそのものが「参加する」")
+    && /`WELCOME_START_OUTLINE`/.test(s45c) && s45c.includes("1.5px solid var(--c-accent)") && s45c.includes("「次へ」は塗りのまま"));
   console.log("  -> done");
 }
 

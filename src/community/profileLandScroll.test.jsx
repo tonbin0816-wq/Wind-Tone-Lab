@@ -72,10 +72,12 @@ const toTop = () => calls.filter((c) => c.args[0] === 0 && c.args[1] === 0);
 describe("【便BX】プロフィールを初めて作ったあと、データの子タブを先頭から見せる", () => {
   it("参加する → フォーム → 「プロフィールを作る」: 参加後の画面に替わった直後に1回だけ window.scrollTo(0, 0)", async () => {
     await drawTab();
-    await waitFor(() => buttonsNamed("参加する").length > 0, "参加の画面");
+    // 【便CD 2026-10-08】「参加する」はカードそのもの(押すと参加が始まる)
+    const joinCard = () => document.querySelector('[data-join-card][role="button"][aria-label="参加する"]');
+    await waitFor(() => joinCard(), "参加の画面");
     // (【便BC】ここで同意のチェックを入れていた。【便CC 2026-10-08】参加のカードの同意のチェックは外した ── そのまま押せる)
     expect(document.querySelector('[data-join-card] input[type="checkbox"]')).toBe(null);
-    await click(buttonsNamed("参加する")[0]);
+    await click(joinCard());
     await waitFor(() => buttonsNamed("プロフィールを作る").length > 0, "プロフィールの入力");
     // フォームが出ている間(まだ保存していない)は先頭へ戻さない
     expect(toTop()).toEqual([]);

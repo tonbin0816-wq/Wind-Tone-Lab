@@ -87,6 +87,13 @@ const barStyle = {
 };
 const readColumn = { maxWidth: "var(--page-max-w)", margin: "0 auto" };
 
+// 【便CD 2026-10-08 本人「始めるを塗りつぶしじゃなくて枠線で」】1枚目の「はじめる」だけ枠線にする。
+// 形・高さ・字は主ボタンの標準のまま、地を抜いて枠と字を --c-accent に(枠の太さはカレンダーの「今日」の印と同じ 1.5px)。
+// 2枚目の「次へ」は塗りのまま(同意して進む決定の一手なので)。
+const WELCOME_START_OUTLINE = {
+  background: "transparent", color: "var(--c-accent)", border: "1.5px solid var(--c-accent)",
+};
+
 // 1枚目(ようこそ)
 function WelcomeStep({ onStart }) {
   const titleId = useId();
@@ -97,7 +104,7 @@ function WelcomeStep({ onStart }) {
         <h1 id={titleId} style={titleStyle}>{CONSENT_TITLE}</h1>
         <p className="coach-line" style={{ textAlign: "center" }}>{CONSENT_LINE}</p>
         <button type="button" onClick={onStart} className="sans" data-consent-start=""
-          style={{ ...SHEET_PRIMARY_BUTTON_STYLE, marginTop: "var(--sp-4)" }}>
+          style={{ ...SHEET_PRIMARY_BUTTON_STYLE, ...WELCOME_START_OUTLINE, marginTop: "var(--sp-4)" }}>
           {CONSENT_START}
         </button>
       </main>

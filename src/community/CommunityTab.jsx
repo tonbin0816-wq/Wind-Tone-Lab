@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { getSignedInUid, ensureSignedIn, saveProfile, loadProfile, setProfilePublic, setProfileAvatar, deleteAccount, watchMyPhoto } from "./accountRepo.js";
 import { FirebaseConfigMissingError } from "./firebaseClient.js";
@@ -20,7 +20,8 @@ import PhotoZoom from "./PhotoZoom.jsx";
 import { RankScreen, ShareScreen, DataScreen, PersonSheet, SaxTypeRow, usePublicUsers, DANGER_OUTLINE_STYLE } from "./screens.jsx";
 // 【便BS 2026-10-03 本人裁定】参加の画面: 裏の見本(JoinPreviewDataScreen)・主ボタンの標準(SHEET_PRIMARY_BUTTON_STYLE)、
 // カードの絵・重なり順・見える範囲の下端は、はじめの一手(onboarding.jsx)と同じものを読む(写しを作らない)。
-import { JoinPreviewDataScreen, SHEET_PRIMARY_BUTTON_STYLE } from "./screens.jsx";
+// 【便CD 2026-10-08】参加のカードの主ボタンを外したので SHEET_PRIMARY_BUTTON_STYLE は読まない。
+import { JoinPreviewDataScreen } from "./screens.jsx";
 // 【便BV 2026-10-04 本人裁定(案B)】iPad の2ペイン: 右ペインの人物のページ(PersonBody = PersonSheet の中身そのもの)と、
 // 右に何も選んでいないときの1行(PaneEmpty。リードタブと同じ App.jsx の1つ)。写しを作らない。
 import { PersonBody } from "./screens.jsx";
@@ -505,6 +506,7 @@ export function BackupSheet({ onClose }) {
   );
 }
 
+// 【便CD 2026-10-08】参加のカードの導線「端末を替えるとき」は外した(呼び手はいまゼロ。部品は残す)。
 // 【便BX 2026-10-06 本人の決定 D1】参加の画面(JoinIntro)の導線「端末を替えるとき」から開くシート。中身は参加の場面に絞った DeviceTransferPanel
 // (記録はファイルで移せる / 匿名アカウントは移せない / 手順3つ / 主ボタン「ファイルから読み戻す」/ 細い導線「この端末の記録を書き出す」)。
 // 書き出し・読み戻しの処理は BackupPanel の useBackupActions を使い回す(写しを作らない)。マイページの BackupSheet(汎用の「記録の保存」)は変えない。
@@ -806,12 +808,7 @@ function Centered({ children }) {
   return <div className="sans" style={{ padding: "var(--sp-6)", textAlign: "center", color: "var(--c-ink-3)", fontSize: "var(--fs-sm)", lineHeight: 1.7 }}>{children}</div>;
 }
 
-// 文章の中のリンクの見た目をした <button>。JoinIntro の規約・ポリシー用(押すとシートが開く)。
-// 以前の <a>(色だけ指定・下線はブラウザ既定)と同じ見え方にする。文字の大きさは行(noteStyle)を継ぐ。
-const linkButtonStyle = {
-  background: "none", border: "none", padding: 0, font: "inherit",
-  color: "var(--c-accent)", textDecoration: "underline", cursor: "pointer",
-};
+// (ここに JoinIntro の規約・ポリシー・お問い合わせの導線の見た目 linkButtonStyle があった。【便CD 2026-10-08】導線ごと外したので読み手がゼロになり、消した)
 
 // 【便CC 2026-10-08 本人「最初に同意撮るのでコミュニティで同意出すのはやめて」】参加のカードの同意のチェック(AgreeRow)は外した。
 // 部品は起動の最初の同意の画面(src/ConsentScreen.jsx の2枚目)が使うので src/agreeRow.jsx に置いてある。
@@ -823,20 +820,24 @@ const linkButtonStyle = {
 //   2. 暗幕 … .coach-dim(--c-coach-dim)。タップは下へ通す(下部タブは今までどおり押せる)
 //   3. カード … はじめの一手のカード(.coach-card)と同じ形(角丸・影・内側)で、見える範囲の中央(.join-frame)。地は白のまま
 //      (【便BX】案内のカードの地は --c-accent-tint になったが、参加のカードは白・アイコンの丸は --c-accent-tint のまま)。中身は上から
-//      アイコン・見出し・1行・説明(以前の2段落のまま)・規約の導線・「参加する」・「端末を替えるとき」(【便BX】旧「アカウント引継」)
-// 読む → 参加する の順に上から並ぶ(【便CC】同意のチェックは外した。同意は起動の最初の同意の画面で取る)。**カードの外を押しても Escape でも消えない**(消すとこの画面にやることが無くなる)。
-// 以前の見出し「コミュニティ」はカードの見出しに替わった。ボタンの文字は「参加してプロフィールを作る」→「参加する」
-// (プロフィールは参加した次の画面で作るので、ここでは言わない)。
+//      アイコン・見出し・1行・説明(以前の2段落のまま)。【便CD 2026-10-08 本人「まででいい / それ以下の利用規約やボタン自体もいらない」】
+//      規約の導線・「参加する」・「端末を替えるとき」は外した。**カードそのものが「参加する」**(押すと今までの「参加する」と同じ処理。
+//      読み上げでもカード全体が「参加する」のボタン)。本人「参加しないという選択肢ないです / デフォでは参加して、非公開の選択肢はプロフィールであるという構図」
+// (【便CC】同意のチェックは外した。同意は起動の最初の同意の画面で取る)。**カードの外を押しても Escape でも消えない**(【便CD 統括の裁定】参加しない道は置かない)。
+// 以前の見出し「コミュニティ」はカードの見出しに替わった。
 // 参加の段は、はじめの一手(onboarding.jsx)からは外した(済んだ印を持たない。参加していなければ出る・参加すれば出ない)。
-// 暗幕とカードは document.body へ出す(はじめの一手と同じ重なり順 COACH_Z。シートの暗幕 60 より下なので、規約・引継のシートは上に開く)。
+// 暗幕とカードは document.body へ出す(はじめの一手と同じ重なり順 COACH_Z。シートの暗幕 60 より下)。
 // ------------------------------------------------------------------
 const JOIN_TITLE = "コミュニティに参加しよう";
 const JOIN_LINE = "みんなの計測データが見られます";
+// 【便CD】カードの読み上げの名前(以前の主ボタンの文字と同じ語)。
+const JOIN_ACTION = "参加する";
 // 説明の1段落目(版の p.body。--fs-sm・行間 --lh-loose・--c-ink-2・上に --sp-1)。2段落目は noteStyle(小さく --c-ink-3)のまま。
 const joinLeadStyle = { fontSize: "var(--fs-sm)", color: "var(--c-ink-2)", lineHeight: "var(--lh-loose)", marginTop: "var(--sp-1)" };
 // 細い導線「アカウント引継」(版の .quiet)。地も枠も無い文字だけ・--fs-sm・600・--c-ink-2。当たりは §5 の --tap-min
 // (版の 32 は当たりの最小に足りないので 44 にした)。【便BX】導線の名前は「端末を替えるとき」になった。
 // 「端末を替えるとき」のシートの細い導線(この端末の記録を書き出す)も同じ体裁なので export する(DeviceTransferPanel.jsx が読む)。
+// 【便CD 2026-10-08】参加のカードの「端末を替えるとき」は外した(読み手は DeviceTransferPanel.jsx だけ)。
 export const JOIN_QUIET_LINK_STYLE = {
   width: "100%", minHeight: "var(--tap-min)", padding: 0, background: "none", border: "none",
   color: "var(--c-ink-2)", fontSize: "var(--fs-sm)", fontWeight: 600, cursor: "pointer",
@@ -859,24 +860,17 @@ function useJoinFrameHeight() {
 // 【便BV 2026-10-04 本人裁定(案B)】wide = iPad の「広い」画面。裏の見本を参加後のデータの子タブと同じ2ペインの形で敷く(仕様 §4.7)。
 // カード(中身・文言・ボタン)は触らない(幅の上限 --page-max-w・中央は index.css の .join-card が便BT で持っている)。
 export function JoinIntro({ onJoin, notice = null, wide = false }) {
-  const titleId = useId();
   const frameH = useJoinFrameHeight();
   const [busy, setBusy] = useState(false);
   // (【便BC 2026-09-25】ここに規約への同意のチェックの state があった。【便CC 2026-10-08 本人「最初に同意撮るのでコミュニティで同意出すのはやめて」】
   //  同意は起動の最初の同意の画面(src/ConsentScreen.jsx)で取るので外した。記録の無い人(古いバックアップの読み戻しなど)は、
   //  読み戻しのあとの再読み込みで根(AppRoot)が同意の画面を出す。参加の印がある人は参加のときに同意している。)
-  // 【便BB 2026-09-25 統括指示】参加していない人もアカウント引継(記録の書き出し・読み戻し)を開ける。
-  // 以前はマイページ(参加済み)からしか行けず、参加していない人は計測データを書き出す手段が無かった。
-  // 【便BX 2026-10-06 本人の決定 D1】開くのは参加の場面に絞った「端末を替えるとき」(DeviceTransferSheet)。処理は BackupPanel と同じ
-  // (useBackupActions)。マイページの BackupSheet は変えない。
-  const [backup, setBackup] = useState(false);
-  // 【C11・C12】規約・ポリシーのシート("terms" | "privacy" | null)
-  const [legal, setLegal] = useState(null);
-  // 【束3】お問い合わせのシート。**未参加の人も送れる**(送信のときに匿名の資格情報だけを
-  // 作る。users は書かないので参加にはならない)。
-  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  // (【便CD 2026-10-08 本人「それ以下の利用規約やボタン自体もいらない」】ここに規約・ポリシー・お問い合わせのシートと、
+  //  「端末を替えるとき」(DeviceTransferSheet)のシートの state があった。導線ごとカードから外した。
+  //  本人「参加しないという選択肢ないです / デフォでは参加して、非公開の選択肢はプロフィールであるという構図」── 全員が参加し、
+  //  書き出しは参加後のマイページの「アカウント引継」から。規約・ポリシーは起動の最初の同意の画面で読む。)
   // 【便BS 審査 2026-10-03】二度押しの歯止めは ref で持つ。state の busy は描き直すまで古い値のままなので、
-  // 描き直しの前に2回目が来ると(jsdom で続けて2回押すと実際に) onJoin が2回走っていた。busy は見た目(準備中…・disabled)だけに使う。
+  // 描き直しの前に2回目が来ると(jsdom で続けて2回押すと実際に) onJoin が2回走っていた。busy は読み上げ(aria-disabled)だけに使う。
   const busyRef = useRef(false);
   const join = async () => {
     if (busyRef.current) return; // 二度押しで signInAnonymously が二重に走らないようにする
@@ -884,13 +878,21 @@ export function JoinIntro({ onJoin, notice = null, wide = false }) {
     setBusy(true);
     try { await onJoin(); } finally { busyRef.current = false; setBusy(false); }
   };
+  // 【便CD 2026-10-08 統括の裁定】カードそのものが「参加する」の一手(押すと今までの「参加する」と同じ処理)。
+  // 読み上げではカード全体が「参加する」のボタン。キーボードでは Enter / Space(ネイティブの button と同じ)。
+  const onCardKey = (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    e.preventDefault();
+    join();
+  };
   const card = (
     <div className="coach-layer" data-join-layer="" style={{ zIndex: COACH_Z }}>
       <div className="coach-dim" aria-hidden="true" />
       <div className="join-frame" style={{ height: frameH }}>
-        <div className="coach-card join-card sans" role="dialog" aria-labelledby={titleId} data-join-card="">
+        <div className="coach-card join-card sans" role="button" tabIndex={0} aria-label={JOIN_ACTION} aria-disabled={busy ? "true" : undefined}
+          onClick={join} onKeyDown={onCardKey} data-join-card="" style={{ cursor: "pointer" }}>
           <CoachIcon name="community" />
-          <div className="coach-title" id={titleId}>{JOIN_TITLE}</div>
+          <div className="coach-title">{JOIN_TITLE}</div>
           <div className="coach-line">{JOIN_LINE}</div>
           {/* 削除の結果、未参加へ戻ったときに一度だけ出す説明(以前の画面と同じ位置 = 見出しのすぐ下) */}
           {notice ? <div className="sans" role="status" style={bodyStyle}>{notice}</div> : null}
@@ -905,29 +907,9 @@ export function JoinIntro({ onJoin, notice = null, wide = false }) {
           <div style={noteStyle}>
             匿名のアカウントはこの端末にだけ残ります。端末を替えたりアプリを削除したりすると失われ、元に戻せません。
           </div>
-          {/* 【計画5 2026-09-10】参加する前に、規約と扱いを読める場所を出しておく。
-              **参加した後にしか読めない、という形にしない** ── 同意して押すものなので。 */}
-          <div className="sans" style={{ ...noteStyle, display: "flex", flexWrap: "wrap", gap: "var(--sp-3)" }}>
-            {/* 【C11・C12 2026-09-16】外へ出さず、アプリの中のシートで読む(波及。理由は LegalSheet.jsx)。
-                【束3 2026-09-19】お問い合わせも同じ形にした ── 以前の mailto: は端末に
-                メールアプリが無いと何も起きず、有ってもアプリの外へ出る。3つとも同じ
-                「押すとシートが開く」になったので、見た目も同じ linkButtonStyle に揃う。 */}
-            <button type="button" onClick={() => setLegal("terms")} className="sans" style={linkButtonStyle}>利用規約</button>
-            <button type="button" onClick={() => setLegal("privacy")} className="sans" style={linkButtonStyle}>プライバシーポリシー</button>
-            <button type="button" onClick={() => setFeedbackOpen(true)} className="sans" style={linkButtonStyle}>お問い合わせ</button>
-          </div>
-          {/* 【便BS】主ボタンはシートの主ボタンの標準(SHEET_PRIMARY_BUTTON_STYLE)。(【便CC】同意のチェックを外したので、最初から押せる)
-              (【便BP】の data-coach="join" は、参加の段をはじめの一手から外したので消した) */}
-          <button type="button" onClick={join} disabled={busy} className="sans"
-            style={{ ...SHEET_PRIMARY_BUTTON_STYLE, opacity: busy ? 0.6 : 1 }}>
-            {busy ? "準備中…" : "参加する"}
-          </button>
-          {/* 【便BS】体裁はカードの一番下の細い導線(JOIN_QUIET_LINK_STYLE)。参加していない人の唯一の入口なので残す。
-              【便BX 2026-10-06 本人の決定 D1】名前を「アカウント引継」→「端末を替えるとき」に(中身が「アカウントは移せない」と言うので食い違っていた)。
-              開くのは参加の場面に絞ったシート(DeviceTransferSheet)。style・位置(カードの最後の子)は変えない。 */}
-          <button type="button" onClick={() => setBackup(true)} className="sans" style={JOIN_QUIET_LINK_STYLE}>
-            {DEVICE_TRANSFER_TITLE}
-          </button>
+          {/* (【便CD 2026-10-08 本人「まででいい / それ以下の利用規約やボタン自体もいらない」】ここに規約・ポリシー・お問い合わせの導線、
+              主ボタン「参加する」(SHEET_PRIMARY_BUTTON_STYLE)、細い導線「端末を替えるとき」があった。カードの中身は上の段落まで。
+              参加はカードを押して始める(上の role="button")) */}
         </div>
       </div>
     </div>
@@ -957,9 +939,6 @@ export function JoinIntro({ onJoin, notice = null, wide = false }) {
       </div>
       )}
       {createPortal(card, document.body)}
-      {legal ? <LegalSheet kind={legal} onClose={() => setLegal(null)} /> : null}
-      {backup ? <DeviceTransferSheet onClose={() => setBackup(false)} /> : null}
-      {feedbackOpen ? <FeedbackSheet onClose={() => setFeedbackOpen(false)} /> : null}
     </div>
   );
 }

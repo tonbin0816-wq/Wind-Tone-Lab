@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import React, { act } from "react";
+import React, { act, useState } from "react";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { createRoot } from "react-dom/client";
 
@@ -7,17 +7,17 @@ import { createRoot } from "react-dom/client";
 // 【便BB 2026-09-25 統括指示】コミュニティに参加していない人も「アカウント引継」を開ける。
 // 以前はマイページ(参加済み)からしか BackupPanel へ行けず、参加していない人は
 // 計測データを書き出す手段が無かった。参加前の画面(JoinIntro)を実際に描いて押す。
-//   ・入口がある(名前はマイページと同じ「アカウント引継」)
-//   ・体裁はマイページの同じ入口と同じ(style の綴りが一致)
-//   ・押すと同じシート(BottomSheet「アカウント引継」の中に BackupPanel)が開き、閉じられる
-// 【守っていないもの】書き出し・読み戻しそのもの(backup/ 側の検査と実機)。ここは入口と配線だけ。
 // 【便BX 2026-10-06 本人の決定 D1】入口の名前は「端末を替えるとき」になり、開くのは参加の場面に絞ったシート(DeviceTransferPanel)。
 //   マイページの入口は「アカウント引継」(BackupSheet = 記録の保存)のまま。名前で2つを分ける。
-// 【便BS 2026-10-03 本人裁定(ficus-tutorial2.html)】入口はカードの一番下の細い導線になった(体裁はマイページの
-//   secondaryButtonStyle ではなくなった)。名前と開くシートは同じ。「体裁が同じ」の検査は「細い導線の体裁」の検査に直し、
-//   参加のボタンの文字は「参加する」に直した。
+// 【便CD 2026-10-08 本人「それ以下の利用規約やボタン自体もいらない」「参加しないという選択肢ないです / デフォでは参加して、
+//   非公開の選択肢はプロフィールであるという構図」】参加のカードの入口「端末を替えるとき」は外した(全員が参加し、書き出しは
+//   参加後のマイページの「アカウント引継」から)。ここでは:
+//   ・参加のカードに入口が無い(「端末を替えるとき」も「アカウント引継」も)
+//   ・部品 DeviceTransferSheet は残してあり、単独で描けば今までの中身(DeviceTransferPanel)を出し、閉じられる
+//   ・マイページの入口「アカウント引継」は残り、押すと開く口(onOpenBackup)を呼ぶ
+// 【守っていないもの】書き出し・読み戻しそのもの(backup/ 側の検査と実機)。
 // ------------------------------------------------------------------
-const { JoinIntro, ProfileView } = await import("./CommunityTab.jsx");
+const { JoinIntro, ProfileView, DeviceTransferSheet } = await import("./CommunityTab.jsx");
 
 const PROFILE = {
   nickname: "てすと", icon: "ic-cat", iconColor: 2,
@@ -42,61 +42,51 @@ afterEach(() => {
 const buttonNamed = (name) => [...document.querySelectorAll("button")].filter((b) => b.textContent.trim() === name);
 const backupDialog = () => document.querySelector('[role="dialog"][aria-label="端末を替えるとき"]');
 
-describe("参加前の画面からアカウント引継を開ける(便BB)", () => {
-  it("【便BX】入口が1つあり(「端末を替えるとき」)、押すと参加の場面に絞ったシートが開く(記録の保存ではない)", async () => {
+describe("参加前の画面と記録の移し方(便BB → 便CD)", () => {
+  it("【便CD】参加のカードに記録の移し方の入口は無い(「端末を替えるとき」も「アカウント引継」も)。カードを押してもシートは開かない", async () => {
     await act(async () => { root.render(<JoinIntro onJoin={async () => {}} />); });
-    const entry = buttonNamed("端末を替えるとき");
-    expect(entry).toHaveLength(1);
+    expect(buttonNamed("端末を替えるとき")).toHaveLength(0);
     expect(buttonNamed("アカウント引継")).toHaveLength(0);
+    expect(document.body.textContent).not.toContain("端末を替えるとき");
+    await act(async () => { document.querySelector("[data-join-card]").click(); });
     expect(backupDialog()).toBe(null);
-    await act(async () => { entry[0].click(); });
+  });
+
+  it("部品 DeviceTransferSheet は残してあり、単独で描くと参加の場面に絞った中身(記録の保存ではない)を出し、閉じられる", async () => {
+    function Probe() {
+      const [open, setOpen] = useState(true);
+      return open ? <DeviceTransferSheet onClose={() => setOpen(false)} /> : <div data-closed="" />;
+    }
+    await act(async () => { root.render(<Probe />); });
     const dialog = backupDialog();
     expect(dialog).not.toBe(null);
-    // 中身は DeviceTransferPanel(主ボタンは読み戻す・書き出しは細い導線)
     expect(dialog.textContent).not.toContain("記録の保存");
     expect(buttonNamed("ファイルから読み戻す")).toHaveLength(1);
     expect(buttonNamed("この端末の記録を書き出す")).toHaveLength(1);
     expect(buttonNamed("ファイルに書き出す")).toHaveLength(0);
-  });
-
-  it("シートは閉じられる(閉じると入口の画面に戻る)", async () => {
-    await act(async () => { root.render(<JoinIntro onJoin={async () => {}} />); });
-    await act(async () => { buttonNamed("端末を替えるとき")[0].click(); });
-    expect(backupDialog()).not.toBe(null);
     await act(async () => { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
     // BottomSheet は閉じる動きのあとで外れる。外れるまで待つ
     for (let i = 0; i < 20 && backupDialog(); i++) {
       await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
     }
     expect(backupDialog()).toBe(null);
-    expect(buttonNamed("端末を替えるとき")).toHaveLength(1);
+    expect(document.querySelector("[data-closed]")).not.toBe(null);
   });
 
-  it("【便BS】体裁はカードの一番下の細い導線(地も枠も無い・--fs-sm・600・--c-ink-2・当たり --tap-min)。マイページの入口(地のあるボタン)とは別", async () => {
-    await act(async () => { root.render(<JoinIntro onJoin={async () => {}} />); });
-    const entry = buttonNamed("端末を替えるとき")[0];
-    const s = entry.style;
-    expect([s.background, s.fontSize, s.fontWeight, s.color, s.minHeight, s.width])
-      .toEqual(["none", "var(--fs-sm)", "600", "var(--c-ink-2)", "var(--tap-min)", "100%"]);
-    expect(entry.className).toBe("sans");
-    // カードの中の最後の部品(参加するより下)
-    const card = document.querySelector("[data-join-card]");
-    expect(card.lastElementChild).toBe(entry);
-    const joinStyle = entry.getAttribute("style");
-    await act(async () => { root.render(<ProfileView profile={PROFILE} uid="u1" onOpenBackup={() => {}} />); });
+  it("マイページの入口「アカウント引継」は残り、押すと開く口(onOpenBackup)を呼ぶ", async () => {
+    let opened = 0;
+    await act(async () => { root.render(<ProfileView profile={PROFILE} uid="u1" onOpenBackup={() => { opened += 1; }} />); });
     const mine = buttonNamed("アカウント引継");
     expect(mine).toHaveLength(1);
-    expect(joinStyle).not.toBe(mine[0].getAttribute("style"));
+    await act(async () => { mine[0].click(); });
+    expect(opened).toBe(1);
   });
 
-  it("参加の一手は今までどおり(入口を足しても「参加する」は1つで、押すと onJoin が呼ばれる)", async () => {
+  it("参加の一手は今までどおり(カードを押すと onJoin が1回呼ばれる)", async () => {
     let joined = 0;
     await act(async () => { root.render(<JoinIntro onJoin={async () => { joined += 1; }} />); });
-    const join = buttonNamed("参加する");
-    expect(join).toHaveLength(1);
-    // (【便BC】同意のチェックを入れてから押していた。【便CC 2026-10-08】参加のカードの同意のチェックは外した ── 最初から押せる)
     expect(document.querySelector('input[type="checkbox"]')).toBe(null);
-    await act(async () => { join[0].click(); });
+    await act(async () => { document.querySelector("[data-join-card]").click(); });
     expect(joined).toBe(1);
     expect(backupDialog()).toBe(null);
   });

@@ -91,7 +91,8 @@ const navBar = () => document.querySelector("[data-bottom-nav]");
 const layerId = () => document.querySelector("[data-coach-layer]")?.getAttribute("data-coach-layer") ?? null;
 const click = (el) => mod.act(async () => { el.click(); });
 const joinCard = () => document.querySelector("[data-join-card]");
-const joinBtn = () => [...joinCard().querySelectorAll("button")].find((b) => b.textContent.trim() === "参加する");
+// 【便CD 2026-10-08】「参加する」はカードそのもの(role="button"・名前「参加する」。カードの中にボタンは無い)
+const joinBtn = () => (joinCard()?.getAttribute("role") === "button" && joinCard().getAttribute("aria-label") === "参加する" ? joinCard() : null);
 // 1枚目 → 2枚目 → チェック → 次へ
 async function passConsent() {
   await click(startBtn());
@@ -193,7 +194,14 @@ describe("入れたての人: 1枚目(ようこそ)→ 2枚目(規約)", () => {
     expect(screen().textContent).not.toContain("同意");
     expect(startBtn().textContent).toBe("はじめる");
     expect(startBtn().disabled).toBe(false);
-    expect(startBtn().style.background).toBe("var(--c-accent)");
+    // 【便CD 2026-10-08 本人「始めるを塗りつぶしじゃなくて枠線で」】地は抜き、枠と字が紺。枠の太さは My Data のカレンダーの「今日」の印
+    // (App.jsx の inset 0 0 0 1.5px var(--c-accent))と同じ 1.5px。期待値は仕様から手で書いた(定数から読まない)。形・高さ・字の大きさは主ボタンの標準のまま
+    const sb = startBtn().style;
+    // (jsdom は var() を含む border を幅・線・色に分けないので、まとめ書きのまま比べる)
+    expect([sb.backgroundColor || sb.background, sb.color, sb.border])
+      .toEqual(["transparent", "var(--c-accent)", "1.5px solid var(--c-accent)"]);
+    expect([sb.minHeight, sb.borderRadius, sb.fontSize, sb.fontWeight, sb.width])
+      .toEqual(["var(--tap-min)", "var(--r-pill)", "var(--fs-md)", "700", "100%"]);
     await tick(300);
     expect(navBar()).toBe(null);
     expect(layerId()).toBe(null);
@@ -412,8 +420,9 @@ describe("参加のカード(根 → アプリ → コミュニティ → JoinIn
   const expectNoCheck = () => {
     expect(joinCard().querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
     expect(joinCard().textContent).not.toContain("同意します");
-    expect(joinBtn().disabled).toBe(false);
-    expect(joinBtn().style.background).toBe("var(--c-accent)");
+    expect(joinBtn()).not.toBe(null);
+    expect(joinBtn().hasAttribute("aria-disabled")).toBe(false);
+    expect(joinCard().querySelectorAll("button")).toHaveLength(0);
   };
   it("起動の最初に同意した人", async () => {
     mod = await loadApp();

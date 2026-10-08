@@ -7,7 +7,7 @@ import { createRoot } from "react-dom/client";
 // 【便BC 2026-09-25 本人選定 ficus-block-mock.html「4. 参加の画面」】規約への同意のチェック(AgreeRow)。
 // 【便CC 2026-10-08 本人「最初に同意撮るのでコミュニティで同意出すのはやめて」】参加の画面(JoinIntro)の同意のチェックは外した。
 // 同意は起動の最初の同意の画面(src/ConsentScreen.jsx)で取る(根の振る舞いは src/consentGate.test.jsx)。ここでは:
-//   ・参加の画面にチェックボックスが1つも無く、「参加する」は最初から押せて onJoin が呼ばれる
+//   ・参加の画面にチェックボックスが1つも無く、最初から押せて onJoin が呼ばれる(【便CD】押す先はカードそのもの = 「参加する」のボタン)
 //   ・部品 AgreeRow(同意の画面の2枚目の帯が使う): 行全体が label で高さ --tap-min・中身はネイティブの checkbox・行の文字を押しても入る
 // 【守っていないもの】箱の見た目(20px・角丸 6px・枠・レ点)の実寸。ブラウザで目で見た(報告)。
 // ------------------------------------------------------------------
@@ -24,16 +24,16 @@ beforeEach(() => {
 });
 afterEach(() => { act(() => root.unmount()); host.remove(); document.body.innerHTML = ""; });
 
-const joinButton = () => [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "参加する");
+// 【便CD 2026-10-08】「参加する」のボタンはカードそのもの(role="button"・名前「参加する」)
+const joinButton = () => document.querySelector('[data-join-card][role="button"][aria-label="参加する"]');
 
 describe("参加の画面に同意のチェックは無い(便CC)", () => {
-  it("チェックボックスも同意の文も無い。「参加する」は最初から押せて onJoin が呼ばれる", async () => {
+  it("チェックボックスも同意の文も無い。「参加する」(カード)は最初から押せて onJoin が呼ばれる", async () => {
     let joined = 0;
     await act(async () => { root.render(<JoinIntro onJoin={async () => { joined += 1; }} />); });
     expect(document.querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
     expect(document.body.textContent).not.toContain("同意します");
-    expect(joinButton().disabled).toBe(false);
-    expect(joinButton().style.background).toBe("var(--c-accent)");
+    expect(joinButton().hasAttribute("aria-disabled")).toBe(false);
     await act(async () => { joinButton().click(); });
     expect(joined).toBe(1);
   });
