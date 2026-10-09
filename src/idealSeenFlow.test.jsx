@@ -453,8 +453,9 @@ describe("【便BX 審査】⑱ への3つの道", () => {
   it("「見る」を押さない(目安の帯の間に計測タブ): 帯が出ている間は ⑱ も出さない。帯が消えると ⑱(goMeasure も立つ)。終わったあとは何も出ない", async () => {
     installPendingMic();
     await start({ onboardingDone: { ...BASE_X, join: true, arriveCommunity: true } }, [SESSION("s1")]);
-    await tick(200);
-    expect(layer()).toBe(null);
+    // 【便CJ】⑱ の条件は「① が済み・リード / データ / コミュニティに触れた」。参加している(join)のでコミュニティの章は済んでおり、
+    // 起動の計測タブで ⑱ がもう出る(便CI までは goCommunity か goMeasure が要った)。押さずにコミュニティへ行って目安にする
+    await waitFor(() => layerId() === "finish", "起動の計測タブで ⑱");
     await adoptAverage();
     expect(buttonIn(noticeEl(), "見る")).not.toBe(null);
     await click(nav("計測"));

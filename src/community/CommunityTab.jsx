@@ -16,6 +16,8 @@ import {
   PHOTO_ACCEPT, photoProgressAt, avatarDraftAfterPick, avatarPaint, avatarWriteOnClose, encodeSquarePhoto, photoFailureKind, photoZoomAvailable,
 } from "./avatarPhoto.js";
 import { saveAvatarPhoto } from "./photoRepo.js";
+// 【便CJ】読み込みの1往復を待つ上限(返ってこなければ失敗として扱い、輪を 63% で止めない)
+import { withinLoadLimit } from "./loadLimit.js";
 import PhotoZoom from "./PhotoZoom.jsx";
 import { RankScreen, ShareScreen, DataScreen, PersonSheet, SaxTypeRow, usePublicUsers, DANGER_OUTLINE_STYLE } from "./screens.jsx";
 // 【便BS 2026-10-03 本人裁定】参加の画面: 裏の見本(JoinPreviewDataScreen)、
@@ -228,7 +230,8 @@ export function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onE
     let alive = true;
     (async () => {
       try {
-        const list = await listIdeals();
+        // 【便CJ】上限(withinLoadLimit)まで。過ぎたら下の catch(空 = 順位とシェアは見せる)
+        const list = await withinLoadLimit(listIdeals());
         if (alive) setIdeals(list);
       } catch (e) {
         if (alive) setIdeals([]); // 読めなくても順位とシェアは見せる
@@ -567,11 +570,13 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRe
         // 覗いて去っただけの人にもアカウントが残る。同意より先に作らない。
         // 既にサインイン済みの端末では getSignedInUid が既存の uid を返すので、
         // 2回目以降の体験は変わらない(匿名セッションは端末に永続する)。
-        const id = await getSignedInUid();
+        // 【便CJ 2026-10-10 本人「63%くらいで止まることが多い」】この2つの1往復は上限(withinLoadLimit)まで。
+        // 過ぎたら下の catch(「通信に失敗しました」+「もう一度試す」)へ ── 以前は返ってこない限り輪が 63% のまま動かなかった
+        const id = await withinLoadLimit(getSignedInUid());
         if (!alive) return;
         if (!id) { setPhase("notJoined"); return; } // まだ誰でもない。作らずに説明だけ出す
         setUid(id);
-        const p = await loadProfile(id);
+        const p = await withinLoadLimit(loadProfile(id));
         if (!alive) return;
         setProfile(p);
         setPhase(p ? "profile" : "notJoined");
@@ -639,15 +644,29 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRe
         onSubmit={async (input) => {
           const r = buildProfileDoc(input);
           if (r.error) return r.error; // フォーム側がエラー文言を表示する
+          let savedUid = null;
           try {
             const id = await ensureUid();
             await saveProfile(id, r.doc);
+            savedUid = id;
           } catch (e) {
             // 黙って失敗させない。フォームは開いたままにして再送できるようにする。
             // 【原因を握りつぶさない】ルールに拒まれたのか通信が切れたのかは
             // 利用者にとっても開発者にとっても別の話なので、コンソールにも残す。
             console.error("[community] プロフィールの保存に失敗", e?.code, e);
             return saveErrorOf(e);
+          }
+          // 【便CJ】初回の作成で写真を選んでいたら、プロフィールを書いたあとで送る(マイページと同じ saveAvatarPhoto。判定はサーバの関数)。
+          // 通らなかったらフォームを開いたまま写真の文言を出す(プロフィールは書けている。絵柄を選び直すか、別の写真で押し直せる)
+          let firstPhotoUrl = null;
+          if (!profile && input.photoBlob) {
+            try {
+              firstPhotoUrl = await saveAvatarPhoto(savedUid, input.photoBlob);
+            } catch (e) {
+              console.error("[community] 最初のプロフィールの写真を保存できなかった", e?.code, e);
+              const msg = photoErrorOf(e);
+              if (msg) return msg;
+            }
           }
           // 編集(既にプロフィールがある)ならマイページへ、初回の作成ならデータへ。
           // 削除して入り直した場合は profile が null に戻っているので、
@@ -659,6 +678,8 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRe
           // そのまま置くと、保存した瞬間に手元の写真と練習記録が消えていた(サーバには saveProfile が
           // 持ち越している)。手元の値を持ち越す(profileAfterSave)。
           setProfile(profileAfterSave(profile, r.doc));
+          // 【便CJ】最初の入力で選んだ写真が載ったら、手元のプロフィールにも重ねる(見張り watchPhoto が届けるのを待たずにマイページで写真を出す)
+          if (firstPhotoUrl) setProfile((p) => (p ? { ...p, photo: firstPhotoUrl } : p));
           setPhase("profile");
           return null;
         }}
@@ -1431,8 +1452,20 @@ export function ProfileForm({ initial, onSubmit, onCancel }) {
   // 初回作成では既定の絵柄で1枚のプロフィールを書き切る必要があり、
   // 編集では今の絵柄をそのまま持ち回らないと保存のたびに既定へ戻ってしまう。
   // 触らないので state ではなく定数。変更は ProfileView → setProfileAvatar が行う。
-  const icon = initial?.icon ?? AVATAR_ICONS[0];
-  const iconColor = initial?.iconColor ?? AVATAR_COLOR_MIN;
+  // 【便CJ 2026-10-10 本人「一番最初のプロフィール作成の時にアイコン設定も追加 / 通常のプロフィール編集は今のままでok」】
+  // 初回の作成(initial が無い)だけ、マイページと同じ部品(AvatarEditHead → シートの AvatarPicker)で選べる。選ばなければ今までどおり既定
+  // (一覧の先頭と色1)のまま保存できる(任意)。編集(initial がある)は便M のまま触らない(定数)。
+  const firstCreate = !initial;
+  const [avatarPick, setAvatarPick] = useState(() => ({ icon: AVATAR_ICONS[0], iconColor: AVATAR_COLOR_MIN }));
+  const icon = firstCreate ? avatarPick.icon : (initial?.icon ?? AVATAR_ICONS[0]);
+  const iconColor = firstCreate ? avatarPick.iconColor : (initial?.iconColor ?? AVATAR_COLOR_MIN);
+  // 【便CJ】初回の作成で選んだ写真(書き直し済みの Blob と、見せるための一時 URL)。**プロフィールを書いたあとで**送る
+  // (送るのは CommunityTabBody の onSubmit。マイページと同じ saveAvatarPhoto)。選んだ時点で送らない理由: 写真の判定の関数は
+  // users/{uid} に photo だけを書き足す(文書が無ければ photo だけの文書を作る)ので、入力の途中でやめると、次に開いたとき
+  // その文書を「参加済みのプロフィール」と読んでしまう(loadProfile は文書の有無で決める)。絵柄を選び直すと捨てる。
+  const [firstPhoto, setFirstPhoto] = useState(null);
+  const [avatarOpen, setAvatarOpen] = useState(false);
+  useEffect(() => () => { if (firstPhoto) URL.revokeObjectURL(firstPhoto.url); }, [firstPhoto]);
   // 【便AI】旧い語は新しい語へ読み替えて出す。対応先の無い語(独学)は空 ── 選び直してもらう。
   const [position, setPosition] = useState(positionForEdit(initial?.position));
   const [startYear, setStartYear] = useState(initial?.startYear ? String(initial.startYear) : "");
@@ -1503,6 +1536,8 @@ export function ProfileForm({ initial, onSubmit, onCancel }) {
         gear: Object.fromEntries(saxTypes.map((t) => {
           return [t, picksToGearEntry(gearPicks[t])];
         })),
+        // 【便CJ】初回の作成で選んだ写真(無ければ null)。buildProfileDoc は読まない(文書には入らない)。送るのは親
+        photoBlob: firstCreate ? (firstPhoto?.blob ?? null) : null,
       });
       // 成功時は親が phase を切り替えてこの要素ごと消える。失敗時だけ文言が残る。
       // 【A-3】ニックネーム由来のエラーは**欄の直下に既に出ている**ので下に重ねない。
@@ -1520,6 +1555,31 @@ export function ProfileForm({ initial, onSubmit, onCancel }) {
   return (
     <div className="sans" style={pageStyle}>
       <div style={titleStyle}>{initial ? "プロフィールを編集" : "プロフィールを作る"}</div>
+
+      {/* 【便CJ】初回の作成だけ、マイページと同じアイコンと鉛筆の印(AvatarEditHead)。押すとマイページと同じシート(AvatarPicker)。
+          選んだ絵柄・色はこのフォームの値になり、保存のときに一緒に書く。写真は保存のあとで送る(上の firstPhoto)。 */}
+      {firstCreate ? (
+        <>
+          <AvatarEditHead
+            onPress={() => setAvatarOpen(true)} pressLabel="アイコンを変更" pressExpanded={avatarOpen}
+            onEdit={() => setAvatarOpen(true)} editExpanded={avatarOpen}
+          >
+            <Avatar icon={icon} color={iconColor} photo={firstPhoto?.url ?? null} size={64} />
+          </AvatarEditHead>
+          {avatarOpen && (
+            <BottomSheet ariaLabel="アイコンを変更" onClose={() => setAvatarOpen(false)}>
+              <AvatarPicker
+                icon={icon}
+                color={iconColor}
+                photo={firstPhoto?.url ?? null}
+                /* 絵柄・色を選ぶと写真は外れる(マイページと同じ avatarDraftAfterPick) */
+                onChange={(v) => { const d = avatarDraftAfterPick(v); setAvatarPick({ icon: d.icon, iconColor: d.iconColor }); setFirstPhoto(null); }}
+                onPickPhoto={async (blob) => { setFirstPhoto({ blob, url: URL.createObjectURL(blob) }); }}
+              />
+            </BottomSheet>
+          )}
+        </>
+      ) : null}
 
       {/* 【A-3 / F3・F4 2026-09-15 本人裁定】補助文は「公開される」の1文だけ。
           文字数・使える文字の規則を先に読ませない ── 規則は**破ったときに**言えばよい。
@@ -1774,6 +1834,52 @@ const listOrDash = (a) => (Array.isArray(a) && a.length > 0
   ? <span style={{ display: "flex", flexWrap: "wrap", gap: 9 }}>{a.map((v) => <span key={v}>{v}</span>)}</span>
   : "—");
 
+// 【便CJ 2026-10-10 本人「一番最初のプロフィール作成の時にアイコン設定も追加 / 通常のプロフィール編集は今のままでok」】
+// アイコン(64)と右下の鉛筆の印。マイページ(ProfileView)の作りをそのまま切り出し、参加して最初のプロフィールの入力
+// (ProfileForm の初回だけ)も同じ部品を使う(写しを作らない)。DOM・寸法・当たり判定はマイページの便CI のまま。
+//   children     … 中に描くアイコン(<Avatar … size={64} />)
+//   onPress      … アイコンそのものを押したとき(マイページは写真なら拡大・絵柄なら選び直すシート。初回の入力は選び直すシート)
+//   onEdit       … 鉛筆の印を押したとき(どちらも選び直すシート)
+//   pressLabel / pressExpanded / editExpanded … 読み上げの名前と開閉の状態
+function AvatarEditHead({ children, onPress, pressLabel, pressExpanded, onEdit, editExpanded }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "center" }}>
+      <span style={{ position: "relative", display: "inline-flex" }}>
+        <button
+          type="button"
+          onClick={onPress}
+          aria-label={pressLabel}
+          aria-expanded={pressExpanded}
+          style={{
+            display: "inline-flex", padding: 0,
+            background: "none", border: "none", borderRadius: "var(--r-full)", cursor: "pointer",
+          }}
+        >
+          {children}
+        </button>
+        <button
+          type="button"
+          onClick={onEdit}
+          aria-label="アイコンを変更"
+          aria-expanded={editExpanded}
+          style={{
+            position: "absolute", right: 0, bottom: 0,
+            width: AVATAR_EDIT_BADGE_PX, height: AVATAR_EDIT_BADGE_PX, borderRadius: "var(--r-full)",
+            background: "var(--c-ink)", color: "var(--c-surface)",
+            display: "inline-flex", alignItems: "center", justifyContent: "center",
+            padding: 0, border: "none", cursor: "pointer",
+          }}
+        >
+          {/* 【当たり判定だけ広げる(§5)】透明の子を四方へ10はみ出させて 44×44 にする。
+              印そのものの 24px は動かさないので、見え方は変わらない。 */}
+          <span aria-hidden="true" style={{ position: "absolute", inset: AVATAR_EDIT_HIT_INSET_PX }} />
+          <Pencil size={13} strokeWidth={1.9} />
+        </button>
+      </span>
+    </div>
+  );
+}
+
 export function ProfileView({ profile, onEdit, onTogglePublic, onChangeAvatar, onPhotoChanged = null, onDelete, onOpenBackup, uid = null, myIdeals = null, blocked = [], onUnblock = null }) {
   const [error, setError] = useState(null);
   // 【便BE 2026-09-30】「ブロック中の人」のシート。
@@ -1938,40 +2044,16 @@ export function ProfileView({ profile, onEdit, onTogglePublic, onChangeAvatar, o
           **変更の入口は鉛筆の印が常に持つ**ので、写真にしても選び直せなくならない。
           包みを <span> にしたのは、鉛筆を独立した押しどころにするため
           (<button> の中に <button> は置けない)。見た目は 1px も動かしていない。 */}
-      <div style={{ display: "flex", justifyContent: "center" }}>
-        <span style={{ position: "relative", display: "inline-flex" }}>
-          <button
-            type="button"
-            onClick={() => (canZoom ? setZoomOpen(true) : openAvatar())}
-            aria-label={canZoom ? "写真を大きく表示" : "アイコンを変更"}
-            aria-expanded={canZoom ? undefined : avatarOpen}
-            style={{
-              display: "inline-flex", padding: 0,
-              background: "none", border: "none", borderRadius: "var(--r-full)", cursor: "pointer",
-            }}
-          >
-            <Avatar icon={profile?.icon ?? AVATAR_ICONS[0]} color={profile?.iconColor ?? AVATAR_COLOR_MIN} photo={photo} size={64} />
-          </button>
-          <button
-            type="button"
-            onClick={openAvatar}
-            aria-label="アイコンを変更"
-            aria-expanded={avatarOpen}
-            style={{
-              position: "absolute", right: 0, bottom: 0,
-              width: AVATAR_EDIT_BADGE_PX, height: AVATAR_EDIT_BADGE_PX, borderRadius: "var(--r-full)",
-              background: "var(--c-ink)", color: "var(--c-surface)",
-              display: "inline-flex", alignItems: "center", justifyContent: "center",
-              padding: 0, border: "none", cursor: "pointer",
-            }}
-          >
-            {/* 【当たり判定だけ広げる(§5)】透明の子を四方へ10はみ出させて 44×44 にする。
-                印そのものの 24px は動かさないので、見え方は変わらない。 */}
-            <span aria-hidden="true" style={{ position: "absolute", inset: AVATAR_EDIT_HIT_INSET_PX }} />
-            <Pencil size={13} strokeWidth={1.9} />
-          </button>
-        </span>
-      </div>
+      {/* 【便CJ】アイコンと鉛筆の印の作りは AvatarEditHead(参加して最初のプロフィールの入力も同じ部品を使う)。DOM は便CI のまま */}
+      <AvatarEditHead
+        onPress={() => (canZoom ? setZoomOpen(true) : openAvatar())}
+        pressLabel={canZoom ? "写真を大きく表示" : "アイコンを変更"}
+        pressExpanded={canZoom ? undefined : avatarOpen}
+        onEdit={openAvatar}
+        editExpanded={avatarOpen}
+      >
+        <Avatar icon={profile?.icon ?? AVATAR_ICONS[0]} color={profile?.iconColor ?? AVATAR_COLOR_MIN} photo={photo} size={64} />
+      </AvatarEditHead>
 
       {/* 【便AH 決定5】そのまま大きく出す。間にシートを挟まない。
           閉じるのは画面のどこをタップしても(Escape も)。閉じるボタンは置かない。 */}

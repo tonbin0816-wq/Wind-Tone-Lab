@@ -488,7 +488,9 @@ describe("配線の綴り(App.jsx)", () => {
     // 【便BS 審査 2026-10-03 統括の裁定】操作の合図の帯(notice)が出ている間も出さない(帯の「開く」を覆わない)
     // 【便BX 2026-10-06 本人の決定 C】例外は保存の帯(notice.coach)が出ている間の計測タブ(⑩)だけ
     // 【便BZ】帯の間の決まりは coachDuringNotice(onboarding.test.jsx が純関数を守る)。計測(保存の帯)の ⑩ は今までどおり
-    expect(call).toMatch(/hidden=\{!coachReady \|\| isRecording \|\| anySheetOpen \|\| errorScrimShown \|\| saveConfirmShown \|\| isAnalyzingUpload \|\| coachWithNotice\.hidden\}/);
+    // 【便CJ】式は const coachHidden の1か所に置き、<OnboardingCoach> はそれを渡す
+    expect(call).toMatch(/hidden=\{coachHidden\}/);
+    expect(app).toMatch(/const coachHidden = !coachReady \|\| isRecording \|\| anySheetOpen \|\| errorScrimShown \|\| saveConfirmShown \|\| isAnalyzingUpload \|\| coachWithNotice\.hidden;/);
     expect(app).toMatch(/const coachReady = tutorialPreview \|\| onboardingReady;/);
     // 【便BS】計測タブの3段の移行の印も待つ。【便BW】3つ目の門(新しい段の移行)も待つ
     expect(app).toMatch(/const onboardingReady = onboardingLoaded && onboardingReadOk && onboardingDone\.migrated && onboardingDone\[MEASURE_STEPS_MIGRATED\] && onboardingDone\[COACH2_MIGRATED\] && onboardingDone\[COACH3_MIGRATED\]\n\s*&& onboardingDone\[COACH4_MIGRATED\];/);   // 【便BZ】5つ目の門
@@ -766,7 +768,9 @@ describe("【便BW】データタブ: ⑫ 日のマス → ⑬ 記録の行 →(
     expect(scrollCalls).toHaveLength(1);
   }, 40000);
 
-  it("⑫ で外を押すと、この起動ではデータタブの3段とも出ない(印は立てない)。日を開けば calendarDay は立つ。開き直すと ⑬ から", async () => {
+  // 【便CJ 2026-10-10 本人の実機の指摘「チュートリアルからいくつかパートがなくなってる」】群をやめた: ⑫ を外押しで飛ばすと ⑬ も飛び(⑬ の的は日を開かないと現れない)、
+  // ⑭ へ進む。以前はデータタブの3段(⑫⑬⑭)がこの起動の間まるごと消えていた
+  it("【便CJ】⑫ で外を押すと ⑫⑬ を飛ばして ⑭ へ進む(印は立てない)。タブを行き来しても ⑫⑬ は出ない。開き直すと ⑫ から", async () => {
     mod = await loadApp(fake);
     await seed({ kvEntries: { onboardingDone: MEASURE_DONE }, sessions: [SESSION("s1")] });
     await render();
@@ -774,29 +778,22 @@ describe("【便BW】データタブ: ⑫ 日のマス → ⑬ 記録の行 →(
     await waitFor(() => layerId() === "calendarDay", "⑫");
     await click(layer().querySelector('[data-coach-hit="t"]'));
     expect(layer()).toBe(null);
-    // タブを行き来しても、この起動の間は出ない
+    expect(kv("onboardingDone").calendarDay).toBeUndefined();   // 印は立てない
+    await waitFor(() => layerId() === "trend", "⑭ へ進む");
+    expect(kv("onboardingDone").calendarDay).toBeUndefined();
+    expect(kv("onboardingDone").daySession).toBeUndefined();
+    // タブを行き来しても、この起動の間は ⑫⑬ は出ない(⑭ は ⑫ より後ろ・まだ済んでいないので出る)
     await click(nav("計測"));
     await click(nav("データ"));
-    await tick(400);
-    expect(layer()).toBe(null);
-    expect(kv("onboardingDone").calendarDay).toBeUndefined();   // 印は立てない
-    // 日を開いても ⑬ は出ない(群ごと消した)。日を開いたこと自体は ⑫ の成功の道なので印 calendarDay は立つ
-    await click(document.querySelector('[data-coach="calendarDay"]'));
-    await waitFor(() => kv("onboardingDone")?.calendarDay === true, "calendarDay の印");
-    await tick(400);
-    expect(layer()).toBe(null);
-    expect(kv("onboardingDone").daySession).toBeUndefined();
-    // 開き直す → まだ済んでいない ⑬ から(日を開けば出る)
+    await waitFor(() => layer() !== null, "データタブの段");
+    expect(layerId()).toBe("trend");
+    // 開き直す → まだ済んでいない ⑫ から
     await mod.act(async () => root.unmount()); root = null; host.remove();
+    trendTop = 1400;
     mod = await loadApp(fake);
     await render();
     await click(nav("データ"));
-    await waitFor(() => document.body.textContent.includes("すべての計測 1件"), "My Data");
-    await tick(300);
-    expect(layer()).toBe(null);   // ⑫ は済んでいる(マスは名乗るが出さない)
-    const cell = [...document.querySelectorAll("button")].find((b) => b.getAttribute("aria-label") === `${new Date(NOW_ISO).getDate()}日 計測1件`);
-    await click(cell);
-    await waitFor(() => layerId() === "daySession", "開き直すと ⑬ が出る");
+    await waitFor(() => layerId() === "calendarDay", "開き直すと ⑫ が出る");
   }, 40000);
 
   it("計測が無ければ今までどおり「計測を始めると」の段(⑫ は出ない)", async () => {
@@ -1155,7 +1152,8 @@ describe("【便BW】計測タブ: ⑦ → ⑧ リードの枠 → ⑨ このリ
     await waitFor(() => layerId() === "calendarDay", "⑫");
   }, 30000);
 
-  it("外を押す(群): ⑨ で外を押すと、この起動では計測タブの段が出ない(印は立てない)。データタブの段は出る", async () => {
+  // 【便CJ】群をやめた: ⑨ を外押しで飛ばしても、計測タブのほかの段(面を開けば ③)は出る。データタブの段も出る
+  it("【便CJ】外を押す: ⑨ で外を押すと ⑨ だけを飛ばす(印は立てない)。面を開けば ③ が出る。データタブの段も出る", async () => {
     installFakeMic();
     mod = await loadApp(fake);
     await seed({ kvEntries: { onboardingDone: { ...GATES, tuner: true, metronome: true, goReeds: true } }, sessions: [] });
@@ -1163,10 +1161,14 @@ describe("【便BW】計測タブ: ⑦ → ⑧ リードの枠 → ⑨ このリ
     await waitFor(() => layerId() === "measure", "⑨");
     await click(layer().querySelector('[data-coach-hit="t"]'));
     expect(layer()).toBe(null);
-    await click(metroBtn());   // 面を開いても ③ は出ない(群ごと消した)
-    await tick(400);
-    expect(layer()).toBe(null);
+    await tick(300);
+    expect(layer()).toBe(null);   // 計測が無いので ⑩ は無い = 計測タブはここで止まる
+    await click(metroBtn());   // 面を開くと ③(以前は群ごと消えて出なかった)
+    await waitFor(() => layerId() === "metroTempo", "③");
     expect(kv("onboardingDone").measure).toBeUndefined();
+    await click(metroBtn());   // 閉じる
+    await tick(300);
+    expect(layer()).toBe(null);   // ⑨ は飛ばしたまま(この起動の間)
     await click(nav("データ"));
     await waitFor(() => layerId() === "data", "データタブの段は出る");
   }, 40000);
@@ -1205,6 +1207,40 @@ describe("【便BW】計測タブ: ⑦ → ⑧ リードの枠 → ⑨ このリ
     } finally {
       document.documentElement.removeAttribute("data-tutorial-preview");
     }
+  }, 30000);
+});
+
+// 【便CJ 2026-10-10 統括の裁定(便CJ 報告の懸念6)】見本(?tutorialpreview=1)で ② が出なかった: 端末にメトロノームの面が「開いたまま」と保存されていると、
+// 面が描かれた時点で ② の印が立っていた。見本の起動の間だけ、面は閉じた状態から始め、開閉は保存しない。本物の利用者は今までどおり。期待値は統括の裁定の文から手で書いた
+describe("【便CJ】見本のメトロノームの面は閉じた状態から(保存された開閉を読まない・書かない)", () => {
+  afterEach(() => { removeFakeMic(); document.documentElement.removeAttribute("data-tutorial-preview"); });
+  it("見本: 面が開いたまま保存されていても閉じた状態から始まり ② が出る。開くと ③。開閉しても保存の値は開いたまま", async () => {
+    installFakeMic();
+    document.documentElement.setAttribute("data-tutorial-preview", "1");
+    window.localStorage.setItem("ficus.tutorialPreviewDone", JSON.stringify({ tuner: true }));
+    mod = await loadApp(fake);
+    await seed({ kvEntries: { onboardingDone: { ...GATES, tuner: true }, showMetroPanel: true } });
+    await render();
+    await waitFor(() => layerId() === "metronome", "見本の ②");
+    expect(metroBtn().getAttribute("aria-pressed")).toBe("false");
+    expect(JSON.parse(window.localStorage.getItem("ficus.tutorialPreviewDone")).metronome).toBeUndefined();
+    await click(metroBtn());
+    await waitFor(() => layerId() === "metroTempo", "③");
+    expect(kv("showMetroPanel")).toBe(true);
+    await click(metroBtn());   // 閉じる
+    await tick(100);
+    expect(metroBtn().getAttribute("aria-pressed")).toBe("false");
+    expect(kv("showMetroPanel")).toBe(true);   // 見本は開閉を保存しない
+    expect(kv("onboardingDone").metronome).toBeUndefined();   // 本物の印も書かない(今までどおり)
+  }, 30000);
+  it("対照(本物の起動): 面が開いたまま保存されていれば、今までどおり開いたまま始まり、② は出ずに印が立つ(③ へ)", async () => {
+    installFakeMic();
+    mod = await loadApp(fake);
+    await seed({ kvEntries: { onboardingDone: { ...GATES, tuner: true }, showMetroPanel: true } });
+    await render();
+    await waitFor(() => kv("onboardingDone")?.metronome === true, "metronome の印");
+    expect(metroBtn().getAttribute("aria-pressed")).toBe("true");
+    await waitFor(() => layerId() === "metroTempo", "③");
   }, 30000);
 });
 
@@ -1248,7 +1284,8 @@ describe("【便BS 審査】【便BW】配線の綴り(App.jsx)", () => {
   const blk = (/const coachWithNotice = coachDuringNotice\(\{([\s\S]*?)\n  \}\);/.exec(app) || [])[1] || "";
   it("帯(notice)が出ている間は hidden。面の開閉・枠のリード・⑮ の依頼を coachCandidates へ渡す。0件 → 1件 の先送りは無い", () => {
     // 【便BX】→【便BZ】帯の間の決まりは coachDuringNotice へ(帯が名乗るタブにいる間だけ・コミュニティは goCompare だけ)
-    expect(call).toMatch(/hidden=\{[^}]*\|\| coachWithNotice\.hidden\}/);
+    expect(call).toMatch(/hidden=\{coachHidden\}/);
+    expect(app).toMatch(/const coachHidden = [^;]*\|\| coachWithNotice\.hidden;/);
     expect(blk).toMatch(/metroPanelOpen, metronomeOn: metronomeOnForCoach, metroTempoQuiet, hasSelectedReed, idealRequested: coachRequest === "idealSeen" \}\)/);
     // 保存の帯は計測タブ・目安の帯はコミュニティタブを名乗る(帯の中身は文字列か null)
     expect(app).toMatch(/coach: typeof next\.coach === "string" \? next\.coach : null,/);
@@ -1408,23 +1445,20 @@ describe("【便BX】保存の帯と同時に ⑩(帯は2つ目の穴)", () => {
     expect(layerId()).toBe("goData");
   }, 40000);
 
-  // 【便BZ 統括の裁定】帯が出ている間は、その帯が名乗る段だけ。保存の帯の間に ⑱ の条件がそろっても、⑱ は帯が消えてから
-  it("【便BZ】コミュニティを見たあとに初めて計測した人: 保存の帯の間は ⑱ を出さない(帯の「開く」は押せる)。帯が消えると ⑱", async () => {
-    preferReducedMotion();
+  // 【便BZ 統括の裁定】帯が出ている間は、その帯が名乗る段だけ(⑱ は帯が消えてから。純関数 coachDuringNotice の検査が守る)。
+  // 【便CJ】⑱ の条件から「計測が1件ある」を外した(4つのタブを開いた・① が済んだか飛ばした)ので、便BZ のこの検査の場面
+  // (コミュニティを見たあとに初めて計測し、保存の瞬間に ⑱ の条件がそろう)はもう起きない: 4つのタブを開いて ① が済んだ人には ⑨ より先に ⑱ が出る。
+  // 帯の間に ⑱ を出さないことは、目安の帯(idealSeenFlow.test.jsx「見る」を押さない)と削除の帯(下の【便BX 審査】帯の種類)で本物の画面を通して見る
+  it("【便CJ】4つのタブを開いて ① が済んだ人は、計測が0件でも計測タブで ⑨ より先に ⑱(マイクを待たない)", async () => {
     installToneMic();
     mod = await loadApp(fake);
     await seed({ kvEntries: { onboardingDone: { ...GATES, tuner: true, metronome: true, goReeds: true, goData: true, goCommunity: true } } });
     await render();
-    await waitFor(() => layerId() === "measure", "⑨");
-    await recordAndSave();
-    await waitFor(() => noticeText() !== null, "保存の帯");
-    await waitFor(() => kv("onboardingDone")?.measure === true, "measure の印(⑱ の条件がそろう)");
-    let seenDuring = null;
-    for (let i = 0; i < 24 && noticeText() !== null; i++) { if (layer() && layer().getAttribute("data-leaving") === "false") seenDuring = layerId(); await tick(25); }
-    expect(noticeText()).not.toBe(null);
-    expect(seenDuring).toBe(null);
-    await waitFor(() => noticeText() === null, "帯が消える", 8000);
-    await waitFor(() => layerId() === "finish", "帯が消えたら ⑱");
+    await waitFor(() => layerId() === "finish", "⑱");
+    expect(kv("onboardingDone").measure).toBeUndefined();
+    await click(layer().querySelector('[data-coach-hit="all"]'));
+    await waitFor(() => kv("onboardingDone")?.finish === true, "finish の印");
+    await waitFor(() => layerId() === "measure", "⑱ のあとも残りの計測タブの段(⑨)は出る");
   }, 40000);
 
   it("帯の間に「データ」を押すと: データタブの段(到着)は帯が消えてから出る(帯の「開く」を覆わない)", async () => {
@@ -1605,4 +1639,47 @@ describe("【便BZ】下部タブ: アイコンの下に小さくタブの名前
     expect(/\n  --nav-pad-bottom: max\(0px, calc\(var\(--sp-2\) - env\(safe-area-inset-bottom\)\)\);\n  --nav-h: calc\(51px \+ var\(--nav-pad-bottom\)\);/.test(css)).toBe(true);
     expect(/--tap-min: 44px;/.test(css)).toBe(true);
   }, 30000);
+});
+
+// ------------------------------------------------------------------
+// 【便CJ 2026-10-10 本人の実機の指摘】本物のアプリ(Web)で、いくつか飛ばした人の道を通す。
+//   (1)「チュートリアルからいくつかパートがなくなってる」… 外押しはその段だけを飛ばし、流れの次の段が出る(② を飛ばすと ⑤、⑤ を飛ばすと ⑨)
+//   (4)「いくつか飛ばしてると最後の計測しよう!が出なくなって一生広告でない」… 計測しないまま4つのタブを開いて計測タブへ戻ると ⑱。
+//       ⑱ を押すと案内の間の印(<html data-ad-hold="1">)が外れる(= 広告の帯を始めてよい。Web の見本の帯と殻の帯が同じ条件を読む)
+// 期待値は本人の指摘と統括の仕様から手で書いた。jsdom にはコミュニティの接続設定が無いので、コミュニティタブは「利用できません」を描く
+// (タブを開いたこと = goCommunity の印は App.jsx がタブを移った結果で立てる)。
+// ------------------------------------------------------------------
+describe("【便CJ】いくつか飛ばした人の道(本物のアプリ・Web)", () => {
+  afterEach(() => { removeFakeMic(); document.documentElement.removeAttribute("data-ad-hold"); });
+  const hitTop = () => layer().querySelector('[data-coach-hit="t"]');
+  it("② ⑤ ⑨ を外押しで飛ばすと、そのたびに次の段が出る。計測しないまま4つのタブを開いて計測タブへ戻ると ⑱。押すと data-ad-hold が外れる", async () => {
+    installFakeMic();
+    mod = await loadApp(fake);
+    await seed({ kvEntries: { onboardingDone: { ...GATES, tuner: true } } });
+    await render();
+    await waitFor(() => layerId() === "metronome", "②");
+    expect(document.documentElement.getAttribute("data-ad-hold")).toBe("1");
+    await click(hitTop());
+    await waitFor(() => layerId() === "goReeds", "② を飛ばすと ⑤(以前は計測タブの段がまるごと消えた)");
+    await click(hitTop());
+    await waitFor(() => layerId() === "measure", "⑤ を飛ばすと ⑨");
+    await click(hitTop());
+    await tick(300);
+    expect(layer()).toBe(null);
+    expect(kv("onboardingDone").measure).toBeUndefined();
+    await click(nav("リード"));
+    await passArrival("arriveReeds");
+    await waitFor(() => layerId() === "reeds", "⑥");
+    await click(hitTop());
+    await click(nav("データ"));
+    await waitFor(() => layerId() === "data", "⑪(計測が無い)");
+    await click(nav("コミュニティ"));
+    await waitFor(() => kv("onboardingDone")?.goCommunity === true, "コミュニティを開いた(goCommunity)");
+    await click(nav("計測"));
+    await waitFor(() => layerId() === "finish", "⑱");
+    expect(document.documentElement.getAttribute("data-ad-hold")).toBe("1");
+    await click(layer().querySelector('[data-coach-hit="all"]'));
+    await waitFor(() => kv("onboardingDone")?.finish === true, "finish の印");
+    await waitFor(() => document.documentElement.getAttribute("data-ad-hold") === null, "広告を始めてよい");
+  }, 40000);
 });

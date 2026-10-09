@@ -9,6 +9,7 @@ import {
   migrateOnboardingDone, onboardingFlagsForSavedSession, holeOf, placeCoachCard, targetVisible, leaveDurationMs,
   holesSplit, bandOfHole, holeClipPath,
   MEASURE_TAB_STEPS, MEASURE_STEPS_MIGRATED, TUNER_SUSTAIN_MS, useSustained,
+  finishReady, resumeCountsAsRelaunch, RELAUNCH_AFTER_HIDDEN_MS, MEASURE_STEP_TEXTS, CALENDAR_STEP_CHAIN,
   COACH2_MIGRATED, MEASURE_TAB_STEPS_LEGACY, DATA_TAB_STEPS, MEASURE_CHAPTER_FLAGS,
   COACH3_MIGRATED, adsAllowed, ONBOARDING_SHOWN_KEY,
   COACH4_MIGRATED, coachScrollPlan, floatingCovers, goCompareOpen, coachCameFromCompare, coachDuringNotice, COACH_WITH_NOTICE,
@@ -140,17 +141,17 @@ describe("文言(凍結仕様の表と本人の指示のとおり、一字一句
       expect(COACH_STEPS[id].flag, id).toBe(id);
     }
   });
-  it("【便BW】群と押す=済: 計測タブの9段・データタブの3段。押す=済は reedLinked・trend・idealSeen の3つで、群を持たない", () => {
+  // 【便CJ 2026-10-10 本人の実機の指摘「チュートリアルからいくつかパートがなくなってる」】群(計測タブの9段・データタブの3段をまとめて消す)をやめた。
+  // 外押しで一緒に飛ばすのは、⑨ の2つの文(同じ1段)と、⑫ → ⑬(⑬ の的は ⑫ で日を開かないと現れない)だけ。期待値は統括の仕様から手で書いた
+  it("【便CJ】外押しで一緒に飛ばす段: ⑨ の2つの文・⑫ → ⑬ だけ。他の段は自分だけ。押す=済は reedLinked・trend・idealSeen の3つで、群を持たない", () => {
     expect([...MEASURE_TAB_STEPS]).toEqual(["tuner", "metronome", "metroTempo", "metroStart", "goReeds", "reedLinked", "measure", "measureReed", "goData"]);
     expect([...DATA_TAB_STEPS]).toEqual(["calendarDay", "daySession", "trend"]);
     expect([...MEASURE_TAB_STEPS_LEGACY]).toEqual(["tuner", "metronome", "measure"]);
     const marks = Object.entries(COACH_STEPS).filter(([, s]) => s.markOnDismiss).map(([id]) => id).sort();
     expect(marks).toEqual(["idealSeen", "reedLinked", "trend"]);
     for (const id of marks) expect(COACH_STEPS[id].dismissWith, id).toBeUndefined();
-    for (const id of ["tuner", "metronome", "metroTempo", "metroStart", "goReeds", "measure", "measureReed", "goData"]) {
-      expect(COACH_STEPS[id].dismissWith, id).toBe(MEASURE_TAB_STEPS);
-    }
-    for (const id of ["calendarDay", "daySession"]) expect(COACH_STEPS[id].dismissWith, id).toBe(DATA_TAB_STEPS);
+    const groups = Object.fromEntries(Object.entries(COACH_STEPS).filter(([, s]) => s.dismissWith).map(([id, s]) => [id, [...s.dismissWith]]));
+    expect(groups).toEqual({ measure: ["measure", "measureReed"], measureReed: ["measure", "measureReed"], calendarDay: ["calendarDay", "daySession"] });
     // 的へスクロールするのは音の傾向カードの2段だけ
     expect(Object.entries(COACH_STEPS).filter(([, s]) => s.scrollIntoView).map(([id]) => id).sort()).toEqual(["idealSeen", "trend"]);
     // 【便BX】新しい段は群を持たない(到着・⑭'・⑰ は自分だけ)。群の定数は変えていない
@@ -885,8 +886,8 @@ describe("OnboardingCoach(済んだら溶ける / reduced-motion)", () => {
 // 期待値は仕様の表(pad / shape)と 375×812 の的の矩形から手で書いた(COACH_STEPS から読まない)。
 // ------------------------------------------------------------------
 const layerId = () => layer()?.getAttribute("data-coach-layer") ?? null;
-const drawBS = (candidates, { done = ALL_FALSE, hidden = false, onMark = null, extra = null } = {}) => act(async () => {
-  root.render(<><Nav />{extra}<OnboardingCoach candidates={candidates} done={done} hidden={hidden} onMark={onMark} /></>);
+const drawBS = (candidates, { done = ALL_FALSE, hidden = false, onMark = null, onDismiss = null, extra = null } = {}) => act(async () => {
+  root.render(<><Nav />{extra}<OnboardingCoach candidates={candidates} done={done} hidden={hidden} onMark={onMark} onDismiss={onDismiss} /></>);
 });
 const MetroBtn = () => <button type="button" data-coach="metronome" data-r="317,30,44,44">m</button>;
 // 375×812 の計測タブの的(環の箱 = 上部設定行の直下 〜 環の下端 / テンポ行 / 左上のリードの枠 / 下部タブの絵柄)
@@ -978,25 +979,32 @@ describe("【便BW】環の箱・メトロノームの的", () => {
   });
 });
 
-describe("【便BW】計測タブの段: 外を押したら群の9段とも、この起動の間は出さない(押す=済の ⑧ を除く)", () => {
-  for (const [first, how] of [["tuner", "受け"], ["metronome", "受け"], ["metroTempo", "受け"], ["goReeds", "受け"], ["measure", "カード"], ["goData", "受け"]]) {
-    it(`${first} の段で${how}を押すと消え、計測タブの9段とも出ない。印は立てない。他のタブの一手は出る`, async () => {
+// 【便CJ 2026-10-10 本人の実機の指摘「チュートリアルからいくつかパートがなくなってる」】群をやめた: 外押しはその段だけを飛ばす(この起動の間)。
+// 飛ばした段の id は onDismiss で知らせる(App.jsx が coachCandidates へ渡し、流れの次の段へ進む)。⑨ の2つの文だけは一緒に飛ばす。
+// 期待値は統括の仕様(「外押しで群が消えるのが本人の不満なら、群の範囲を見直す」)と本人の指摘から手で書いた
+describe("【便CJ】計測タブの段: 外を押したらその段だけを飛ばす(ほかの計測タブの段は出る)。押す=済の ⑧ は印を立てる", () => {
+  const ALL_MEASURE = ["tuner", "metronome", "metroTempo", "metroStart", "goReeds", "reedLinked", "measure", "measureReed", "goData"];
+  for (const [first, how, skipped] of [["tuner", "受け", ["tuner"]], ["metronome", "受け", ["metronome"]], ["metroTempo", "受け", ["metroTempo"]],
+    ["goReeds", "受け", ["goReeds"]], ["measure", "カード", ["measure", "measureReed"]], ["measureReed", "受け", ["measure", "measureReed"]], ["goData", "受け", ["goData"]]]) {
+    it(`${first} の段で${how}を押すと消え、onDismiss に ${skipped.join("・")} を知らせる。その段は出ず、ほかの計測タブの段は出る。印は立てない`, async () => {
       const marks = [];
+      const dismissed = [];
       const onMark = (f) => marks.push(f);
-      await drawBS([first], { onMark, extra: MEASURE_PAGE });
+      const onDismiss = (ids) => dismissed.push(ids);
+      await drawBS([first], { onMark, onDismiss, extra: MEASURE_PAGE });
       await frames();
       expect(layerId()).toBe(first);
       await clickOn(how === "カード" ? layer().querySelector(".coach-card") : layer().querySelector(".coach-hit"));
       expect(layer()).toBe(null);
-      for (const id of ["tuner", "metronome", "metroTempo", "metroStart", "goReeds", "reedLinked", "measure", "measureReed", "goData"]) {
-        await drawBS([id], { onMark, extra: MEASURE_PAGE });
+      expect(dismissed).toEqual([skipped]);
+      for (const id of ALL_MEASURE) {
+        await drawBS([id], { onMark, onDismiss, extra: MEASURE_PAGE });
         await frames(320);
-        expect(layer(), id).toBe(null);
+        await frames();
+        if (skipped.includes(id)) expect(layer(), id).toBe(null);
+        else expect(layerId(), id).toBe(id);
       }
       expect(marks).toEqual([]);
-      await drawBS(["reeds"], { onMark, extra: <button type="button" data-coach="reeds" data-r="305,697,56,56">+</button> });
-      await frames();
-      expect(layerId()).toBe("reeds");
     });
   }
   it("次の起動(部品を作り直す)では、まだ済んでいなければまた出る", async () => {
@@ -1081,18 +1089,28 @@ describe("【便BW】データタブの段: ⑫ 日のマス・⑬ 記録の行�
       expect(opened).toBe(1);
     });
   }
-  it("⑫ で外を押すと、データタブの3段(⑫⑬⑭)はこの起動の間は出さない。印は立てない。⑮ は群の外なので出る", async () => {
+  // 【便CJ】⑫ を飛ばすと ⑬ も飛ぶ(⑬ の的は ⑫ で日を開かないと現れない)。⑭ は飛ばさない(以前はデータタブの3段をまとめて消していた)
+  it("【便CJ】⑫ で外を押すと ⑫⑬ はこの起動の間は出さない(onDismiss に ⑫⑬)。⑭ と ⑮ は出る。印は立てない", async () => {
     const marks = [];
+    const dismissed = [];
     const onMark = (f) => marks.push(f);
-    await drawBS(["calendarDay", "daySession"], { onMark, extra: <DayCell /> });
+    const onDismiss = (ids) => dismissed.push(ids);
+    await drawBS(["calendarDay", "daySession"], { onMark, onDismiss, extra: <DayCell /> });
     await frames();
     await clickOn(layer().querySelector('[data-coach-hit="t"]'));
     expect(layer()).toBe(null);
-    for (const [ids, extra] of [[["daySession"], <DayRow key="r" />], [["trend"], <TrendCard key="t" r="14,300,347,380" />], [["calendarDay"], <DayCell key="c" />]]) {
-      await drawBS(ids, { onMark, extra });
+    expect(dismissed).toEqual([["calendarDay", "daySession"]]);
+    for (const [ids, extra] of [[["daySession"], <DayRow key="r" />], [["calendarDay"], <DayCell key="c" />]]) {
+      await drawBS(ids, { onMark, onDismiss, extra });
       await frames(320);
       expect(layer(), ids[0]).toBe(null);
     }
+    await drawBS(["trend"], { onMark, onDismiss, extra: <TrendCard key="t" r="14,300,347,380" /> });
+    await frames(320);
+    await frames();
+    expect(layerId()).toBe("trend");
+    await drawBS([], { onMark, onDismiss });
+    await frames(320);
     expect(marks).toEqual([]);
     await drawBS(["idealSeen"], { onMark, extra: <TrendCard r="14,300,347,380" /> });
     await frames(320);
@@ -1301,25 +1319,46 @@ describe("【便BY】⑥ リード登録: 穴は「リードを追加」の1つ(
 // ------------------------------------------------------------------
 describe("【便BX】どの段を出すか(到着・⑭'・⑰・⑱)", () => {
   const M = (done, o = {}) => coachCandidates({ topTab: "measure", done, micReady: true, ...o });
-  it("計測タブ ⑱: goMeasure・measure・goData 済で finish 未なら、マイクを待たずに finish だけ。どれか欠ければ普段の流れ", () => {
-    const d = doneWith("goMeasure", "measure", "goData");
+  // 【便CJ 2026-10-10 本人の実機の指摘「チュートリアルをいくつか飛ばしてると最後の計測しよう!が出なくなって…」・統括の仕様】⑱ の条件を替えた:
+  // 「計測タブの章・リード・データ・コミュニティの4つのタブを、案内の中で一度は開いた(または、その章の印が済んだか外押しで消した)うえで計測タブにいる」
+  // かつ「① が済んでいる(または外押しで消した)」。(便BX〜便CI の「goCommunity / goMeasure・measure・goData」は置き換えた)。期待値は仕様の文から手で書いた
+  it("【便CJ】計測タブ ⑱: ① が済み(か飛ばし)・リード / データ / コミュニティに触れていれば、マイクを待たずに finish だけ。1つでも欠ければ普段の流れ", () => {
+    const SEEN3 = ["reeds", "analysis", "community"];
+    // 開いたことが印に残っている(前の起動までに開いた)
+    const d = doneWith("tuner", "goReeds", "goData", "goCommunity");
     expect(M(d, { micReady: false })).toEqual(["finish"]);
     expect(M(d)).toEqual(["finish"]);
     expect(M(d, { metroPanelOpen: true, metronomeOn: true })).toEqual(["finish"]);   // 面の開閉も読まない
-    expect(M(doneWith("goMeasure", "measure", "goData", "finish"), { micReady: false })).toEqual([]);
-    // goData がまだ: micReady false なら何も出さない / true なら普段の結果(⑩)
-    expect(M(doneWith("goMeasure", "measure", "tuner", "metronome", "goReeds"), { micReady: false, hasSessions: true })).toEqual([]);
-    expect(M(doneWith("goMeasure", "measure", "tuner", "metronome", "goReeds"), { hasSessions: true })).toEqual(["goData"]);
-    // measure がまだ(計測を1件もせずに ⑰ まで来た人)→ ① から
-    expect(M(doneWith("goMeasure", "goData"))).toEqual(["tuner"]);
-    expect(M(doneWith("goMeasure", "goData"), { micReady: false })).toEqual([]);
-    // goMeasure も goCommunity もまだ → ⑱ は出ない
-    expect(M(doneWith("measure", "goData"), { micReady: false })).toEqual([]);
-    // 【便BX 審査 統括の裁定】コミュニティを見た(goCommunity)だけでも ⑱(参加・目安・「見る」は要らない)
-    expect(M(doneWith("goCommunity", "measure", "goData"), { micReady: false })).toEqual(["finish"]);
-    // 計測の前にコミュニティを覗いた人(measure・goData がまだ)には出さない(① から)
+    expect(M(doneWith("tuner", "goReeds", "goData", "goCommunity", "finish"), { micReady: false })).toEqual([]);
+    // 計測が0件でも(⑨ を飛ばした・計測しないままタブを回った人)、この起動で開いたタブで出る
+    expect(M(doneWith("tuner"), { micReady: false, seenTabs: SEEN3 })).toEqual(["finish"]);
+    // 1つでも欠ければ出ない(計測タブを開いただけでは数えない)
+    for (const tab of SEEN3) {
+      expect(M(doneWith("tuner"), { micReady: false, seenTabs: ["measure", ...SEEN3.filter((t) => t !== tab)] }), tab).toEqual([]);
+    }
+    // ① がまだ(済んでも飛ばしてもいない)なら出さない = 計測0件で何もしていない人に先に「終わり」を出さない(① から)
+    expect(M(ALL_FALSE, { seenTabs: ["measure", ...SEEN3] })).toEqual(["tuner"]);
+    expect(M(ALL_FALSE, { micReady: false, seenTabs: ["measure", ...SEEN3] })).toEqual([]);
+    expect(M(doneWith("goReeds", "goData", "goCommunity", "measure"))).toEqual(["tuner"]);
+    // ① を外押しで飛ばしていれば出る
+    expect(M(ALL_FALSE, { micReady: false, seenTabs: SEEN3, dismissed: ["tuner"] })).toEqual(["finish"]);
+    // 章の印(到着・段の印)でも、その章の段を外押しで飛ばしたことでも数える
+    expect(M(doneWith("tuner", "arriveReeds", "calendarDay", "adoptAverage"), { micReady: false })).toEqual(["finish"]);
+    expect(M(doneWith("tuner", "reeds", "trend", "join"), { micReady: false })).toEqual(["finish"]);
+    expect(M(doneWith("tuner"), { micReady: false, dismissed: ["reeds", "data", "adoptAverage"] })).toEqual(["finish"]);
+    // ⑩(計測タブの段)を飛ばしただけでは、データタブを開いたことにならない
+    expect(M(doneWith("tuner", "goReeds", "goCommunity"), { micReady: false, dismissed: ["goData"] })).toEqual([]);
+    // ⑤ を飛ばしただけでは、リードタブを開いたことにならない
+    expect(M(doneWith("tuner", "goData", "goCommunity"), { micReady: false, dismissed: ["goReeds"] })).toEqual([]);
+    // 計測の前にコミュニティを覗いた人(① がまだ)には出さない(① から)
     expect(M(doneWith("goCommunity"))).toEqual(["tuner"]);
-    expect(M(doneWith("goCommunity", "measure", "tuner", "metronome", "goReeds"), { hasSessions: true })).toEqual(["goData"]);
+  });
+  it("【便CJ】finishReady(⑱ の条件)は coachCandidates が読む純関数。案内が終わった(finish)あとは偽", () => {
+    expect(finishReady({ done: doneWith("tuner", "goReeds", "goData", "goCommunity") })).toBe(true);
+    expect(finishReady({ done: doneWith("tuner", "goReeds", "goData", "goCommunity", "finish") })).toBe(false);
+    expect(finishReady({ done: doneWith("tuner"), seenTabs: ["reeds", "analysis", "community"] })).toBe(true);
+    expect(finishReady({ done: doneWith("goReeds", "goData", "goCommunity") })).toBe(false);
+    expect(finishReady()).toBe(false);
   });
   // 【便BX 審査 統括の裁定】⑱ に「参加・目安にする・5秒以内の『見る』」が全部要って、どれかが欠けると案内が黙って止まっていた。3つの道を守る
   describe("【便BX 審査】⑱ への3つの道(参加を見送る・「見る」を押さない・「見る」の前にアプリを閉じる)", () => {
@@ -1481,7 +1520,9 @@ describe("【便BY】流れの順・【便CG】目印の作りは無い", () => 
     };
     run({ topTab: "measure", micReady: true }, 2);
     run({ topTab: "measure", micReady: true, metroPanelOpen: true }, 2);
-    run({ topTab: "measure", micReady: true, hasSelectedReed: true, hasSessions: true });
+    // 【便CJ】⑩ を出したら計測タブを離れる(本物ではデータタブを押した結果で goData が立つ。参加済みの人は ⑩ の印で4つのタブが揃うので、
+    // 計測タブに居続けると次に ⑱ が出る = 計測タブに戻ったときに出るのが ⑱ なのは本物でも同じ)
+    run({ topTab: "measure", micReady: true, hasSelectedReed: true, hasSessions: true }, 3);
     run({ topTab: "analysis", hasSessions: true });
     run({ topTab: "community" });
     run({ topTab: "analysis", hasSessions: true, idealRequested: true });
@@ -1524,6 +1565,162 @@ describe("【便CG】広告の帯を始めてよいか(adsAllowed)", () => {
     expect(ONBOARDING_SHOWN_KEY).toBe("onboardingShown");
     expect(ONBOARDING_FLAGS).not.toContain("onboardingShown");
     expect(Object.keys(normalizeOnboardingDone({ onboardingShown: true }))).not.toContain("onboardingShown");
+  });
+});
+
+// ------------------------------------------------------------------
+// 【便CJ 2026-10-10 本人の実機の指摘・統括の仕様】
+//   (1)「チュートリアルからいくつかパートがなくなってる」… 外押しはその段だけを飛ばし、流れの次の段へ進む(coachCandidates の dismissed)
+//   (4)「チュートリアルをいくつか飛ばしてると最後の計測しよう!が出なくなって一生広告でない」… ⑱ の条件(finishReady)と、2回目の起動の広げ方(resumeCountsAsRelaunch)
+// 期待値は統括の仕様の文と本人の指摘から手で書いた(実装の定数から逆算しない)。流れの順は上の FLOW(仕様 §4.5b の22枚)。
+// 【守っていないもの】本物の画面で的が見えること(的の矩形は onboardingApp.test.jsx の作り物・実寸は報告の dev サーバの通し)。
+// ------------------------------------------------------------------
+describe("【便CJ】外押しで飛ばした段の次へ進む(coachCandidates の dismissed)", () => {
+  const M = (done, o = {}) => coachCandidates({ topTab: "measure", done, micReady: true, ...o });
+  it("計測タブ: 飛ばした段の次の段を返す(① → ② → ⑤ → ⑨ → ⑩)。済んでいない段を飛ばしても流れは止まらない", () => {
+    expect(M(ALL_FALSE, { dismissed: ["tuner"] })).toEqual(["metronome"]);
+    expect(M(ALL_FALSE, { dismissed: ["tuner", "metronome"] })).toEqual(["goReeds"]);
+    expect(M(ALL_FALSE, { dismissed: ["tuner", "metronome", "goReeds"] })).toEqual(["measure"]);
+    // 面の中: ③ を飛ばすと ④(手を止めていれば)。④ も飛ばすと面の外の流れ
+    expect(M(doneWith("tuner", "metronome"), { metroPanelOpen: true, dismissed: ["metroTempo"] })).toEqual(["metroStart"]);
+    expect(M(doneWith("tuner", "metronome"), { metroPanelOpen: true, dismissed: ["metroTempo", "metroStart"] })).toEqual(["goReeds"]);
+    // 面が開いていて鳴っている間は ④ の次を出さない(今までどおり)
+    expect(M(doneWith("tuner", "metronome", "metroStart"), { metroPanelOpen: true, metronomeOn: true, dismissed: ["metroTempo"] })).toEqual([]);
+    // ⑧ はリードが出ていれば(押す=済なので飛ばすと印が立つ。飛ばした扱いの id が来ても次へ)
+    expect(M(doneWith("tuner", "metronome", "reeds"), { hasSelectedReed: true })).toEqual(["reedLinked"]);
+    expect(M(doneWith("tuner", "metronome", "reeds"), { hasSelectedReed: true, dismissed: ["reedLinked"] })).toEqual(["measureReed"]);
+    // ⑨ を飛ばすと、計測があれば ⑩・無ければ何も(⑩ は計測があるときだけ)
+    expect(M(doneWith("tuner", "metronome", "reeds", "reedLinked"), { hasSelectedReed: true, dismissed: ["measure", "measureReed"] })).toEqual([]);
+    expect(M(doneWith("tuner", "metronome", "reeds", "reedLinked"), { hasSelectedReed: true, hasSessions: true, dismissed: ["measure", "measureReed"] })).toEqual(["goData"]);
+    expect(M(doneWith("tuner", "metronome", "reeds", "measure"), { hasSessions: true, dismissed: ["goData"] })).toEqual([]);
+    // 飛ばしていない段は今までどおり(① がまだなら ①)
+    expect(M(ALL_FALSE)).toEqual(["tuner"]);
+    expect(M(ALL_FALSE, { dismissed: ["goReeds"] })).toEqual(["tuner"]);
+  });
+  it("データタブ: ⑫ を飛ばすと(⑬ も一緒に飛ぶ)⑭ へ進む。リード・コミュニティ・⑪ は飛ばした段を返さない", () => {
+    const A = (done, o = {}) => coachCandidates({ topTab: "analysis", done, hasSessions: true, ...o });
+    expect(A(doneWith("arriveData"))).toEqual(["calendarDay", "daySession"]);
+    expect(A(doneWith("arriveData"), { dismissed: [...CALENDAR_STEP_CHAIN] })).toEqual(["trend"]);
+    expect(A(doneWith("arriveData", "calendarDay"), { dismissed: ["daySession"] })).toEqual(["trend"]);
+    expect(A(doneWith("arriveData", "calendarDay", "daySession", "trend"), { dismissed: ["goCommunity"] })).toEqual([]);
+    expect(A(ALL_FALSE, { hasSessions: false, dismissed: ["data"] })).toEqual([]);
+    expect(coachCandidates({ topTab: "reeds", done: doneWith("arriveReeds"), dismissed: ["reeds"] })).toEqual([]);
+    expect(coachCandidates({ topTab: "community", done: doneWith("join", "arriveCommunity"), dismissed: ["adoptAverage"] })).toEqual([]);
+    // 到着カードは飛ばせない(どこを押しても「次へ」= 印が立つ)ので、id が来ても出す
+    expect(coachCandidates({ topTab: "reeds", done: ALL_FALSE, dismissed: ["arriveReeds"] })).toEqual(["arriveReeds"]);
+    expect([...MEASURE_STEP_TEXTS]).toEqual(["measure", "measureReed"]);
+  });
+});
+
+describe("【便CJ】22枚の通し・飛ばした人の ⑱・計測0件の人", () => {
+  // 本物の App と同じ形で回す: 出た段の印を立て、タブを移ったら seenTabs に足し、外押しは dismissed に足す。
+  // ⑤⑩⑭'⑰ と goCompare は「タブを移った結果」で印が立つ(App.jsx)ので、ここでもタブを移した所で立てる
+  const sim = () => {
+    let done = { ...ALL_FALSE };
+    const seenTabs = [];
+    const dismissed = [];
+    const shown = [];
+    const go = (tab) => { if (!seenTabs.includes(tab)) seenTabs.push(tab); };
+    const cand = (ctx) => coachCandidates({ ...ctx, done, seenTabs, dismissed });
+    const mark = (...flags) => { done = { ...done, ...Object.fromEntries(flags.map((f) => [f, true])) }; };
+    const show = (ctx) => { const c = cand(ctx); shown.push(c[0] ?? null); return c[0] ?? null; };
+    return { get done() { return done; }, seenTabs, dismissed, shown, go, cand, mark, show };
+  };
+  it("入れたての人(印が空・外押しなし)は、仕様 §4.5b の22枚が流れの順に全部出て ⑱ で終わる", () => {
+    const t = sim();
+    const M = { topTab: "measure", micReady: true };
+    t.go("measure");
+    t.mark(t.show(M)); t.mark(t.show(M));                                                        // ① ②
+    t.mark(t.show({ ...M, metroPanelOpen: true })); t.mark(t.show({ ...M, metroPanelOpen: true }));   // ③ ④
+    expect(t.show(M)).toBe("goReeds");                                                           // ⑤
+    t.go("reeds"); t.mark("goReeds");
+    t.mark(t.show({ topTab: "reeds" })); t.mark(t.show({ topTab: "reeds" }));                    // 到着・⑥
+    expect(t.show({ topTab: "reeds" })).toBe("reedsMeasure");                                    // ⑦(押して計測タブへ)
+    t.go("measure");
+    const MR = { ...M, hasSelectedReed: true };
+    t.mark(t.show(MR));                                                                          // ⑧
+    expect(t.show(MR)).toBe("measureReed");                                                      // ⑨
+    t.mark(...onboardingFlagsForSavedSession({ id: "s1", reedId: "r1" }));
+    expect(t.show({ ...MR, hasSessions: true })).toBe("goData");                                 // ⑩
+    t.go("analysis"); t.mark("goData");
+    for (let i = 0; i < 4; i++) t.mark(t.show({ topTab: "analysis", hasSessions: true }));      // 到着・⑫⑬⑭
+    expect(t.show({ topTab: "analysis", hasSessions: true })).toBe("goCommunity");               // ⑭'
+    t.go("community"); t.mark("goCommunity");
+    expect(t.cand({ topTab: "community" })).toEqual([]);                                         // 参加の画面(段ではない)
+    t.mark("join");
+    for (let i = 0; i < 2; i++) t.mark(t.show({ topTab: "community" }));                         // 到着・⑯
+    expect(t.show({ topTab: "community" })).toBe("goCompare");                                   // ⑯'
+    t.go("analysis"); t.mark("goCompare");
+    t.mark(t.show({ topTab: "analysis", hasSessions: true, idealRequested: true }));            // ⑮
+    expect(t.show({ topTab: "analysis", hasSessions: true })).toBe("goMeasure");                 // ⑰
+    t.go("measure"); t.mark("goMeasure");
+    t.mark(t.show({ ...MR, hasSessions: true }));                                                // ⑱
+    expect(t.shown.map((id) => (id === "measureReed" ? "measure" : id))).toEqual(FLOW);
+    expect(t.shown).toHaveLength(22);
+    expect(t.done.finish).toBe(true);
+    for (const tab of ["measure", "reeds", "analysis", "community"]) expect(t.cand({ topTab: tab, micReady: true, hasSessions: true }), tab).toEqual([]);
+  });
+  it("入れたての人: ⑱ は流れの途中(⑧ の時点・⑩ の時点)では出ない(コミュニティをまだ開いていない)", () => {
+    const d = doneWith("tuner", "metronome", "metroTempo", "metroStart", "goReeds", "arriveReeds", "reeds");
+    expect(coachCandidates({ topTab: "measure", done: d, micReady: true, hasSelectedReed: true, seenTabs: ["measure", "reeds"] })).toEqual(["reedLinked"]);
+    const d10 = { ...d, reedLinked: true, measure: true, reedsMeasure: true };
+    expect(coachCandidates({ topTab: "measure", done: d10, micReady: true, hasSelectedReed: true, hasSessions: true, seenTabs: ["measure", "reeds"] })).toEqual(["goData"]);
+  });
+  it("いくつか飛ばした人(本人の指摘): ① を見たあと ②⑤⑨ を外押しで飛ばし、計測しないまま4つのタブを開いて計測タブへ戻ると ⑱ が出る", () => {
+    const t = sim();
+    const M = { topTab: "measure", micReady: true };
+    t.go("measure");
+    t.mark(t.show(M));                                         // ① 吹いた
+    expect(t.show(M)).toBe("metronome"); t.dismissed.push("metronome");   // ② 外押し
+    expect(t.show(M)).toBe("goReeds"); t.dismissed.push("goReeds");       // ⑤ 外押し
+    expect(t.show(M)).toBe("measure"); t.dismissed.push("measure", "measureReed");   // ⑨ 外押し
+    expect(t.cand(M)).toEqual([]);                            // 計測タブはここで止まる(⑱ はまだ)
+    t.go("reeds"); t.mark("goReeds");
+    t.go("analysis");                                          // 計測が無いので ⑪(goData は立たない)
+    expect(t.cand({ topTab: "analysis", hasSessions: false })).toEqual(["data"]);
+    t.go("community"); t.mark("goCommunity");
+    t.go("measure");
+    expect(t.cand(M)).toEqual(["finish"]);
+    expect(t.cand({ ...M, micReady: false })).toEqual(["finish"]);
+    // 便CI までの条件(計測と goData が要る)では出なかった形であることの対照
+    expect(t.done.measure || t.done.goData).toBe(false);
+  });
+  it("計測0件で ① をまだ済ませていない人には、4つのタブを先に回っても ⑱ を先に出さない(① から)", () => {
+    const t = sim();
+    for (const tab of ["measure", "reeds", "analysis", "community"]) t.go(tab);
+    t.mark("goReeds", "goCommunity");
+    expect(t.cand({ topTab: "measure", micReady: true })).toEqual(["tuner"]);
+    expect(t.cand({ topTab: "measure", micReady: false })).toEqual([]);
+    t.mark("tuner");                                           // 吹いて ① が済むと
+    expect(t.cand({ topTab: "measure", micReady: true })).toEqual(["finish"]);
+  });
+});
+
+// 【便CJ 統括の裁定】(初版の (c)「案内のカードが 10 秒出ない状態が続いたら始める」は、案内の途中で帯が出る道があったので外した)
+// (b)「2回目以降の起動」を広げた: 初めて案内のカードが出たあと、アプリが裏に回って 30 分以上たってから前に戻ったら2回目の起動として扱う。
+// 期待値は統括の裁定の文(「29 分では始まらない・31 分で始まる」)から手で書いた
+describe("【便CJ】裏に回って 30 分以上たってから前に戻ったら、2回目の起動として扱う(resumeCountsAsRelaunch)", () => {
+  const MIN = 60 * 1000;
+  const T0 = Date.UTC(2026, 9, 10, 3, 0, 0);
+  it("30 分は1つの定数(統括の裁定の値)", () => {
+    expect(RELAUNCH_AFTER_HIDDEN_MS).toBe(30 * MIN);
+  });
+  it("29 分では偽・30 分ちょうどと 31 分では真(裏に回ったときに案内のカードがもう出ていた)", () => {
+    expect(resumeCountsAsRelaunch({ shownAtHide: true, hiddenAt: T0, now: T0 + 29 * MIN })).toBe(false);
+    expect(resumeCountsAsRelaunch({ shownAtHide: true, hiddenAt: T0, now: T0 + 30 * MIN })).toBe(true);
+    expect(resumeCountsAsRelaunch({ shownAtHide: true, hiddenAt: T0, now: T0 + 31 * MIN })).toBe(true);
+  });
+  it("偽: 案内のカードが出る前に裏に回った・時刻が読めない・時計が戻った", () => {
+    expect(resumeCountsAsRelaunch({ shownAtHide: false, hiddenAt: T0, now: T0 + 60 * MIN })).toBe(false);
+    expect(resumeCountsAsRelaunch({ shownAtHide: true, hiddenAt: null, now: T0 + 60 * MIN })).toBe(false);
+    expect(resumeCountsAsRelaunch({ shownAtHide: true, hiddenAt: T0, now: NaN })).toBe(false);
+    expect(resumeCountsAsRelaunch({ shownAtHide: true, hiddenAt: T0, now: T0 - 60 * MIN })).toBe(false);
+    expect(resumeCountsAsRelaunch()).toBe(false);
+  });
+  it("adsAllowed は便CG のまま((a) ⑱ か (b) 2回目の起動。(c) は無い)", () => {
+    expect(adsAllowed({ loaded: true, readOk: true, done: ALL_FALSE, shownBefore: false, idleReached: true })).toBe(false);
+    expect(Object.keys(onboardingModule)).not.toContain("coachIdle");
+    expect(Object.keys(onboardingModule)).not.toContain("COACH_IDLE_ADS_MS");
   });
 });
 

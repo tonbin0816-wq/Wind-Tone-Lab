@@ -25515,6 +25515,9 @@ console.log("\n========== 検証58: 便M アイコンの編集の置き場所 ==
     return b < 0 ? comm58.slice(a) : comm58.slice(a, b);
   };
   const view58 = cut58("export function ProfileView(");
+  // 【便CJ 2026-10-10】アイコンと鉛筆の印は AvatarEditHead に切り出した(マイページと最初のプロフィールの入力が同じ部品を使う)。DOM は便CI のまま
+  const head58 = cut58("function AvatarEditHead(", "export function ProfileView(");
+  const form58 = cut58("export function ProfileForm(", "function AvatarEditHead(");
 
   check("58.0 表示画面を読めている", view58.length > 2000, `${view58.length}文字`);
 
@@ -25522,35 +25525,42 @@ console.log("\n========== 検証58: 便M アイコンの編集の置き場所 ==
   check("58.1 M1 アイコンの欄(Field label=\"アイコン\")がどこにも無い",
     countIn58(comm58, /<Field label="アイコン">/g) === 0);
   // 選び方の部品そのものは残る(表示画面のシートが使う)。使い手は**1つだけ**。
-  check("58.1 M1 AvatarPicker を使うのは表示画面のシート1箇所だけ",
-    countIn58(comm58, /<AvatarPicker/g) === 1 && /<AvatarPicker/.test(view58),
+  // 【便CJ 2026-10-10 本人「一番最初のプロフィール作成の時にアイコン設定も追加 / 通常のプロフィール編集は今のままでok」】
+  // 使い手は2つ: 表示画面のシートと、最初のプロフィールの入力(初回だけ = firstCreate の枝の中)のシート。編集のフォームには出ない
+  check("58.1 M1【便CJ】AvatarPicker を使うのは表示画面のシートと、最初のプロフィールの入力(初回だけ)のシートの2箇所",
+    countIn58(comm58, /<AvatarPicker/g) === 2 && /<AvatarPicker/.test(view58)
+    && /\{firstCreate \? \([\s\S]*?<BottomSheet ariaLabel="アイコンを変更"[\s\S]*?<AvatarPicker[\s\S]*?\) : null\}/.test(form58),
     `${countIn58(comm58, /<AvatarPicker/g)}箇所`);
   // 保存する値としては残す(初回作成の既定・編集での持ち回り)。
-  check("58.1 M1 フォームは今の絵柄を持ち回る(保存の値としては残る)",
-    /const icon = initial\?\.icon \?\? AVATAR_ICONS\[0\];/.test(comm58)
-    && /const iconColor = initial\?\.iconColor \?\? AVATAR_COLOR_MIN;/.test(comm58));
+  // 【便CJ】編集(initial がある)は今の絵柄を持ち回るまま。初回の作成だけ、選んだ絵柄(既定は一覧の先頭と色1)
+  check("58.1 M1 フォームは今の絵柄を持ち回る(保存の値としては残る)。【便CJ】初回の作成だけ選んだ絵柄(既定は先頭・色1)",
+    /const firstCreate = !initial;/.test(form58)
+    && /const \[avatarPick, setAvatarPick\] = useState\(\(\) => \(\{ icon: AVATAR_ICONS\[0\], iconColor: AVATAR_COLOR_MIN \}\)\);/.test(form58)
+    && /const icon = firstCreate \? avatarPick\.icon : \(initial\?\.icon \?\? AVATAR_ICONS\[0\]\);/.test(form58)
+    && /const iconColor = firstCreate \? avatarPick\.iconColor : \(initial\?\.iconColor \?\? AVATAR_COLOR_MIN\);/.test(form58));
   check("58.1 M1 フォームに絵柄の setter はもう無い(触らないので state ではない)",
     countIn58(comm58, /setIcon\(/g) === 0 && countIn58(comm58, /setIconColor\(/g) === 0);
 
   // --- 58.2 表示画面のアイコンが編集の導線 ------------------------------------
-  check("58.2 M2 アイコンは押せる(<button> + 読み上げ「アイコンを変更」)",
-    /aria-label="アイコンを変更"/.test(view58) && /onClick=\{openAvatar\}/.test(view58));
+  check("58.2 M2 アイコンは押せる(<button> + 読み上げ「アイコンを変更」)。【便CJ】印は AvatarEditHead・表示画面は openAvatar を渡す",
+    /aria-label="アイコンを変更"/.test(head58) && /onClick=\{onEdit\}/.test(head58)
+    && /<AvatarEditHead\n/.test(view58) && /onEdit=\{openAvatar\}/.test(view58));
   check("58.2 M2 押すと開くのはシート(画面は変わらない)。状態は aria-expanded で返す",
-    /aria-expanded=\{avatarOpen\}/.test(view58)
+    /editExpanded=\{avatarOpen\}/.test(view58) && /aria-expanded=\{editExpanded\}/.test(head58)
     && /<BottomSheet ariaLabel="アイコンを変更"/.test(view58));
   check("58.2 M2 当たり判定はアイコンの円そのもの(64 なので --tap-min を超える)",
     /<Avatar icon=\{profile\?\.icon \?\? AVATAR_ICONS\[0\]\}[^>]*size=\{64\}/.test(view58));
 
   // --- 58.3 印は鉛筆 ----------------------------------------------------------
   check("58.3 M3 印は鉛筆(カメラではない)",
-    /<Pencil size=\{13\} strokeWidth=\{1\.9\} \/>/.test(view58)
+    /<Pencil size=\{13\} strokeWidth=\{1\.9\} \/>/.test(head58)
     && !/Camera/.test(comm58));
   check("58.3 M3 印の直径は 64 の 3/8 = 24 で、定数にしてある",
     /const AVATAR_EDIT_BADGE_PX = 24;/.test(comm58)
-    && /width: AVATAR_EDIT_BADGE_PX, height: AVATAR_EDIT_BADGE_PX/.test(view58));
+    && /width: AVATAR_EDIT_BADGE_PX, height: AVATAR_EDIT_BADGE_PX/.test(head58));
   check("58.3 M3 印はアイコンの右下(地は --c-ink / 線は --c-surface)",
-    /position: "absolute", right: 0, bottom: 0/.test(view58)
-    && /background: "var\(--c-ink\)", color: "var\(--c-surface\)"/.test(view58));
+    /position: "absolute", right: 0, bottom: 0/.test(head58)
+    && /background: "var\(--c-ink\)", color: "var\(--c-surface\)"/.test(head58));
 
   // --- 58.4 書き込み ----------------------------------------------------------
   // 【便AH 2026-09-23 決定4】「写真をやめる」ボタンは作らない ── **絵柄を選ぶことが
@@ -26492,8 +26502,9 @@ console.log("\n========== 検証63: 束4 プロフィール編集の入力欄と
   {
     const payload63 = (form63.match(/await onSubmit\(\{[\s\S]*?\n {6}\}\);/) || [""])[0];
     const keys63 = (payload63.match(/^ {8}(\w+)[,:]/gm) || []).map((s) => s.trim().replace(/[,:]$/, ""));
-    check("63.5 onSubmit に渡す11キーが着手前と同一(位置も名前も変えていない)",
-      keys63.join(" ") === "nickname icon iconColor saxTypes position startYear genres ensembles ageConfirmed isPublic gear",
+    // 【便CJ 2026-10-10】最初のプロフィールの入力で選んだ写真(photoBlob)を末尾に足した(文書には入らない。buildProfileDoc は読まない・送るのは親)
+    check("63.5 onSubmit に渡す11キーが着手前と同一(位置も名前も変えていない)。【便CJ】末尾に photoBlob(初回の写真)",
+      keys63.join(" ") === "nickname icon iconColor saxTypes position startYear genres ensembles ageConfirmed isPublic gear photoBlob",
       keys63.join(" ") || "取り出せない");
     // 【便AI 2026-09-24】初期値は旧い語を読み替える positionForEdit を通すようにした。
     // positionForEdit は必ず文字列を返す(未選択は "")ので、「1つの文字列で渡る」は変わらない。
@@ -32411,7 +32422,10 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
       && cnt("getAuth(app)") === 1
       && /import \{ getAuth, initializeAuth, indexedDBLocalPersistence \} from "firebase\/auth";/.test(fbK)
       && /import \{ isNativeShell \} from "\.\.\/shell\/native\.js";/.test(fbK)
-      && /cached = \{ app, auth, db: getFirestore\(app\) \};/.test(fbK));
+      // 【便CJ 統括の裁定】Firestore は殻だけ長いポーリングを強制(initializeFirestore)、Web は今までどおり getFirestore(app)
+      && cnt("const db = isNativeShell() ? initializeFirestore(app, SHELL_FIRESTORE_SETTINGS) : getFirestore(app);") === 1
+      && /export const SHELL_FIRESTORE_SETTINGS = Object\.freeze\(\{ experimentalForceLongPolling: true \}\);/.test(fbK)
+      && /cached = \{ app, auth, db \};/.test(fbK));
   }
 
   // --- K.4 capacitor.config.json(付録A) --------------------------------------------------------------------------
@@ -32956,10 +32970,14 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
       && /const ad = document\.documentElement\.hasAttribute\("data-ad-preview"\) && !isAdHeld\(\) \? 1 : 0;/.test(app)
       && (() => { const c = codeOf(readA("src/index.css")); const i = c.indexOf(':root[data-ad-preview="1"] {'); const j = c.indexOf(':root[data-ad-hold="1"] {\n  --ad-h: 0px;\n}'); return i > 0 && j > i; })());
     check("K.21 【便CG】adsOk = adsAllowed({ 見本・印と onboardingShown の読み込み・読めたか・案内の印・起動の最初に読んだ onboardingShown })。onShown は見本では本物の印に触らない",
-      /const adsOk = adsAllowed\(\{\n    preview: tutorialPreview,\n    loaded: onboardingLoaded && onboardingShownLoaded,\n    readOk: onboardingReadOk && onboardingShownReadOk,\n    done: coachDone,\n    shownBefore: shownAtLaunchRef\.current === true,\n  \}\);/.test(app)
+      // 【便CJ 統括の裁定】(b) に「裏に回って 30 分以上たってから前に戻った」(resumedAsRelaunch)を足す。初版の (c) idleReached は外した
+      /const adsOk = adsAllowed\(\{\n    preview: tutorialPreview,\n    loaded: onboardingLoaded && onboardingShownLoaded,\n    readOk: onboardingReadOk && onboardingShownReadOk,\n    done: coachDone,\n    shownBefore: shownAtLaunchRef\.current === true \|\| resumedAsRelaunch,\n  \}\);/.test(app)
+      && /if \(hidden && resumeCountsAsRelaunch\(\{ shownAtHide: hidden\.shown, hiddenAt: hidden\.at, now: Date\.now\(\) \}\)\) setResumedAsRelaunch\(true\);/.test(app)
+      && !/idleReached|coachIdle|COACH_IDLE_ADS_MS/.test(app)
       && /if \(shownAtLaunchRef\.current === null && onboardingShownLoaded\) shownAtLaunchRef\.current = onboardingShown === true;/.test(app)
       && /const markCoachShown = useCallback\(\(\) => \{\n    if \(tutorialPreview\) return;\n    setOnboardingShown\(true\);\n  \}, \[setOnboardingShown, tutorialPreview\]\);/.test(app)
-      && /\n        onShown=\{markCoachShown\}\n      \/>/.test(app));
+      // 【便CJ】onShown の次に外押しの知らせ onDismiss
+      && /\n        onShown=\{markCoachShown\}\n        onDismiss=\{markCoachDismissed\}\n      \/>/.test(app));
     // 【殻 S3 統括の裁定】帯と下部タブの間に押せないすき間 --sp-2(地は塗らない)。見本の帯も殻と同じ置き方
     check("K.21 見本の帯: 下端 = 下部タブ + 安全域 + --sp-2・高さ = --ad-h − --sp-2。index.css の見本の --ad-h = 50px + --sp-2",
       /bottom: "calc\(var\(--nav-h\) \+ env\(safe-area-inset-bottom\) \+ var\(--sp-2\)\)",\n\s*height: "calc\(var\(--ad-h\) - var\(--sp-2\)\)",/.test(app)
@@ -33068,7 +33086,8 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     stepsBlk.length > 2000 && !/target: null/.test(stepsBlk) && !/anchor:/.test(stepsBlk) && !/\n  dataSeen: \{/.test(stepsBlk),
     `${(stepsBlk.match(/target: null/g) || []).length}件`);
   check("BW.1 ① tuner の的はチューナーの帯・角丸の矩形・pad 0",
-    /target: '\[data-coach="tuner"\]', pad: 0, shape: "rect", dismissWith: MEASURE_TAB_STEPS,/.test(stepOf("tuner")));
+    // 【便CJ】群(dismissWith: MEASURE_TAB_STEPS)は外した(外押しはその段だけを飛ばす)
+    /target: '\[data-coach="tuner"\]', pad: 0, shape: "rect",$/.test(stepOf("tuner")) && !/dismissWith/.test(stepOf("tuner")));
   check("BW.1 ⑮ idealSeen(本人裁定)の的は音の傾向カード・文は「みんなの平均を目安にしました / my平均と目安を重ねて見られます」・押す=済",
     /title: "みんなの平均を目安にしました", line: "my平均と目安を重ねて見られます",/.test(stepOf("idealSeen"))
     && /target: '\[data-coach="trend"\]', pad: 0, shape: "rect", markOnDismiss: true, scrollIntoView: true,/.test(stepOf("idealSeen")));
@@ -33084,12 +33103,15 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     /case "analysis": \{\n\s*if \(idealRequested && !d\.idealSeen\) return \["idealSeen"\];\n\s*if \(!sessionsKnown\) return \[\];/.test(cc[2] || "")
     // 【便BX】⑰ goMeasure の条件(d.idealSeen && !d.goMeasure)で 3 → 4
     && (String(cc[2]).match(/idealSeen/g) || []).length === 4
-    && /if \(d\.daySession && !d\.trend && !d\.idealSeen\) out\.push\("trend"\);/.test(cc[2] || ""));
+    // 【便CJ】⑬ を飛ばした(⑫ を飛ばすと ⑬ も飛ぶ)なら ⑭ へ進む
+    && /if \(\(d\.daySession \|\| skip\.has\("daySession"\)\) && !d\.trend && !d\.idealSeen\) out\.push\("trend"\);/.test(cc[2] || ""));
   // 【便BW 審査 統括の裁定】面の中の分岐は ③④ が済むまでだけ。済めば面が開いていても ⑤→⑧→⑨→⑩ に合流する
   // (面はタブをまたいで開いたままなので、⑦ の「計測」で戻ると流れが止まっていた)。鳴っている間は ④ の次を出さない
   check("BW.2 面が開いている間の分岐は ③④ が済むまでだけ・鳴っている間は ④ の次を出さない・済めば ⑤→⑧→⑨→⑩ に合流",
     // 【便BW 再審査】④ はテンポ行に触れずに TUNER_SUSTAIN_MS 経ってから(metroTempoQuiet)
-    /if \(metroPanelOpen && !d\.metroTempo\) return \["metroTempo"\];\n\s*if \(metroPanelOpen && !d\.metroStart\) return metroTempoQuiet \? \["metroStart"\] : \[\];\n\s*if \(metroPanelOpen && metronomeOn\) return \[\];\n\s*if \(!d\.goReeds && !d\.reeds\) return \["goReeds"\];\n\s*if \(hasSelectedReed && !d\.reedLinked\) return \["reedLinked"\];/.test(cc[2] || "")
+    // 【便CJ】「済んでいない」は open(id) = 印が無く・この起動で飛ばしていない(飛ばした段の次へ進む)
+    /if \(metroPanelOpen && open\("metroTempo"\)\) return \["metroTempo"\];\n(?:\s*\/\/[^\n]*\n)*\s*if \(metroPanelOpen && open\("metroStart"\)\) return metroTempoQuiet \? \["metroStart"\] : \[\];\n(?:\s*\/\/[^\n]*\n)*\s*if \(metroPanelOpen && metronomeOn\) return \[\];\n\s*if \(!d\.reeds && open\("goReeds"\)\) return \["goReeds"\];\n\s*if \(hasSelectedReed && open\("reedLinked"\)\) return \["reedLinked"\];/.test(cc[2] || "")
+    && /const open = \(id\) => !d\[COACH_STEPS\[id\]\.flag\] && !skip\.has\(id\);/.test(cc[2] || "")
     && !/if \(metroPanelOpen\) \{/.test(cc[2] || ""));
 
   // --- BW.3 OnboardingCoach: 的なしの道を外した・的へスクロールは1回 --------------------------------
@@ -33154,7 +33176,9 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
   check("BW.5 <OnboardingCoach> の候補に hasSelectedReed と idealRequested: coachRequest === \"idealSeen\"。hidden の式は【便BZ】の形で一字一句",
     /metroPanelOpen, metronomeOn: metronomeOnForCoach, metroTempoQuiet, hasSelectedReed, idealRequested: coachRequest === "idealSeen" \}\)/.test(coachBlkBZ)
     && /\n\s*notice, topTab,$/.test(coachBlkBZ) && coachCall.includes("candidates={coachWithNotice.candidates}")
-    && coachCall.includes("hidden={!coachReady || isRecording || anySheetOpen || errorScrimShown || saveConfirmShown || isAnalyzingUpload || coachWithNotice.hidden}"));
+    // 【便CJ】hidden の式は const coachHidden の1か所(<OnboardingCoach> と (c) の時計 coachIdle が同じ式を読む)
+    && coachCall.includes("hidden={coachHidden}")
+    && app.includes("const coachHidden = !coachReady || isRecording || anySheetOpen || errorScrimShown || saveConfirmShown || isAnalyzingUpload || coachWithNotice.hidden;"));
   check("BW.5 見本の初期値の両方と onboardingReady に COACH2_MIGRATED(【便BX】と COACH3_MIGRATED・【便BZ】と COACH4_MIGRATED)",
     (app.match(/\[MEASURE_STEPS_MIGRATED\]: true, \[COACH2_MIGRATED\]: true, \[COACH3_MIGRATED\]: true, \[COACH4_MIGRATED\]: true \}/g) || []).length === 2
     && /onboardingDone\[MEASURE_STEPS_MIGRATED\] && onboardingDone\[COACH2_MIGRATED\] && onboardingDone\[COACH3_MIGRATED\]\n\s*&& onboardingDone\[COACH4_MIGRATED\];/.test(app));
@@ -33346,17 +33370,20 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
 
   // --- BX.2 coachCandidates の分岐 ----------------------------------------------------------------------
   const cc = (/export function coachCandidates\(\{([\s\S]*?)\}\) \{([\s\S]*?)\n\}/.exec(ob) || [])[2] || "";
-  check("BX.2 ⑱ は計測タブの先頭(if (!micReady) return []; の直前)",
-    /case "measure": \{\n\s*if \(\(d\.goCommunity \|\| d\.goMeasure\) && d\.measure && d\.goData && !d\.finish\) return \["finish"\];\n\s*if \(!micReady\) return \[\];/.test(cc));
+  // 【便CJ 2026-10-10】⑱ の条件は finishReady(4つのタブを案内の中で開いた・① が済んだか飛ばした)。置き場所は今までどおり計測タブの先頭
+  check("BX.2 ⑱ は計測タブの先頭(if (!micReady) return []; の直前)。【便CJ】条件は finishReady",
+    /case "measure": \{\n(?:\s*\/\/[^\n]*\n)*\s*if \(finishReady\(\{ done: d, dismissed, seenTabs \}\)\) return \["finish"\];\n\s*if \(!micReady\) return \[\];/.test(cc)
+    && !/d\.measure && d\.goData/.test(cc));
   check("BX.2 到着: リードタブの先頭・データタブは if (!hasSessions) の後・コミュニティは join の後",
     /case "reeds": \{\n\s*if \(!d\.arriveReeds\) return \["arriveReeds"\];/.test(cc)
-    && /if \(!hasSessions\) return !d\.measure \? \["data"\] : \[\];\n\s*if \(!d\.arriveData\) return \["arriveData"\];/.test(cc)
+    && /if \(!hasSessions\) return keep\(!d\.measure \? \["data"\] : \[\]\);\n(?:\s*\/\/[^\n]*\n)*\s*if \(!d\.arriveData\) return \["arriveData"\];/.test(cc)
     // 【便BZ】⑯ の次に goCompare(goCompareOpen = 目安にした・比べに行っていない・⑮ を見ていない・終わっていない)
-    && /case "community": \{\n\s*if \(!d\.join\) return \[\];\n\s*if \(!d\.arriveCommunity\) return \["arriveCommunity"\];\n\s*if \(!d\.adoptAverage\) return \["adoptAverage"\];\n(?:\s*\/\/[^\n]*\n)?\s*return goCompareOpen\(d\) \? \["goCompare"\] : \[\];/.test(cc)
+    // 【便CJ】飛ばした段は返さない(keep)。到着は飛ばせないので keep を通さない
+    && /case "community": \{\n\s*if \(!d\.join\) return \[\];\n(?:\s*\/\/[^\n]*\n)*\s*if \(!d\.arriveCommunity\) return \["arriveCommunity"\];\n\s*if \(!d\.adoptAverage\) return keep\(\["adoptAverage"\]\);\n(?:\s*\/\/[^\n]*\n)?\s*return keep\(goCompareOpen\(d\) \? \["goCompare"\] : \[\]\);/.test(cc)
     && /export function goCompareOpen\(d\) \{\n\s*const x = d \?\? \{\};\n\s*return Boolean\(x\.adoptAverage\) && !x\.goCompare && !x\.idealSeen && !x\.finish;\n\}/.test(ob));
   // 【便BX 審査 統括の裁定】⑰ は目安にしただけ(adoptAverage)でも・終わった後は出さない
   check("BX.2 ⑭' は参加済みの人に出さない・⑰ は ⑮ か目安にしたあと(データタブの並びの後ろ・終わった後は出さない)",
-    /if \(d\.trend && !d\.join && !d\.goCommunity\) out\.push\("goCommunity"\);\n\s*if \(\(d\.idealSeen \|\| d\.adoptAverage\) && !d\.goMeasure && !d\.finish\) out\.push\("goMeasure"\);\n\s*return out;/.test(cc));
+    /if \(d\.trend && !d\.join && !d\.goCommunity\) out\.push\("goCommunity"\);\n(?:\s*\/\/[^\n]*\n)*\s*if \(\(d\.idealSeen \|\| d\.adoptAverage\) && !d\.goMeasure && !d\.finish\) out\.push\("goMeasure"\);\n\s*return keep\(out\);/.test(cc));
 
   // --- BX.3 部品: 到着・advance・章の目印 ------------------------------------------------------------------
   const adv = (/const advance = \(e\) => \{([\s\S]*?)\n  \};/.exec(ob) || [])[1] || "";
@@ -33386,11 +33413,14 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     && !/coach-progress|coachProgress|COACH_ORDER/.test(app));
   // 【便CG 2026-10-09 統括の裁定】広告の帯を始めてよいか(adsAllowed)。(a) ⑱ が済んだ (b) 2回目以降の起動。見本は見本の finish だけ。読めない起動は今までどおり
   check("BX.3 【便CG】adsAllowed の式(見本は finish だけ・読み込み前は始めない・読めない起動は始める・finish か起動の最初の onboardingShown)・鍵は onboardingShown",
+    // 【便CJ 統括の裁定】初版の (c) は外した(式は便CG のまま)。30 分の判定は resumeCountsAsRelaunch(定数 RELAUNCH_AFTER_HIDDEN_MS)
     /export function adsAllowed\(\{ preview = false, loaded = false, readOk = false, done = null, shownBefore = false \} = \{\}\) \{\n  if \(preview\) return done\?\.finish === true;\n  if \(!loaded\) return false;\n  if \(!readOk\) return true;\n  return done\?\.finish === true \|\| shownBefore === true;\n\}/.test(ob)
+    && /export const RELAUNCH_AFTER_HIDDEN_MS = 30 \* 60 \* 1000;/.test(ob)
     && /export const ONBOARDING_SHOWN_KEY = "onboardingShown";/.test(ob)
     && !(listOf("ONBOARDING_FLAGS", ob) || ["onboardingShown"]).includes("onboardingShown"));
   check("BX.3 【便CG】OnboardingCoach の onShown: 測り終えて見えているカード(view.measured・溶けていない)で、部品の間に1回だけ",
-    /export function OnboardingCoach\(\{ candidates, done, hidden, onMark = null, onShown = null \}\) \{/.test(ob)
+    // 【便CJ】外押しで飛ばした段の知らせ onDismiss を足した
+    /export function OnboardingCoach\(\{ candidates, done, hidden, onMark = null, onShown = null, onDismiss = null \}\) \{/.test(ob)
     && /const visibleNow = Boolean\(view\?\.measured && !view\.leaving\);\n  useEffect\(\(\) => \{\n    if \(!visibleNow \|\| shownOnceRef\.current\) return;\n    shownOnceRef\.current = true;\n    onShownRef\.current\?\.\(\);\n  \}, \[visibleNow\]\);/.test(ob));
   // 【便BZ 審査 統括の裁定】覆いは1つ目の穴(下部タブなど)にかかるボタンだけ(帯の箱 = 2つ目の穴の上には置かない)・穴と重なる所だけに切る
   check("BZ.8 浮かせるボタンの覆い: floatingCovers に渡す穴は [hole] だけ・覆いは clipPath で穴と重なる所に切る",
@@ -33415,7 +33445,8 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
   const coachCall = app.slice(app.indexOf("<OnboardingCoach"), app.indexOf("/>", app.indexOf("<OnboardingCoach")));
   // 【便BZ】帯の間の決まりは coachDuringNotice(帯が名乗るタブにいる間だけ・計測は候補のまま・コミュニティは goCompare だけ)
   check("BX.4 hidden の式: 帯の間は coachDuringNotice の hidden・例外は帯が名乗るタブ(計測 = ⑩ だけ / コミュニティ = goCompare だけ)",
-    coachCall.includes("|| coachWithNotice.hidden}") && !/\|\| Boolean\(notice\)\}/.test(coachCall)
+    // 【便CJ】式は const coachHidden の1か所(<OnboardingCoach hidden={coachHidden}>)
+    coachCall.includes("hidden={coachHidden}") && /const coachHidden = [^;\n]*\|\| coachWithNotice\.hidden;/.test(app) && !/\|\| Boolean\(notice\)/.test(coachCall)
     // 【便BZ 統括の裁定】帯の間は、その帯が名乗る段だけ(保存の帯 = ⑩ / 目安の帯 = goCompare)
     && /export const COACH_WITH_NOTICE = Object\.freeze\(\{ measure: Object\.freeze\(\["goData"\]\), community: Object\.freeze\(\["goCompare"\]\) \}\);/.test(ob)
     && /return \{ candidates: \(candidates \?\? \[\]\)\.filter\(\(id\) => only\.includes\(id\)\), hidden: false \};/.test(ob)

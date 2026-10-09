@@ -61,6 +61,8 @@ import { AD_HEIGHT_EVENT } from "./shell/ads.js";
 // 【便CG 2026-10-09 本人の要望「チュートリアル中は広告なしにできませんか」・統括の裁定】はじめの案内が終わるまで広告の帯を出さない。
 // 時機の判断は onboarding.jsx の adsAllowed(純関数)。その間の印(<html data-ad-hold="1">)の付け外しは adPreview.js の setAdHold。
 import { adsAllowed, ONBOARDING_SHOWN_KEY } from "./onboarding.jsx";
+// 【便CJ 2026-10-10 本人の実機の指摘「チュートリアルをいくつか飛ばしてると…一生広告でない」・統括の裁定】裏に回って 30 分以上たってから前に戻ったら2回目の起動として扱う
+import { resumeCountsAsRelaunch } from "./onboarding.jsx";
 import { setAdHold, isAdHeld } from "./adPreview.js";
 
 // コミュニティタブの**読み込み失敗**の見た目。CommunityTab 内部の Centered と
@@ -4070,12 +4072,30 @@ export default function WindToneLabPhaseMode() {
     if (tutorialPreview) return;
     setOnboardingShown(true);
   }, [setOnboardingShown, tutorialPreview]);
+  // 【便CJ 2026-10-10 統括の裁定】iOS はアプリを閉じずに裏に残すので、本当の2回目の起動が来ない。初めて案内のカードが出たあと、
+  // アプリが裏に回って RELAUNCH_AFTER_HIDDEN_MS(30 分)以上たってから前に戻ったら、2回目の起動として扱う(判断は onboarding.jsx の resumeCountsAsRelaunch)。
+  // 裏に回った時刻は visibilitychange で取る(殻でも WKWebView が出す。App.jsx のマイクの解放も同じ出来事を読んでいる)。保存しない(本当に読み込み直されたら
+  // 起動の最初に読む onboardingShown が (b) を立てる)。一度立ったらこの起動の間は戻さない(帯を始めたあとで data-ad-hold を戻すと下部タブが帯に重なる)
+  const [resumedAsRelaunch, setResumedAsRelaunch] = useState(false);
+  const onboardingShownNowRef = useRef(false);
+  onboardingShownNowRef.current = onboardingShown === true;
+  useEffect(() => {
+    if (tutorialPreview) return undefined;   // 見本は見本の ⑱ だけで始める(今までどおり)
+    let hidden = null;   // 裏に回ったときの { at, shown }
+    const onVisibility = () => {
+      if (document.hidden) { hidden = { at: Date.now(), shown: onboardingShownNowRef.current }; return; }
+      if (hidden && resumeCountsAsRelaunch({ shownAtHide: hidden.shown, hiddenAt: hidden.at, now: Date.now() })) setResumedAsRelaunch(true);
+      hidden = null;
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [tutorialPreview]);
   const adsOk = adsAllowed({
     preview: tutorialPreview,
     loaded: onboardingLoaded && onboardingShownLoaded,
     readOk: onboardingReadOk && onboardingShownReadOk,
     done: coachDone,
-    shownBefore: shownAtLaunchRef.current === true,
+    shownBefore: shownAtLaunchRef.current === true || resumedAsRelaunch,
   });
   // 広告を始めるまでは --ad-h を 0 に(<html data-ad-hold="1">。index.css)。最初の描画では**子より先に**付ける ──
   // 計測タブの環の縮み(ringFitLayoutKey)は子の最初の描画で読むので、後から付けると最初の1回が帯ありの高さで測られる。
@@ -5263,10 +5283,26 @@ export default function WindToneLabPhaseMode() {
     setCoachRequest("idealSeen");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [topTab]);
+  // 【便CJ 2026-10-10 本人の実機の指摘「チュートリアルからいくつかパートがなくなってる」】この起動で外押しで飛ばした段(OnboardingCoach の onDismiss)。
+  // 保存しない(次の起動では空 = 外押しは「この起動の間だけ」のまま)。coachCandidates は飛ばした段の次へ進み、⑱ の条件(finishReady)も読む
+  const [coachDismissed, setCoachDismissed] = useState(NO_COACH);
+  const markCoachDismissed = useCallback((ids) => {
+    setCoachDismissed((prev) => {
+      const add = (ids ?? []).filter((id) => !prev.includes(id));
+      return add.length ? Object.freeze([...prev, ...add]) : prev;
+    });
+  }, []);
+  // 【便CJ】この起動で、案内の間(印が読めてから ⑱ まで)に開いたタブ。⑱ の条件(finishReady)が読む。保存しない
+  // (開いたことはリード = goReeds・コミュニティ = goCommunity・計測があるときのデータ = goData の印にも残る。上の effect)
+  const [coachSeenTabs, setCoachSeenTabs] = useState(NO_COACH);
+  useEffect(() => {
+    if (!coachReady || coachDone.finish) return;
+    setCoachSeenTabs((prev) => (prev.includes(topTab) ? prev : Object.freeze([...prev, topTab])));
+  }, [coachReady, coachDone.finish, topTab]);
   // はじめの一手の候補(印が読めていて録音中でなければ)と、帯が出ている間の決まり(【便BZ】coachDuringNotice)。描くのは根の OnboardingCoach の1か所。
   const coachWithNotice = coachDuringNotice({
     candidates: coachReady && !isRecording
-      ? coachCandidates({ topTab, done: coachDone, micReady: isListening && !errorMsg, hasSessions: sessions.length > 0, sessionsKnown: sessionsStatus !== "loading", metroPanelOpen, metronomeOn: metronomeOnForCoach, metroTempoQuiet, hasSelectedReed, idealRequested: coachRequest === "idealSeen" })
+      ? coachCandidates({ topTab, done: coachDone, dismissed: coachDismissed, seenTabs: coachSeenTabs, micReady: isListening && !errorMsg, hasSessions: sessions.length > 0, sessionsKnown: sessionsStatus !== "loading", metroPanelOpen, metronomeOn: metronomeOnForCoach, metroTempoQuiet, hasSelectedReed, idealRequested: coachRequest === "idealSeen" })
       : NO_COACH,
     notice, topTab,
   });
@@ -5285,6 +5321,8 @@ export default function WindToneLabPhaseMode() {
   //   ・「この録音を保存しますか？」 … MeasureView の {!isRecording && pendingSession && …}。MeasureView は計測タブでだけ描かれる
   const errorScrimShown = Boolean(errorMsg && (topTab === "measure" || (topTab === "analysis" && !ERROR_MEASURE_ONLY.includes(errorMsg))));
   const saveConfirmShown = topTab === "measure" && Boolean(!isRecording && pendingSession);
+  // 案内を出してはいけない間(録音中・シート・z60 の暗幕・解析中・帯)
+  const coachHidden = !coachReady || isRecording || anySheetOpen || errorScrimShown || saveConfirmShown || isAnalyzingUpload || coachWithNotice.hidden;
   return (
     <div className="app-root" style={{ background: "var(--c-bg)", color: "var(--c-ink)", fontFamily: "var(--font-jp)", padding: `${PAGE_TOP_PAD} var(--page-pad-right) var(--page-bottom-gap) var(--page-pad-left)`, boxSizing: "border-box" }}>
       <style>{`
@@ -5447,6 +5485,8 @@ export default function WindToneLabPhaseMode() {
           pendingSession={pendingSession} registerPendingSession={registerPendingSession} discardPendingSession={discardPendingSession}
           /* 【便BS】はじめの一手(メトロノーム)の印を立てる口。印が読めるまでは渡さない。 */
           onMetroPanelShown={coachReady ? markMetronomeSeen : undefined}
+          /* 【便CJ 統括の裁定】見本の起動では、メトロノームの面は保存された開閉を読まず閉じた状態から(② が出るように)。本物の利用者は今までどおり */
+          metroPanelStartsClosed={tutorialPreview}
           /* 【便BS 審査】面の開閉を知らせる口(開いている間は計測の段を出さない)。 */
           onMetroPanelChange={setMetroPanelOpen}
           /* 【便BW】はじめの一手 ③(テンポに触れた)・④(鳴り始めた)の印を立てる口。印が読めるまでは渡さない。 */
@@ -5616,9 +5656,10 @@ export default function WindToneLabPhaseMode() {
       <OnboardingCoach
         candidates={coachWithNotice.candidates}
         done={coachDone}
-        hidden={!coachReady || isRecording || anySheetOpen || errorScrimShown || saveConfirmShown || isAnalyzingUpload || coachWithNotice.hidden}
+        hidden={coachHidden}
         onMark={markOnboarding}
         onShown={markCoachShown}
+        onDismiss={markCoachDismissed}
       />
     </div>
   );
@@ -8917,6 +8958,8 @@ function MetroDiagPanel({ getMetroCtx, onClose }) {
 // 「フレーズ」かどうかは録音停止後(または録音中)にnoteEvents(検出ノート数)から
 // 事後判定し、2音以上検出された場合のみ下部にタイムライン(旧フレーズモード相当)を追加表示する。
 // ============================================================
+// 【便CJ】見本の起動の間だけのメトロノームの面の開閉(保存しない。読み込み直し = 次の起動では閉じた状態から)。MeasureView の metroPanelStartsClosed
+let previewMetroPanelOpen = false;
 function MeasureView(props) {
   const {
     isRecording, toggleRecording, note: notePassed, centsOffset: centsOffsetPassed,
@@ -8948,6 +8991,9 @@ function MeasureView(props) {
     // 【便BT 2026-10-03 本人裁定】幅 ≥ WIDE_LAYOUT_MIN_W(iPad)か。環の上限を RING_D_WIDE にする(App の useWideLayout)。
     // 渡されない(false)ときは今までと1文字も変わらない。
     wide = false,
+    // 【便CJ 2026-10-10 統括の裁定】はじめの一手の見本(?tutorialpreview=1)の起動か。真なら、メトロノームの面は保存された開閉を読まず
+    // 閉じた状態から始め、開閉も保存しない(見本の起動の間だけ。下の showMetroPanel)。渡されない(false)ときは今までと1文字も変わらない。
+    metroPanelStartsClosed = false,
     // 【C-1】アップロード関連(handleUploadFile / isAnalyzingUpload / uploadProgress /
     // lastUploadedSession / uploadNeedsTap …)はデータタブへ移設したのでもう受け取らない。
     // 完了通知の「目安に設定」が使っていた sessions / promoteSessionToIdeal も同じ理由で外した。
@@ -9113,7 +9159,16 @@ function MeasureView(props) {
   const [metronomeOn, setMetronomeOn] = useState(false); // 実際に音が鳴っている(スケジューラ動作中)か
   // 開閉状態は永続化する。計測タブは他タブへ移るとアンマウントされるため、useStateだと
   // 戻ったときにメトロノームが閉じてしまう(ユーザー報告)。開いたままなら戻っても開いたまま。
-  const [showMetroPanel, setShowMetroPanel] = usePersistedState("showMetroPanel", false); // 開いただけでは音は鳴らない
+  const [showMetroPanelSaved, setShowMetroPanelSaved] = usePersistedState("showMetroPanel", false); // 開いただけでは音は鳴らない
+  // 【便CJ 2026-10-10 統括の裁定(便CJ 報告の懸念6)】見本(?tutorialpreview=1)では、保存された「開いたまま」を ② が済んだと読まない:
+  // 見本の起動の間だけ、面は閉じた状態から始め、開閉は保存しない(この起動の間だけ覚える = 計測タブを離れて戻っても開閉はそのまま)。
+  // 以前は端末に「開いたまま」と覚えていると、面が描かれた時点で ② の印が立ち、見本で ② が一度も出なかった。本物の利用者は今までどおり保存の値
+  const [previewMetroPanel, setPreviewMetroPanelState] = useState(() => previewMetroPanelOpen);
+  const setPreviewMetroPanel = useCallback((v) => {
+    setPreviewMetroPanelState((prev) => { const next = typeof v === "function" ? v(prev) : v; previewMetroPanelOpen = next; return next; });
+  }, []);
+  const showMetroPanel = metroPanelStartsClosed ? previewMetroPanel : showMetroPanelSaved;
+  const setShowMetroPanel = metroPanelStartsClosed ? setPreviewMetroPanel : setShowMetroPanelSaved;
   // 【便BS 2026-10-03 本人裁定】はじめの一手(計測タブの2段目「メトロノームも使えます」)は、面を開いたら済み。
   // 口(onMetroPanelShown)が後から渡された(印が読めた)ときも、開いていればそこで知らせる。
   useEffect(() => {

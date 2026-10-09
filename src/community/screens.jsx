@@ -1,6 +1,8 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from "react";
 import { SAX_TYPES, SAX_LABELS, GENRES, POSITIONS, AVATAR_ICONS, AVATAR_COLOR_MIN, positionLabel } from "./profile.js";
 import { listPublicUsers, filterUsers, isFiltered, isFilteredBy, ANY, DIRECTORY_LIMIT } from "./directory.js";
+// 【便CJ】名簿の1往復を待つ上限(返ってこなければ失敗として扱い、輪を止めない)
+import { withinLoadLimit } from "./loadLimit.js";
 import { rankByPractice, tallyGearByBrand, tallyGearModels, isDrillable, tallyCombos, GEAR_SLOTS, SLOT_LABEL, SLOT_MODEL_WORD, UNSET, COMBO_SLOTS } from "./aggregate.js";
 import { PERIODS, PERIOD_LABEL, PERIOD_PHRASE } from "./stats.js";
 import { OTHER_BRAND } from "./catalog/gear.js";
@@ -449,7 +451,8 @@ export function usePublicUsers(myUid = null) {
         // いまは公開ユーザーをそのまま返す。人を消すのはブロックだけで、それは呼び出し側
         // (CommunityTab.jsx の JoinedView が hideBlocked で、数える前に)が持つ。
         // myUid は受け取り続ける ── サインインし直して uid が変わったら読み直す(読み直す時機は変えない)。
-        const users = await listPublicUsers();
+        // 【便CJ 2026-10-10】上限(withinLoadLimit)まで。過ぎたら下の catch(「みんなのデータを読み込めませんでした」)
+        const users = await withinLoadLimit(listPublicUsers());
         if (alive) setState({ phase: "ready", users, error: null });
       } catch (e) {
         if (alive) setState({ phase: "error", users: [], error: "みんなのデータを読み込めませんでした" });

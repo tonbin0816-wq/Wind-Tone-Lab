@@ -313,3 +313,88 @@ describe("見本(?tutorialpreview=1)", () => {
     expect(count("trackingAuthorizationStatus")).toBe(0);
   }, 30000);
 });
+
+// ------------------------------------------------------------------
+// 【便CJ 2026-10-10 本人の実機の指摘「チュートリアルをいくつか飛ばしてると最後の計測しよう!が出なくなって一生広告でない」】
+// main.jsx と同じ根(AppRoot)から、広告の帯を始める時機を確かめる(プラグインは作り物)。
+//   (b) 2回目の起動: 同意の記録があり、前の起動で案内のカードが出ていれば、案内が残っていてもマイクの試みの直後に始める
+//   【統括の裁定】(b) を広げた: 初めて案内のカードが出たあと、アプリが裏に回って 30 分(RELAUNCH_AFTER_HIDDEN_MS)以上たってから前に戻ったら2回目の起動。
+//   (iOS はアプリを閉じずに裏に残すので本当の起動が来ない。初版の「案内が 10 秒出ないと始める」(c)は、案内の途中で帯が出るので外した)
+// 期待値は統括の裁定の文(「29 分では始まらない・31 分で始まる・本当の2回目の起動でも始まる」)から手で書いた。
+// 裏に回る・戻るは document.hidden と visibilitychange で作り、時刻は Date.now を作り物にして進める(30 分を本当には待たない)。
+// 【守っていないもの】実機の殻で本物の AdMob の帯が出ること・iOS がアプリを本当に閉じて開き直したか(判定不能・実機待ち)。
+// ------------------------------------------------------------------
+const GATES_CJ = { migrated: true, migratedMeasureSteps: true, migratedCoach2: true, migratedCoach3: true, migratedCoach4: true };
+describe("【便CJ】広告の帯を始める時機(根から)", () => {
+  it("(b) 入れたての1回目の起動: 同意 → 案内のカードが出ても帯は始めない(印 onboardingShown が立つ)。開き直した2回目は、案内が残っていてもマイクの直後に始める", async () => {
+    asShell();
+    cap.statuses = ["notDetermined", "denied", "denied", "denied"];
+    mod = await loadApp();
+    await launch();
+    await agreeAndNext();
+    await waitFor(() => navBar(), "アプリ");
+    await waitFor(() => count("getUserMedia") >= 1, "マイク");
+    // jsdom は的の矩形を持たないので、穴なしの到着カード(リードタブの「ここはリードタブ」)で「案内のカードが出た」を作る
+    await click(document.querySelector('button[aria-label="リード"]'));
+    await waitFor(() => document.querySelector('[data-coach-layer="arriveReeds"]'), "到着「ここはリードタブ」");
+    await waitFor(() => kv("onboardingShown") === true, "初めて案内が出た起動の印");
+    for (let i = 0; i < 20; i++) await tick(10);
+    expect(count("showBanner")).toBe(0);
+    expect(document.documentElement.getAttribute("data-ad-hold")).toBe("1");
+    // 開き直す(モジュールごと作り直す。kv は同じ作り物)
+    await mod.act(async () => root.unmount());
+    root = null; host?.remove();
+    cap.log.length = 0;
+    mod = await loadApp();
+    await launch();
+    expect(screen()).toBe(null);   // 同意の記録があるので同意の画面は出ない
+    await waitFor(() => count("showBanner") === 1, "2回目の起動の帯");
+    expect(cap.log.slice(0, 2)).toEqual(["getUserMedia", "initialize"]);
+    expect(kv("onboardingDone").finish).toBeUndefined();   // 案内は終わっていない
+    expect(document.documentElement.getAttribute("data-ad-hold")).toBe(null);
+  }, 40000);
+
+  it("裏に回って 29 分で戻っても始めない・31 分で戻ると始める。案内のカードが出る前に裏に回った分は数えない", async () => {
+    asShell();
+    cap.statuses = ["notDetermined", "denied", "denied", "denied"];
+    const MIN = 60 * 1000;
+    let clock = Date.UTC(2026, 9, 10, 3, 0, 0);
+    const realNow = Date.now.bind(Date);
+    const base = realNow();
+    vi.spyOn(Date, "now").mockImplementation(() => clock + (realNow() - base));
+    let hidden = false;
+    Object.defineProperty(document, "hidden", { get: () => hidden, configurable: true });
+    const away = async (minutes) => {
+      hidden = true;
+      await mod.act(async () => { document.dispatchEvent(new Event("visibilitychange")); });
+      clock += minutes * MIN;
+      hidden = false;
+      await mod.act(async () => { document.dispatchEvent(new Event("visibilitychange")); });
+      for (let i = 0; i < 20; i++) await tick(10);
+    };
+    try {
+      mod = await loadApp();
+      await launch();
+      await agreeAndNext();
+      await waitFor(() => navBar(), "アプリ");
+      await waitFor(() => count("getUserMedia") >= 1, "マイク");
+      // 案内のカードがまだ出ていない(jsdom は ① の的を測れない)うちに 31 分裏に回っても、数えない
+      expect(kv("onboardingShown")).toBeUndefined();
+      await away(31);
+      expect(count("showBanner")).toBe(0);
+      // 到着カード(穴なし)で「案内のカードが出た」を作る
+      await click(document.querySelector('button[aria-label="リード"]'));
+      await waitFor(() => document.querySelector('[data-coach-layer="arriveReeds"]'), "到着「ここはリードタブ」");
+      await waitFor(() => kv("onboardingShown") === true, "初めて案内が出た印");
+      await away(29);
+      expect(count("showBanner")).toBe(0);
+      expect(document.documentElement.getAttribute("data-ad-hold")).toBe("1");
+      await away(31);
+      await waitFor(() => count("showBanner") === 1, "31 分で帯");
+      expect(document.documentElement.getAttribute("data-ad-hold")).toBe(null);
+      expect(kv("onboardingDone").finish).toBeUndefined();   // 案内は終わっていない
+    } finally {
+      delete document.hidden;
+    }
+  }, 40000);
+});

@@ -14,12 +14,19 @@ vi.mock("firebase/auth", () => ({
   initializeAuth: authApi.initializeAuth,
   get indexedDBLocalPersistence() { return idbPersistence; },
 }));
-vi.mock("firebase/firestore", () => ({ getFirestore: vi.fn(() => ({ tag: "db" })) }));
+// 【便CJ】殻だけ initializeFirestore(app, { experimentalForceLongPolling: true })・Web は getFirestore(app) を見るため、どちらも作り物で呼ばれ方を記録する
+const fsApi = vi.hoisted(() => ({
+  getFirestore: vi.fn(() => ({ tag: "getFirestore" })),
+  initializeFirestore: vi.fn(() => ({ tag: "initializeFirestore" })),
+}));
+vi.mock("firebase/firestore", () => ({ getFirestore: fsApi.getFirestore, initializeFirestore: fsApi.initializeFirestore }));
 
 beforeEach(() => {
   vi.resetModules();                       // getFirebase は結果を覚えるので、毎回まっさらなモジュールで読む
   authApi.getAuth.mockClear();
   authApi.initializeAuth.mockClear();
+  fsApi.getFirestore.mockClear();
+  fsApi.initializeFirestore.mockClear();
   vi.stubEnv("VITE_FIREBASE_API_KEY", "test-key");
   vi.stubEnv("VITE_FIREBASE_AUTH_DOMAIN", "test.example");
   vi.stubEnv("VITE_FIREBASE_PROJECT_ID", "test-project");
@@ -60,5 +67,32 @@ describe("getFirebase の Auth ── 殻だけ initializeAuth(indexedDBLocalPer
     const b = getFirebase();
     expect(b).toBe(a);
     expect(authApi.initializeAuth).toHaveBeenCalledTimes(1);
+  });
+});
+
+// 【便CJ 2026-10-10 統括の裁定】WKWebView では Firestore の既定の通信(WebChannel のストリーミング)が返らなくなる事例があるので、殻だけ長いポーリングを強制する。
+// 入っている版の既定(experimentalAutoDetectLongPolling = true)は firebaseClient.js の注記に根拠を書いた。期待値は統括の裁定の文から手で書いた。
+describe("【便CJ】getFirebase の Firestore ── 殻だけ長いポーリングを強制", () => {
+  it("Web 版は今までどおり getFirestore(app)。initializeFirestore は呼ばない", async () => {
+    const { getFirebase } = await import("./firebaseClient.js");
+    const fb = getFirebase();
+    expect(fb.db).toEqual({ tag: "getFirestore" });
+    expect(fsApi.getFirestore).toHaveBeenCalledTimes(1);
+    expect(fsApi.getFirestore.mock.calls[0]).toEqual([fb.app]);
+    expect(fsApi.initializeFirestore).not.toHaveBeenCalled();
+  });
+  it("殻は initializeFirestore(app, { experimentalForceLongPolling: true })。自動判定(experimentalAutoDetectLongPolling)は一緒に渡さない。getFirestore は呼ばない", async () => {
+    window.Capacitor = { isNativePlatform: () => true, getPlatform: () => "ios" };
+    const { getFirebase } = await import("./firebaseClient.js");
+    const fb = getFirebase();
+    expect(fb.db).toEqual({ tag: "initializeFirestore" });
+    expect(fsApi.initializeFirestore).toHaveBeenCalledTimes(1);
+    const [app, settings] = fsApi.initializeFirestore.mock.calls[0];
+    expect(app).toBe(fb.app);
+    expect(settings).toEqual({ experimentalForceLongPolling: true });
+    expect("experimentalAutoDetectLongPolling" in settings).toBe(false);   // 2つは一緒に指定できない(SDK が投げる)
+    expect(fsApi.getFirestore).not.toHaveBeenCalled();
+    getFirebase();
+    expect(fsApi.initializeFirestore).toHaveBeenCalledTimes(1);   // 2回目は作り直さない(initializeFirestore を2回呼ぶと SDK が投げる)
   });
 });

@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getAuth, initializeAuth, indexedDBLocalPersistence } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import { getFirestore, initializeFirestore } from "firebase/firestore";
 import { isNativeShell } from "../shell/native.js";
 
 // 接続設定が欠けていることを表す印。**通信の失敗とは別の型で投げる。**
@@ -41,6 +41,16 @@ export function storageBucketFor(projectId, override = undefined) {
   return `${projectId}.firebasestorage.app`;
 }
 
+// 【便CJ 2026-10-10 統括の裁定(本人「コミュニティタブで63%くらいで止まることが多い」の根の候補)】殻(Capacitor の iOS WKWebView)の Firestore は
+// 長いポーリングを強制する。WKWebView では Firestore の既定の通信(WebChannel のストリーミング)が返らなくなる事例が知られている
+// (https://github.com/firebase/firebase-js-sdk/issues/1674 ほか。SDK の文書も「通信を溜め込む経路との相性のための設定」と書く)。
+// 入っている版(firebase 12.18.0 / @firebase/firestore 4.17.1)では、experimentalAutoDetectLongPolling の既定は true
+// (node_modules/@firebase/firestore/dist/index.d.ts の注記「v9.22.0 で既定を true に変えた」と、同じ版の FirestoreSettingsImpl の
+// 「未指定なら true」)。自動判定でも返らない事例に備えて、殻では強制(experimentalForceLongPolling: true)にする。
+// 2つは一緒に指定できない(FirestoreSettingsImpl の __PRIVATE_validateIsNotUsedTogether)ので、強制の1つだけを渡す(強制なら自動判定は false になる)。
+// Web 版は今までどおり getFirestore(app)(既定の自動判定)。
+export const SHELL_FIRESTORE_SETTINGS = Object.freeze({ experimentalForceLongPolling: true });
+
 let cached = null;
 
 export function getFirebase() {
@@ -66,7 +76,9 @@ export function getFirebase() {
     // 【殻 S1】Capacitor の WKWebView では既定の getAuth(永続化の自動選択)が onAuthStateChanged を返さないことがある。
     // Firebase の案内(ハイブリッドアプリは initializeAuth + indexedDBLocalPersistence)に従う。Web 版は今までどおり getAuth。
     const auth = isNativeShell() ? initializeAuth(app, { persistence: indexedDBLocalPersistence }) : getAuth(app);
-    cached = { app, auth, db: getFirestore(app) };
+    // 【便CJ】殻だけ長いポーリングを強制(上の SHELL_FIRESTORE_SETTINGS)。Web は今までどおり
+    const db = isNativeShell() ? initializeFirestore(app, SHELL_FIRESTORE_SETTINGS) : getFirestore(app);
+    cached = { app, auth, db };
   }
   return cached;
 }
