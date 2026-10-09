@@ -48,7 +48,7 @@ import { createPortal } from "react-dom";
 //     カードの地(A1-e): --c-accent-tint・アイコンの丸は白(index.css。参加のカードは白のまま)
 //   ・【便BY 2026-10-07 本人の指示「全ての案内において上の四つのタブ案内も削除 / 代わりにチュートリアルの案内の枚数を------で表して」】
 //     章の目印(4章)を外し、カードの先頭に枚数の目印(Instagram のストーリーのような細い横棒。案内の全体の枚数 21本)を置いた。
-//     (【便BZ】4本の棒に替え、流れの順 COACH_ORDER は消した ── 下の【便BZ】④)。時間で伸びる動きはしない(塗りだけ)。参加の画面のカード(JoinIntro)には付けない
+//     (【便BZ】4本の棒に替え、流れの順 COACH_ORDER は消した ── 下の【便BZ】④。【便CF】1本の棒にし、COACH_ORDER を戻した)。時間で伸びる動きはしない(塗りだけ)。参加の画面のカード(JoinIntro)には付けない
 //   ・【便BZ 2026-10-07 本人の実機の指摘・統括の裁定】
 //     ① カードの置き場所: 的の上にも下にも収まらないときは、中央ではなく「的(穴)との重なりが最小の位置」(見える範囲の上端か下端)に置く
 //       (placeCoachCard)。中央に落ちると、環の箱の真ん中 = 音名・セントにカードが重なっていた
@@ -62,6 +62,13 @@ import { createPortal } from "react-dom";
 //     ④ 【本人の指示「22本だとかなり多く感じるので、棒は4本(タブの数)にしてその棒の中の塗りつぶしでそのタブ内での進捗を表現して」】
 //       便BY の 21(22)本の棒を、下部タブと同じ並びの4本(計測・リード・コミュニティ・データ。字なし)に替えた。棒の中を、そのタブの段の
 //       進み具合の割合だけ塗る(COACH_TABS / coachProgress)。今の段のタブの棒だけ濃い紺。⑱ では4本とも全部塗られる
+//       (【便CF】1本の棒に替え、COACH_TABS は消した ── 下の【便CF】)
+//   ・【便CF 2026-10-09 本人の選択(モック progress-mock.html の案1「全体で1本の棒」。数字は添えない)】
+//     4本の棒を、流れの全体(22枚)のうち何枚目までかを左から塗る1本の棒に替えた。流れの順は1か所の定数 COACH_ORDER に戻した
+//     (DESIGN-SYSTEM §4.5b の22枚。流れの外の ⑪ は数えない)。塗る量 = (済んだ段 + その利用者に出ない段(COACH_SKIPPED)+ 今の段)/ 22。
+//     外を押して消しただけの段は済んだ扱いにしない(便BZ のまま)。動き・transition は無い。参加の画面のカード(JoinIntro)には付けない
+//     【便CF 審査 統括の裁定】塗る数 = max(上の数, 今の段の位置 + 1, この起動の中で見せた最大)。⑦⑧ で止まり ⑩ で2つ進む段差を消し、
+//     ⑱ は必ず 22/22・手前の段に戻っても表示は前より少なくならない(最大は OnboardingCoach の ref。保存はしない)
 //
 // **判断はこのファイルの純関数が持つ**(どの一手を出すか・印の立て方・移行・穴とカードの位置)。
 // App.jsx は「いまの状態」を渡し、成功の道で markOnboardingDone を呼ぶだけ。
@@ -300,19 +307,23 @@ export function coachSpeech(step) {
   return step.line ? `${step.title}。${step.line}` : step.title;
 }
 
-// 【便BZ 2026-10-07 本人の指示「22本だとかなり多く感じるので、棒は4本(タブの数)にしてその棒の中の塗りつぶしでそのタブ内での進捗を表現して」】
-// 各段がどのタブの段か。**1か所の定数**。並びは下部タブと同じ(左から 計測・リード・コミュニティ・データ)。
-// 【便BZ 審査 統括の裁定】段は**カードが出るタブ**に属する(段の id で持つ。印 flag ではない)。⑤⑩⑱ は計測・⑭' ⑰ はデータ・
-// goCompare は照らすのは下部タブ「データ」だが出るのはコミュニティ・⑪ data(印は measure)はデータタブに出るのでデータ。
-// ⑨ の2つの文(measure / measureReed)は同じ1段(COACH_STEP_ALIAS)。段の数は 9・3・3・8。
-export const COACH_TABS = Object.freeze([
-  Object.freeze({ tab: "measure", label: "計測", steps: Object.freeze(["tuner", "metronome", "metroTempo", "metroStart", "goReeds", "reedLinked", "measure", "goData", "finish"]) }),
-  Object.freeze({ tab: "reeds", label: "リード", steps: Object.freeze(["arriveReeds", "reeds", "reedsMeasure"]) }),
-  Object.freeze({ tab: "community", label: "コミュニティ", steps: Object.freeze(["arriveCommunity", "adoptAverage", "goCompare"]) }),
-  Object.freeze({ tab: "analysis", label: "データ", steps: Object.freeze(["data", "arriveData", "calendarDay", "daySession", "trend", "goCommunity", "idealSeen", "goMeasure"]) }),
+// 【便CF 2026-10-09 本人の選択「全体で1本の棒」】流れの順。**1か所の定数**(便BZ で消した COACH_ORDER を段の id で戻した)。
+// 順は DESIGN-SYSTEM §4.5b の22枚(仕様 coach3-spec.md §15 + 【便BZ】goCompare): 計測 ①〜⑤ / リード 到着・⑥⑦ / 計測 ⑧⑨⑩ /
+// データ 到着・⑫⑬⑭⑭' / コミュニティ 到着・⑯・⑯' goCompare / データ ⑮⑰ / 計測 ⑱。流れの外の ⑪ data は数えない(下の COACH_STEP_ALIAS)。
+export const COACH_ORDER = Object.freeze([
+  "tuner", "metronome", "metroTempo", "metroStart", "goReeds",          // 計測 ①〜⑤
+  "arriveReeds", "reeds", "reedsMeasure",                               // リード 到着・⑥⑦
+  "reedLinked", "measure", "goData",                                    // 計測 ⑧⑨⑩
+  "arriveData", "calendarDay", "daySession", "trend", "goCommunity",    // データ 到着・⑫⑬⑭⑭'
+  "arriveCommunity", "adoptAverage", "goCompare",                       // コミュニティ 到着・⑯・⑯'
+  "idealSeen", "goMeasure",                                             // データ ⑮⑰
+  "finish",                                                             // 計測 ⑱
 ]);
-// ⑨ リードが選ばれているときの文(measureReed)は measure と同じ段
-const COACH_STEP_ALIAS = Object.freeze({ measureReed: "measure" });
+// ⑨ リードが選ばれているときの文(measureReed)は measure と同じ段。
+// 【便CF】流れの外の ⑪ data も ⑨ と同じ段として読む(枚数には数えない)。⑪ は ⑨ と同じ印 measure で、⑨ が済んでいないときだけ出る
+// (「計測タブから計測してみよう」= ⑨ と同じ一手をデータタブから言う段)。便BY も ⑪ を ⑨ と同じ位置(印 measure)で読んでいた。
+// 今の段を持たない扱いにすると、① を外押しで消してデータタブへ来た人の棒が 1/22 → 0/22 と戻る
+const COACH_STEP_ALIAS = Object.freeze({ measureReed: "measure", data: "measure" });
 // 【便BZ 審査 統括の裁定】その利用者にもう出ない段(条件で出ない段)。印は立たないが、済んだ扱いにする。条件は coachCandidates の出す条件の裏返し:
 //   goReeds … リードがある(!d.goReeds && !d.reeds で出す) / goCommunity … 参加している(!d.join で出す) / trend … ⑮ を見た(!d.idealSeen で出す) /
 //   goCompare … ⑮ を見た・終わった(goCompareOpen) / idealSeen … ⑰ を済ませた・終わった(⑮ を見ずに ⑰ へ進んだ人に、もう出ない) / goMeasure … 終わった
@@ -325,18 +336,21 @@ export const COACH_SKIPPED = Object.freeze({
   idealSeen: (d) => d.goMeasure === true || d.finish === true,
   goMeasure: (d) => d.finish === true,
 });
-// 4本の棒の塗り。棒ごとに「塗る段の数 / そのタブの段の数」。塗る段 = 済んだ段(段の印が立っている)+ その利用者にもう出ない段(COACH_SKIPPED)+ **今の段**。
+// 【便CF】1本の棒の塗り = 「塗る段の数 / 流れの全体(COACH_ORDER の 22)」。塗る段 = 済んだ段(段の印が立っている)+
+// その利用者にもう出ない段(COACH_SKIPPED)+ **今の段**(便BZ の決まりのまま。重ねて数えない)。
 // 済んだ印は戻らないので、順番どおりに進まない人でも塗りは戻らない(変わるのは「今の段」の1つだけ ── 済ませずに離れた段は、また「まだ」に見える)。
-// 今の段を含めるのは、① で計測の棒が空のまま・⑱ で計測の棒が 8/9 のままになり「今ここ」と読めないため。
-//   current … 今の段が属するタブの棒(濃い紺で塗る)。知らない段は current が無い
-export function coachProgress(stepId, done = null) {
+// 今の段を含めるのは、① で棒が空のまま・⑱ で 21/22 のままになり「今ここ」と読めないため。知らない段は今の段を持たない
+// 【便CF 審査 統括の裁定】塗る数 = max(上の数, 今の段の COACH_ORDER の位置 + 1, floor)。
+//   位置 + 1 … ⑦ の印は計測の保存で ⑨ と一緒に立つので、上の数だけでは ⑦⑧ で止まり ⑩ で2つ進んでいた。外押しで消した段が残っていても
+//             ⑱ では必ず 22/22。⑪ は ⑨ と同じ位置(10)
+//   floor   … その起動の中で見せた最大(OnboardingCoach の ref)。順番どおりに進まない人が手前の段に戻っても、表示は前より少なくならない
+export function coachProgress(stepId, done = null, floor = 0) {
   const id = COACH_STEP_ALIAS[stepId] ?? stepId;
   const d = done ?? {};
   const filled = (s) => s === id || d[COACH_STEPS[s].flag] === true || COACH_SKIPPED[s]?.(d) === true;
-  const bars = COACH_TABS.map(({ tab, label, steps }) => ({
-    tab, label, total: steps.length, current: steps.includes(id), filled: steps.filter(filled).length,
-  }));
-  return { bars, current: bars.find((b) => b.current) ?? null };
+  const total = COACH_ORDER.length;
+  const n = Math.max(COACH_ORDER.filter(filled).length, COACH_ORDER.indexOf(id) + 1, Number.isFinite(floor) ? floor : 0);
+  return { filled: Math.min(n, total), total };
 }
 
 const isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
@@ -695,16 +709,14 @@ export function CoachIcon({ name }) {
   return <span className="coach-icon">{ICONS[name]}</span>;
 }
 
-// 【便BY 2026-10-07 本人の指示】目印(カードの最初の子)。【便BZ 本人の指示】棒は4本(タブの数。字は付けない)。棒の中を、そのタブの段の
-// 進み具合(coachProgress)の割合だけ左から塗る。今の段のタブの棒は濃い紺(.now)・ほかは中間の紺。塗りの幅は割合で決め、動き・transition は無い。
-// 読み上げ用に「案内 計測 4/9」(今の段のタブの名前と、そのタブの塗った数 / 段の数)。カードは aria-hidden なので今の読み上げ(.coach-live)は変えていない。
-function CoachProgress({ stepId, done }) {
-  const { bars, current } = coachProgress(stepId, done);
+// 【便BY 2026-10-07 本人の指示】目印(カードの最初の子)。【便CF 本人の選択「全体で1本の棒」】棒は1本(字・数字は付けない)。
+// 流れの全体のうち何枚目までか(coachProgress)の割合だけ、中の <b> が左から塗る(--c-accent)。棒の地がまだの部分。動き・transition は無い。
+// 読み上げ用に「案内 n/22」。カードは aria-hidden なので今の読み上げ(.coach-live)は変えていない。
+// 【便CF 審査】塗る数は OnboardingCoach が coachProgress とこの起動の最大から決めて渡す。
+function CoachProgress({ filled, total }) {
   return (
-    <div className="coach-progress" role="img" aria-label={current ? `案内 ${current.label} ${current.filled}/${current.total}` : "案内"}>
-      {bars.map((b) => (
-        <i key={b.tab} data-tab={b.tab} className={b.current ? "now" : undefined}><b style={{ width: `${(b.filled / b.total) * 100}%` }} /></i>
-      ))}
+    <div className="coach-progress" role="img" aria-label={`案内 ${filled}/${total}`}>
+      <b style={{ width: `${(filled / total) * 100}%` }} />
     </div>
   );
 }
@@ -810,6 +822,8 @@ export function OnboardingCoach({ candidates, done, hidden, onMark = null }) {
   const dismissedRef = useRef(new Set());
   // 【便BW】的へスクロールした段(scrollIntoView の段。この起動で1回だけ。送り返されても引き戻さない)。
   const scrolledRef = useRef(new Set());
+  // 【便CF 審査 統括の裁定】この起動の中で目印に見せた塗りの最大(段の数)。順番どおりに進まない人で手前の段に戻っても、これを下回らない
+  const shownMaxRef = useRef(0);
   const onMarkRef = useRef(onMark);
   onMarkRef.current = onMark;
   candidatesRef.current = candidates;
@@ -999,6 +1013,12 @@ export function OnboardingCoach({ candidates, done, hidden, onMark = null }) {
 
   const said = announcedId ? COACH_STEPS[announcedId] : null;
   const step = view ? COACH_STEPS[view.id] : null;
+  // 【便CF 審査 統括の裁定】目印の塗り。この起動の中で見せた最大の値(shownMaxRef)を下回らない(保存はしない。次の起動では 0 から)。
+  // 「見せた」は測り終えて見えているカード(view.measured)だけ。測る前の隠れたカード(タブを移った直後に一瞬だけ候補になった段)は数えない
+  const progress = view ? coachProgress(view.id, done, shownMaxRef.current) : null;
+  useEffect(() => {
+    if (progress && view?.measured && progress.filled > shownMaxRef.current) shownMaxRef.current = progress.filled;
+  });
   return createPortal(
     <>
       {/* 読み上げの入れ物は常に1つ(空のときも在る)。文だけを差し替える。 */}
@@ -1072,7 +1092,7 @@ export function OnboardingCoach({ candidates, done, hidden, onMark = null }) {
             style={{ top: view.top, visibility: view.measured ? "visible" : "hidden" }}
             onClick={view.arrival ? advance : dismiss}
           >
-            <CoachProgress stepId={view.id} done={done} />
+            <CoachProgress filled={progress.filled} total={progress.total} />
             <CoachIcon name={step.icon} />
             <div className="coach-title">{step.title}</div>
             {step.line ? <div className="coach-line">{step.line}</div> : null}

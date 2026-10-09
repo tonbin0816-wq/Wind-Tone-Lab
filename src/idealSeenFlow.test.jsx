@@ -333,8 +333,9 @@ describe("【便BX】⑮ → ⑰ 計測タブに戻ろう → ⑱ 終わり(穴�
     expect(layer().querySelector(".coach-line")).toBe(null);
     const h = layer().querySelector(".coach-hole");
     expect([h.style.left, h.style.top, h.style.width, h.style.height, h.style.borderRadius]).toEqual(["20px", "760px", "83.75px", "44px", "var(--r-2)"]);
-    expect(layer().querySelector(".coach-progress").getAttribute("aria-label")).toBe("案内 データ 8/8");   // 【便BZ】4本の棒: ⑰ はデータの棒の最後(【便BZ 再審査】⑪ を足して 8 つ)
-    expect([...layer().querySelectorAll(".coach-progress > i.now")].map((i) => i.getAttribute("data-tab"))).toEqual(["analysis"]);
+    // 【便CF】1本の棒: ⑰ は ⑱ のほかが全部済み(⑭' は参加済みで出ない段)+ 今の段 = 21/22
+    expect(layer().querySelector(".coach-progress").getAttribute("aria-label")).toBe("案内 21/22");
+    expect([...layer().querySelectorAll(".coach-progress > *")].map((b) => [b.tagName, Math.round(parseFloat(b.style.width) * 100) / 100])).toEqual([["B", 95.45]]);
     expect(kv("onboardingDone").goMeasure).toBeUndefined();
     // 計測タブへ
     await click(nav("計測"));
@@ -345,8 +346,8 @@ describe("【便BX】⑮ → ⑰ 計測タブに戻ろう → ⑱ 終わり(穴�
     expect(layer().querySelectorAll(".coach-dim")).toHaveLength(1);
     expect(layer().querySelector(".coach-title").textContent).toBe("チューナーとメトロノームを使って、あなたのデータを貯めよう！");
     expect(layer().querySelector(".coach-line").textContent).toBe("はじめの案内はこれで終わりです");
-    expect(layer().querySelector(".coach-progress").getAttribute("aria-label")).toBe("案内 計測 9/9");   // 【便BZ】⑱ は4本とも全部
-    expect([...layer().querySelectorAll(".coach-progress > i > b")].map((b) => b.style.width)).toEqual(["100%", "100%", "100%", "100%"]);
+    expect(layer().querySelector(".coach-progress").getAttribute("aria-label")).toBe("案内 22/22");   // 【便CF】⑱ は全部塗られる
+    expect([...layer().querySelectorAll(".coach-progress > *")].map((b) => [b.tagName, b.style.width])).toEqual([["B", "100%"]]);
     await click(hit());
     await waitFor(() => kv("onboardingDone")?.finish === true, "finish の印");
     await waitFor(() => layer() === null, "終わり");
@@ -368,8 +369,8 @@ describe("【便BX】コミュニティの到着・⑭' → コミュニティ",
     expect(layer().querySelector(".coach-title").textContent).toBe("ここはコミュニティ");
     expect(layer().querySelector(".coach-line").textContent).toBe("参加した人の計測データと、みんなの平均が見られます");
     expect(layer().querySelector(".coach-hole")).toBe(null);
-    expect(layer().querySelector(".coach-progress").getAttribute("aria-label")).toBe("案内 コミュニティ 1/3");   // 【便BZ】4本の棒: コミュニティの到着
-    expect([...layer().querySelectorAll(".coach-progress > i.now")].map((i) => i.getAttribute("data-tab"))).toEqual(["community"]);
+    // 【便CF】1本の棒: 済んだ15(①〜⑩・リードの到着・データの到着・⑫⑬⑭)+ 出ない ⑭'(参加済み)+ 今のコミュニティの到着 = 17/22
+    expect(layer().querySelector(".coach-progress").getAttribute("aria-label")).toBe("案内 17/22");
     await click(layer().querySelector(".coach-card"));
     await waitFor(() => kv("onboardingDone")?.arriveCommunity === true, "arriveCommunity の印");
     await waitFor(() => layerId() === "adoptAverage", "⑯");
@@ -513,7 +514,7 @@ describe("【便BZ】目安と比べてみよう → ⑮ → ⑰ → ⑱ の2つ
   afterEach(() => removePendingMic());
   const toFinish = async () => {
     await waitFor(() => layerId() === "idealSeen", "⑮");
-    expect(layer().querySelector(".coach-progress").getAttribute("aria-label")).toBe("案内 データ 7/8");   // ⑮: データの棒の8つ(⑪ を含む)のうち ⑰ のほかは済み + 今の段
+    expect(layer().querySelector(".coach-progress").getAttribute("aria-label")).toBe("案内 20/22");   // 【便CF】⑮: ⑰ ⑱ のほかは済み(⑭' は出ない段)+ 今の段
     await click(layer().querySelector(".coach-card"));
     await waitFor(() => kv("onboardingDone")?.idealSeen === true, "idealSeen の印");
     await waitFor(() => layerId() === "goMeasure", "⑰");
@@ -531,8 +532,7 @@ describe("【便BZ】目安と比べてみよう → ⑮ → ⑰ → ⑱ の2つ
     await adoptAverage();
     await waitFor(() => layerId() === "goCompare", "目安と比べてみよう");
     expect(noticeEl()).not.toBe(null);
-    expect(layer().querySelector(".coach-progress").getAttribute("aria-label")).toBe("案内 コミュニティ 3/3");   // 目安と比べてみよう: コミュニティの棒の最後
-    expect([...layer().querySelectorAll(".coach-progress > i.now")].map((i) => i.getAttribute("data-tab"))).toEqual(["community"]);
+    expect(layer().querySelector(".coach-progress").getAttribute("aria-label")).toBe("案内 19/22");   // 【便CF】目安と比べてみよう: ⑯ までの18(⑭' は出ない段)+ 今の段
     await click(buttonIn(noticeEl(), "見る"));
     await waitFor(() => kv("onboardingDone")?.goCompare === true, "goCompare の印");
     await toFinish();

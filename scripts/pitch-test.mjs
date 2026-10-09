@@ -33206,8 +33206,9 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
       let r = blk.replace(/\/\*[\s\S]*?\*\//g, "");
       // 【便BZ 2026-10-07】4本の棒(.coach-progress の4規則)・浮かせるボタンの覆い(.coach-cover)を抜き、溶けている間に押させない規則に足した
       // .coach-cover の1行を外す。外したあとの残りが便BX の前と同じ(1305文字 / 711e1907)なら、便BZ も他の規則に1文字も触れていない
-      for (const sel of [".coach-card", ".coach-icon", ".coach-card.join-card", ".join-card > .coach-icon", ".coach-progress", ".coach-progress i", ".coach-progress i.on",
-        ".coach-progress i b", ".coach-progress i.now b", ".coach-cover"]) {
+      // 【便CF 2026-10-09 本人の選択「全体で1本の棒」】目印の規則は .coach-progress と .coach-progress b の2つになった。抜くのはその2つだけ
+      // (4本の棒の i / i b / i.now b・便BY の i.on は抜く一覧から外した = 残っていれば下の固定が落ちる)。残りの固定(1305文字 / 711e1907)は変えない
+      for (const sel of [".coach-card", ".coach-icon", ".coach-card.join-card", ".join-card > .coach-icon", ".coach-progress", ".coach-progress b", ".coach-cover"]) {
         r = r.split("\n" + sel + " {").map((p, i) => (i === 0 ? p : p.slice(p.indexOf("}") + 1))).join("\n");
       }
       r = r.replace('\n.coach-layer[data-leaving="true"] .coach-cover,', "");
@@ -33336,15 +33337,25 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
   // 【便BZ 2026-10-07 本人の指示「棒は4本(タブの数)にしてその棒の中の塗りつぶしでそのタブ内での進捗を表現して」】
   // 【便BZ 審査 統括の裁定】棒は COACH_TABS の4本(下部タブと同じ並び・字なし)。段は**カードが出るタブ**の段の id で持つ(⑪ data はデータ)。
   // 流れの順の定数 COACH_ORDER は使い手が無くなったので消した。期待値は本人の指示と統括の裁定の文から手で書いた
-  check("BX.3 【便BZ】目印は4本の棒: COACH_TABS は 計測・リード・コミュニティ・データ の順で 9・3・3・8 の段(⑪ data はデータ・goCompare はコミュニティ)・COACH_ORDER は無い・塗りの幅は %・「案内 計測 4/9」・カードの最初の子",
-    !/COACH_ORDER/.test(ob)
-    && JSON.stringify([...ob.matchAll(/Object\.freeze\(\{ tab: "([a-z]+)", label: "([^"]+)", steps: Object\.freeze\(\[([^\]]*)\]\) \}\)/g)].map((m) => [m[1], m[2], m[3].split(",").length]))
-      === JSON.stringify([["measure", "計測", 9], ["reeds", "リード", 3], ["community", "コミュニティ", 3], ["analysis", "データ", 8]])
-    && /steps: Object\.freeze\(\["data", "arriveData",/.test(ob) && /steps: Object\.freeze\(\["arriveCommunity", "adoptAverage", "goCompare"\]\)/.test(ob)
+  // 【便CF 2026-10-09 本人の選択(モック progress-mock.html の案1「全体で1本の棒」。数字は添えない)】4本の棒(COACH_TABS)を1本の棒に替え、
+  // 流れの順の定数 COACH_ORDER を段の id で戻した(DESIGN-SYSTEM §4.5b の22枚・流れの外の ⑪ は数えない)。期待の順は §4.5b の順の行から手で書いた
+  const orderCF = listOf("COACH_ORDER", ob);
+  check("BX.3 【便CF】目印は1本の棒: COACH_ORDER は §4.5b の22枚の順(⑪ data・measureReed は入らない)・COACH_TABS は無い・塗る数は max(済んだ段 + 出ない段 + 今の段, 位置 + 1, 起動の最大)・「案内 n/22」・中は <b> 1つ・カードの最初の子",
+    JSON.stringify(orderCF) === JSON.stringify(["tuner", "metronome", "metroTempo", "metroStart", "goReeds", "arriveReeds", "reeds", "reedsMeasure",
+      "reedLinked", "measure", "goData", "arriveData", "calendarDay", "daySession", "trend", "goCommunity",
+      "arriveCommunity", "adoptAverage", "goCompare", "idealSeen", "goMeasure", "finish"])
+    && !/COACH_TABS|data-tab=|bars\.map/.test(ob)
+    && /const COACH_STEP_ALIAS = Object\.freeze\(\{ measureReed: "measure", data: "measure" \}\);/.test(ob)
     && /const filled = \(s\) => s === id \|\| d\[COACH_STEPS\[s\]\.flag\] === true \|\| COACH_SKIPPED\[s\]\?\.\(d\) === true;/.test(ob)
-    && /<div className="coach-progress" role="img" aria-label=\{current \? `案内 \$\{current\.label\} \$\{current\.filled\}\/\$\{current\.total\}` : "案内"\}>\n\s*\{bars\.map\(\(b\) => \(\n\s*<i key=\{b\.tab\} data-tab=\{b\.tab\} className=\{b\.current \? "now" : undefined\}><b style=\{\{ width: `\$\{\(b\.filled \/ b\.total\) \* 100\}%` \}\} \/><\/i>/.test(ob)
-    && /onClick=\{view\.arrival \? advance : dismiss\}\n\s*>\n\s*<CoachProgress stepId=\{view\.id\} done=\{done\} \/>\n\s*<CoachIcon name=\{step\.icon\} \/>/.test(ob)
-    && (ob.match(/<CoachProgress /g) || []).length === 1);
+    // 【便CF 審査 統括の裁定】塗る数 = max(上の数, 今の段の位置 + 1, その起動の中で見せた最大)・22 を越えない
+    && /const n = Math\.max\(COACH_ORDER\.filter\(filled\)\.length, COACH_ORDER\.indexOf\(id\) \+ 1, Number\.isFinite\(floor\) \? floor : 0\);\n\s*return \{ filled: Math\.min\(n, total\), total \};/.test(ob)
+    && /const shownMaxRef = useRef\(0\);/.test(ob)
+    && /const progress = view \? coachProgress\(view\.id, done, shownMaxRef\.current\) : null;/.test(ob)
+    && /if \(progress && view\?\.measured && progress\.filled > shownMaxRef\.current\) shownMaxRef\.current = progress\.filled;/.test(ob)
+    && !/localStorage|setPersisted/.test(ob.slice(ob.indexOf("const shownMaxRef"), ob.indexOf("const shownMaxRef") + 200))
+    && /<div className="coach-progress" role="img" aria-label=\{`案内 \$\{filled\}\/\$\{total\}`\}>\n\s*<b style=\{\{ width: `\$\{\(filled \/ total\) \* 100\}%` \}\} \/>\n\s*<\/div>/.test(ob)
+    && /onClick=\{view\.arrival \? advance : dismiss\}\n\s*>\n\s*<CoachProgress filled=\{progress\.filled\} total=\{progress\.total\} \/>\n\s*<CoachIcon name=\{step\.icon\} \/>/.test(ob)
+    && (ob.match(/<CoachProgress /g) || []).length === 1, JSON.stringify(orderCF));
   // 【便BZ 審査 統括の裁定】覆いは1つ目の穴(下部タブなど)にかかるボタンだけ(帯の箱 = 2つ目の穴の上には置かない)・穴と重なる所だけに切る
   check("BZ.8 浮かせるボタンの覆い: floatingCovers に渡す穴は [hole] だけ・覆いは clipPath で穴と重なる所に切る",
     /const covers = floatingCovers\(fabs, \[hole\]\);/.test(ob) && !/floatingCovers\(fabs, \[hole, extra\]\)/.test(ob)
@@ -33413,17 +33424,17 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     // 【便BY 2026-10-07 本人の指示】章の目印(.coach-marks の6規則)を外し、枚数の目印(.coach-progress の3規則)に替えた。
     // 値は既存のトークンだけ(高さ・間 --sp-1・角丸 --r-full・塗り --c-accent・まだ --c-line-strong)。動き(animation / transition)は持たない
     // 【便BZ 2026-10-07 本人の指示】4本の棒: 地はまだの部分(--c-line-strong)・中の <b> が割合だけ塗る(今のタブ = --c-accent / ほか = --c-accent-mid)
+    // 【便CF 2026-10-09 本人の選択「全体で1本の棒」】棒は1本: 棒の地がまだの部分(--c-line-strong)・中の <b> が割合だけ塗る(--c-accent)。
+    // 高さ --sp-1・角丸 --r-full は便BZ の棒のまま。中間の紺(--c-accent-mid)は使わなくなった
     const PROGRESS = [
-      ".coach-progress { justify-self: stretch; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: var(--sp-1); }",
-      ".coach-progress i { display: block; height: var(--sp-1); border-radius: var(--r-full); background: var(--c-line-strong); overflow: hidden; }",
-      ".coach-progress i b { display: block; height: 100%; background: var(--c-accent-mid); }",
-      ".coach-progress i.now b { background: var(--c-accent); }",
+      ".coach-progress { justify-self: stretch; height: var(--sp-1); border-radius: var(--r-full); background: var(--c-line-strong); overflow: hidden; }",
+      ".coach-progress b { display: block; height: 100%; background: var(--c-accent); }",
     ];
     check("BZ.5 浮かせるボタンの覆い(.coach-cover)は暗幕と同じ色・溶けている間は押させない",
       blk.includes("\n.coach-cover { position: fixed; pointer-events: auto; background: var(--c-coach-dim); }")
       && blk.includes('\n.coach-layer[data-leaving="true"] .coach-hit,\n.coach-layer[data-leaving="true"] .coach-cover,\n.coach-layer[data-leaving="true"] .coach-card { pointer-events: none; }'));
-    check("BX.5 【便BY】→【便BZ】目印の4規則(トークンだけ・動きなし)。章の目印(.coach-marks)の規則・便BY の .on の規則は無い",
-      PROGRESS.every((r) => blk.includes(`\n${r}`)) && (blk.match(/\n\.coach-progress/g) || []).length === 4 && !/\.coach-progress i\.on/.test(blk)
+    check("BX.5 【便BY】→【便BZ】→【便CF】目印の2規則(トークンだけ・動きなし)。章の目印(.coach-marks)の規則・便BY の .on・便BZ の4本の棒(i)の規則は無い",
+      PROGRESS.every((r) => blk.includes(`\n${r}`)) && (blk.match(/\n\.coach-progress/g) || []).length === 2 && !/\.coach-progress i\b/.test(blk)
       && !/\.coach-marks/.test(css.replace(/\/\*[\s\S]*?\*\//g, "")) && !/coach-progress[^{]*\{[^}]*(animation|transition)/.test(css),
       PROGRESS.filter((r) => !blk.includes(`\n${r}`)).join(" / "));
   }

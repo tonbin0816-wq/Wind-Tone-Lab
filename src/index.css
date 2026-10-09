@@ -913,10 +913,11 @@ body {
    棒の地はまだの部分(--c-line-strong)、中の <b> がそのタブの進み具合の割合だけ左から塗る(幅は onboarding.jsx が % で書く)。
    今の段のタブの棒(.now)は濃い紺(--c-accent)、ほかは中間の紺(--c-accent-mid)。動き・transition は付けない(塗りだけ)。
    高さ・間・角丸は便BY のまま(--sp-1 / --sp-1 / --r-full)。棒の中の塗りは棒の角丸で切る(overflow: hidden)。 */
-.coach-progress { justify-self: stretch; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: var(--sp-1); }
-.coach-progress i { display: block; height: var(--sp-1); border-radius: var(--r-full); background: var(--c-line-strong); overflow: hidden; }
-.coach-progress i b { display: block; height: 100%; background: var(--c-accent-mid); }
-.coach-progress i.now b { background: var(--c-accent); }
+/* 【便CF 2026-10-09 本人の選択(モック progress-mock.html の案1「全体で1本の棒」。数字は添えない)】棒は1本(カードの行の幅いっぱい)。
+   棒の地はまだの部分(--c-line-strong)、中の <b> が流れの全体(22枚)のうち何枚目までかの割合だけ左から塗る(--c-accent。幅は onboarding.jsx が % で書く)。
+   高さ --sp-1・角丸 --r-full は便BZ の棒のまま(新しい値は無い)。4本の棒の規則(i / i b / i.now b)と中間の紺(--c-accent-mid)は外した。動き・transition は付けない。 */
+.coach-progress { justify-self: stretch; height: var(--sp-1); border-radius: var(--r-full); background: var(--c-line-strong); overflow: hidden; }
+.coach-progress b { display: block; height: 100%; background: var(--c-accent); }
 /* 【便BS 2026-10-03 本人裁定(ficus-tutorial2.html「1. コミュニティ参加の画面を、カード1枚にまとめる」)】
    参加の画面のカード(src/community/CommunityTab.jsx の JoinIntro)。形は .coach-card のまま(角丸 18・浮きの影・内側)。
    【便BX】地は白(--c-surface)のまま・アイコンの丸は --c-accent-tint のまま(案内のカードの地と丸だけが変わった。下の .coach-card.join-card)。
