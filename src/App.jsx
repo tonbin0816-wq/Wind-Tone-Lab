@@ -58,6 +58,10 @@ import { shellRouteToSpeaker } from "./shell/audio.js";
 import { shellStartAdsOnce, shellSetAdsHidden } from "./shell/ads.js";
 // 【便BZ 2026-10-07 統括の裁定】殻が --ad-h を後から置いたときの知らせ(環の縮み・計測タブの枠を測り直す)。
 import { AD_HEIGHT_EVENT } from "./shell/ads.js";
+// 【便CG 2026-10-09 本人の要望「チュートリアル中は広告なしにできませんか」・統括の裁定】はじめの案内が終わるまで広告の帯を出さない。
+// 時機の判断は onboarding.jsx の adsAllowed(純関数)。その間の印(<html data-ad-hold="1">)の付け外しは adPreview.js の setAdHold。
+import { adsAllowed, ONBOARDING_SHOWN_KEY } from "./onboarding.jsx";
+import { setAdHold, isAdHeld } from "./adPreview.js";
 
 // コミュニティタブの**読み込み失敗**の見た目。CommunityTab 内部の Centered と
 // 同じ値を使う(あちらは export していないし、import すると遅延読み込みの意味が消える)。
@@ -211,7 +215,8 @@ function resolveSmallViewportHeight() {
 // inline の --ad-h の値も鍵に入れ、ads.js の知らせ(AD_HEIGHT_EVENT)で読み直す(useRingFitLayout)。
 function ringFitLayoutKey() {
   const o = (typeof screen !== "undefined" && screen.orientation && screen.orientation.type) || "";
-  const ad = document.documentElement.hasAttribute("data-ad-preview") ? 1 : 0;
+  // 【便CG】案内の間(data-ad-hold)は見本の帯の合図があっても帯の高さは 0(index.css)
+  const ad = document.documentElement.hasAttribute("data-ad-preview") && !isAdHeld() ? 1 : 0;
   const adH = document.documentElement.style.getPropertyValue("--ad-h").trim();
   return `${resolveSmallViewportHeight()}x${window.innerWidth}:${o}:${ad}:${adH}`;
 }
@@ -4054,6 +4059,40 @@ export default function WindToneLabPhaseMode() {
     for (const flag of onboardingFlagsForSavedSession(session)) markOnboarding(flag);
   }, [markOnboarding]);
 
+  // 【便CG 2026-10-09 本人の要望「チュートリアル中は広告なしにできませんか」・統括の裁定】はじめの案内が終わるまで、広告の帯を出さない。
+  // ⑱ が済んだとき(finish)、または2回目以降の起動(初めて案内のカードが出た起動を終えて、次に開いた)に始める(onboarding.jsx の adsAllowed)。
+  // 「初めて案内が出た起動」の印は kv の1つの鍵(ONBOARDING_SHOWN_KEY)。カードが出たら立てる(OnboardingCoach の onShown)。
+  // **起動の最初に読んだ値**だけを (b) に使う(この起動で立てた分で、この起動の広告を始めない)。見本の起動では本物の印に触らない。
+  const [onboardingShown, setOnboardingShown, onboardingShownLoaded, onboardingShownReadOk] = usePersistedState(ONBOARDING_SHOWN_KEY, false);
+  const shownAtLaunchRef = useRef(null);
+  if (shownAtLaunchRef.current === null && onboardingShownLoaded) shownAtLaunchRef.current = onboardingShown === true;
+  const markCoachShown = useCallback(() => {
+    if (tutorialPreview) return;
+    setOnboardingShown(true);
+  }, [setOnboardingShown, tutorialPreview]);
+  const adsOk = adsAllowed({
+    preview: tutorialPreview,
+    loaded: onboardingLoaded && onboardingShownLoaded,
+    readOk: onboardingReadOk && onboardingShownReadOk,
+    done: coachDone,
+    shownBefore: shownAtLaunchRef.current === true,
+  });
+  // 広告を始めるまでは --ad-h を 0 に(<html data-ad-hold="1">。index.css)。最初の描画では**子より先に**付ける ──
+  // 計測タブの環の縮み(ringFitLayoutKey)は子の最初の描画で読むので、後から付けると最初の1回が帯ありの高さで測られる。
+  // 変わったとき(⑱ が済んだ・移行で finish が立った)は描く前に付け外しし、測り直しの知らせ(AD_HEIGHT_EVENT。殻が --ad-h を置いたときと同じ)を出す。
+  useState(() => setAdHold(!adsOk));
+  useLayoutEffect(() => {
+    if (setAdHold(!adsOk)) window.dispatchEvent(new Event(AD_HEIGHT_EVENT));
+  }, [adsOk]);
+  useLayoutEffect(() => () => { setAdHold(false); }, []);
+  // 【殻 S3 → 便CG】広告の帯(殻の本物の帯と ATT)は、最初のマイクの試みが終わった(成功でも失敗でも。startListening が立てる)**うえで**
+  // adsAllowed が立ったときに1回だけ始める。マイクの試みを待つのは今までどおり(OS のマイクの許可の画面と ATT の画面を重ねない)。
+  // ATT は帯と同じ時(ads.native.js の startAds の中)。アプリが前面・フォーカスありを待つ尋ね直しも今の仕組みのまま。Web では何もしない。
+  const [micTried, setMicTried] = useState(false);
+  useEffect(() => {
+    if (micTried && adsOk) shellStartAdsOnce();
+  }, [micTried, adsOk]);
+
   // --- 音声ファイルアップロード解析(分析タブ) ---
   const [isAnalyzingUpload, setIsAnalyzingUpload] = useState(false);
   const isAnalyzingUploadRef = useRef(false); // 可視状態復帰時のWake Lock再取得判定に使う
@@ -4378,9 +4417,9 @@ export default function WindToneLabPhaseMode() {
       // 【殻 S2】WebKit は取り込みの開始時に音のセッションを自分で立て直すので、その後で出口をスピーカー
       // (イヤホンがあればイヤホン)へ寄せる。Web では何もしない。待たない・失敗は無視(殻の仕様 §4.4)。
       shellRouteToSpeaker();
-      // 【殻 S3】最初のマイクの試みが終わった直後に1回だけ、広告の帯を始める(ATT の許可の画面もここ。OS のマイクの許可の画面と重ねない)。
-      // 失敗の側は下の catch で同じ呼び口。2回目からは何もしない。Web では何もしない(殻の仕様 §5.3)。
-      shellStartAdsOnce();
+      // 【殻 S3】最初のマイクの試みが終わった(ATT の許可の画面を OS のマイクの許可の画面と重ねない)。失敗の側は下の catch で同じ。
+      // 【便CG】広告の帯と ATT はここでは始めず「試みが終わった」を立てるだけ(始めるのは adsAllowed が立ったとき。上の effect)。
+      setMicTried(true);
 
       // 【トラックの死亡検知】iOSは他アプリにマイクを奪われると readyState は live のまま
       // muted だけ true にして戻ってくることがある。ended/mute のどちらでも復旧を試みる。
@@ -4828,7 +4867,7 @@ export default function WindToneLabPhaseMode() {
       // 詳細な原因(権限拒否・デバイスなし等)はコンソールにのみ残し、画面上のアラートは
       // 常に同じ簡潔な一文にする(原因の切り分けはユーザーの手を煩わせない)。
       console.error("getUserMedia failed:", err.name, err.message, err);
-      shellStartAdsOnce();   // 【殻 S3】マイクの試みが失敗で終わった直後(許可されなかった等)。成功の側と同じ1回きりの呼び口
+      setMicTried(true);   // 【殻 S3 → 便CG】マイクの試みが失敗で終わった(許可されなかった等)。成功の側と同じ(帯を始めるのは adsAllowed が立ったとき)
       setErrorMsg(MIC_DENIED_MSG);
       setIsListening(false);
       return false;
@@ -5552,7 +5591,7 @@ export default function WindToneLabPhaseMode() {
       <BottomNav topTab={topTab} onNavTap={handleNavTap} isRecording={isRecording} />
       {/* 【便BL 2026-10-02 本人指示】見本の広告の帯。下部タブと同じ重なり順 30 で、**下部タブより後ろに置く**
           (同じ 30 の中では後ろの要素が上に描かれる)。合図が無い端末では何も描かない。 */}
-      <AdPreviewStrip />
+      <AdPreviewStrip held={!adsOk} />
       {/* 【殻 S3】殻の本物の帯(AdMob。ネイティブのビュー)を、シートが開いている間だけ隠す。何も描かない。Web では何もしない。 */}
       <ShellAdBannerSync />
       {/* 【便BP 2026-10-03 本人裁定】はじめの一手。**描くのはこの1箇所だけ**(body へ出す)。
@@ -5578,6 +5617,7 @@ export default function WindToneLabPhaseMode() {
         done={coachDone}
         hidden={!coachReady || isRecording || anySheetOpen || errorScrimShown || saveConfirmShown || isAnalyzingUpload || coachWithNotice.hidden}
         onMark={markOnboarding}
+        onShown={markCoachShown}
       />
     </div>
   );
@@ -5733,11 +5773,13 @@ function ShellAdBannerSync() {
 //     **--ad-h は 0 に戻さない** ── 戻すと裏のページの下端・浮かせるボタン・計測タブの枠が 50px 跳ね、
 //     閉じるとまた跳ね返る。帯の居た場所は暗幕の下になるだけ
 //   ・当たり判定は持ったまま(本物の帯も押せる面で、裏のページへは通さない)
-function AdPreviewStrip() {
+//   ・【便CG 2026-10-09 統括の裁定】はじめの案内が終わるまで(held。onboarding.jsx の adsAllowed が立つまで)は描かない。
+//     帯の高さも同じ間 0(<html data-ad-hold="1">)。殻の本物の帯と同じ時機に出る(本人が Web で確かめられるように)
+function AdPreviewStrip({ held = false }) {
   const [on] = useState(() => isAdPreviewOn());
   const sheetOpen = useAnyBottomSheetOpen();
   if (isNativeShell()) return null;   // 【殻 S3】殻では見本を描かない(本物の帯が出る。?adpreview=1 は Web 版の確認用)
-  if (!on || sheetOpen) return null;
+  if (!on || held || sheetOpen) return null;
   return (
     <div
       data-ad-preview-strip

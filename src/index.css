@@ -307,6 +307,13 @@
 :root[data-ad-preview="1"] {
   --ad-h: calc(50px + var(--sp-2));
 }
+/* 【便CG 2026-10-09 本人の要望「チュートリアル中は広告なしにできませんか」・統括の裁定】はじめの案内が終わるまで広告の帯を出さない。
+   その間は App.jsx が <html> に data-ad-hold="1" を付け、帯の高さを既定の 0px に戻す(見本の帯の合図があっても、案内の間に下の余白が空かない)。
+   同じ詳細度で後ろに置くので、上の見本の規則に勝つ。殻の本物の帯は帯を始めたあとに inline で --ad-h を置く(印はそのとき外れている)。
+   印を外す時機(⑱ が済んだ・2回目以降の起動)は onboarding.jsx の adsAllowed。 */
+:root[data-ad-hold="1"] {
+  --ad-h: 0px;
+}
 
 /* 【便BU 2026-10-03 本人裁定(案B)】2ペインの器。広い(JS の useWideLayout が true)ときだけ DOM に現れる
    (iPhone では1つも描かれない。しきい値は CSS に置かない)。いまの読み手はリードタブ(左 = 一覧・右 = 個体詳細)と
@@ -867,7 +874,7 @@ body {
      浮きの影(シート・浮かせるボタン・告知と同値 0 8px 24px rgba(15,23,42,0.18)。新しい濃さを作らない)。
      左右は画面から 22px(本人裁定)。中身は丸いアイコン(地 --c-accent-tint・色 --c-accent)・見出し・1行
      【便BX 2026-10-06 本人の決定 A1-e】地を --c-accent-tint(ごく薄い紺)に、アイコンの丸を白(--c-surface)にした。字は変えない。
-     参加の画面のカード(.join-card)は白のまま(本人の決定 §16(1) ア)。カードの先頭に枚数の目印(.coach-progress。【便BY】章の目印から替えた)
+     参加の画面のカード(.join-card)は白のまま(本人の決定 §16(1) ア)。(カードの先頭の枚数の目印は【便CG】で外した ── 下の【便CG】)
    ・【版4との値の差】見出しは版4の 17px → --fs-lg(18px。7段に 17 が無い)。カードの内側の左右と下は版4の 18px →
      --sp-4(16px。5段に 18 が無い)。上は版4と同じ 20(--sp-5)。1行の行間は版4の 1.7 → --lh-loose(1.75)
    ・動きは**済んだときに溶けて消える 0.35 秒だけ**(本人裁定。§1.11 の3段の外 ── 段に入れると「速い/普通/遅い」の
@@ -905,19 +912,9 @@ body {
 .coach-icon svg { width: 24px; height: 24px; }
 .coach-title { font-size: var(--fs-lg); font-weight: 700; line-height: var(--lh-tight); color: var(--c-ink); }
 .coach-line { font-size: var(--fs-sm); line-height: var(--lh-loose); color: var(--c-ink-2); }
-/* 【便BY 2026-10-07 本人の指示「チュートリアルの案内の枚数を------で表して / Instagramみたいな」】枚数の目印。カードの最初の子。
-   細い横棒を案内の全体の枚数(onboarding.jsx の COACH_ORDER)ぶん等分に並べ、今の段までを紺(--c-accent)、まだを中立の灰
-   (--c-line-strong。地が --c-accent-tint なので --c-line では見えない)で塗る。時間で伸びる動きは無い(塗りだけ)。
-   棒の高さと間は --sp-1(2〜3px に当たるトークンは無い)・角丸 --r-full。便BX の章の目印(.coach-marks)はこれに替えた。 */
-/* 【便BZ 2026-10-07 本人の指示「棒は4本(タブの数)にしてその棒の中の塗りつぶしでそのタブ内での進捗を表現して」】棒は4本(下部タブと同じ並び。字なし)。
-   棒の地はまだの部分(--c-line-strong)、中の <b> がそのタブの進み具合の割合だけ左から塗る(幅は onboarding.jsx が % で書く)。
-   今の段のタブの棒(.now)は濃い紺(--c-accent)、ほかは中間の紺(--c-accent-mid)。動き・transition は付けない(塗りだけ)。
-   高さ・間・角丸は便BY のまま(--sp-1 / --sp-1 / --r-full)。棒の中の塗りは棒の角丸で切る(overflow: hidden)。 */
-/* 【便CF 2026-10-09 本人の選択(モック progress-mock.html の案1「全体で1本の棒」。数字は添えない)】棒は1本(カードの行の幅いっぱい)。
-   棒の地はまだの部分(--c-line-strong)、中の <b> が流れの全体(22枚)のうち何枚目までかの割合だけ左から塗る(--c-accent。幅は onboarding.jsx が % で書く)。
-   高さ --sp-1・角丸 --r-full は便BZ の棒のまま(新しい値は無い)。4本の棒の規則(i / i b / i.now b)と中間の紺(--c-accent-mid)は外した。動き・transition は付けない。 */
-.coach-progress { justify-self: stretch; height: var(--sp-1); border-radius: var(--r-full); background: var(--c-line-strong); overflow: hidden; }
-.coach-progress b { display: block; height: 100%; background: var(--c-accent); }
+/* 【便CG 2026-10-09 本人の要望「(進み具合の目印は)もうなくてもいいかなあ 全部終わらせなくたってこのアプリは使えるわけだし」】
+   枚数の目印(便BY の 21 本の棒 → 便BZ の4本の棒 → 便CF の1本の棒)を外した。目印の規則は無い。カードの最初の子はアイコン(.coach-icon)で、
+   カードは目印の行(高さ --sp-1)と行の間(gap --sp-2)の分だけ縦に短くなった。.coach-* の他の規則は1文字も変えていない。 */
 /* 【便BS 2026-10-03 本人裁定(ficus-tutorial2.html「1. コミュニティ参加の画面を、カード1枚にまとめる」)】
    参加の画面のカード(src/community/CommunityTab.jsx の JoinIntro)。形は .coach-card のまま(角丸 18・浮きの影・内側)。
    【便BX】地は白(--c-surface)のまま・アイコンの丸は --c-accent-tint のまま(案内のカードの地と丸だけが変わった。下の .coach-card.join-card)。

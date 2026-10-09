@@ -52,6 +52,7 @@ function watchWidth() {
 
 // 起動時の最初のマイクの試み(App.jsx の startListening の完全再取得)が成功・失敗どちらでも終わった直後に呼ぶ。
 // 1回だけ。OS のマイクの許可の画面と ATT の画面を重ねないため、この時機にする。
+// 【便CG 2026-10-09 統括の裁定】さらに、はじめの案内が終わるまでは呼ばない(App.jsx がマイクの試みのあと onboarding.jsx の adsAllowed が立ったときに呼ぶ)。
 export function shellStartAdsOnce() {
   if (!isNativeShell() || started) return;
   started = true;

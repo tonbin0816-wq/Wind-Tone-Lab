@@ -10,10 +10,10 @@ import {
   holesSplit, bandOfHole, holeClipPath,
   MEASURE_TAB_STEPS, MEASURE_STEPS_MIGRATED, TUNER_SUSTAIN_MS, useSustained,
   COACH2_MIGRATED, MEASURE_TAB_STEPS_LEGACY, DATA_TAB_STEPS, MEASURE_CHAPTER_FLAGS,
-  COACH3_MIGRATED, coachProgress, COACH_ORDER, COACH_SKIPPED,
+  COACH3_MIGRATED, adsAllowed, ONBOARDING_SHOWN_KEY,
   COACH4_MIGRATED, coachScrollPlan, floatingCovers, goCompareOpen, coachCameFromCompare, coachDuringNotice, COACH_WITH_NOTICE,
 } from "./onboarding.jsx";
-// 【便CF】4本の棒の作り(COACH_TABS)が無いことを見るため、名前の一覧も読む
+// 【便CF】4本の棒の作り(COACH_TABS)が無いことを見るため、名前の一覧も読む。【便CG】目印の作り(COACH_ORDER / coachProgress / COACH_SKIPPED)が無いことも
 import * as onboardingModule from "./onboarding.jsx";
 
 // ------------------------------------------------------------------
@@ -35,6 +35,8 @@ import * as onboardingModule from "./onboarding.jsx";
 //   chapterMarks)を外し、枚数の目印(COACH_ORDER / coachProgress)に替えた。期待値の 21 枚の順は仕様 coach3-spec.md §15 から**手で書いた**。
 // 【便CF 2026-10-09 本人の選択】目印を全体で1本の棒にした(COACH_ORDER を戻し、22 枚のうち何枚目までかを塗る)。期待値の数は規則から**手で数えた**。
 // 【便CF 審査 統括の裁定】塗る数 = max(済んだ段 + 出ない段 + 今の段, 今の段の位置 + 1, その起動の中で見せた最大)。期待値は裁定の式から手で数えた。
+// 【便CG 2026-10-09 本人の要望】目印を外した(塗りの検査は消し、「目印が無い」検査と流れの順の検査に替えた)。広告の帯を始めてよいか(adsAllowed)と
+//   カードが出た知らせ(onShown)を足した。期待値は統括の裁定の文から手で書いた。
 // ------------------------------------------------------------------
 
 // 【便BZ】5つ目の門(migratedCoach4)も
@@ -1389,69 +1391,33 @@ describe("【便BX】どの段を出すか(到着・⑭'・⑰・⑱)", () => {
   });
 });
 
-// 【便BY】流れの順・【便BZ】もう出ない段・【便CF】1本の棒。期待値は仕様 coach3-spec.md §15 の手順(①〜⑤・到着・⑥⑦・⑧⑨⑩・到着・⑫⑬⑭⑭'・到着・⑯・goCompare・⑮⑰・⑱)と
-// 本人の選択・統括の指示(「(済んだ段 + その利用者に出ない段 + 今の段)/ 22」・⑪ は数えない)と【便CF 審査】の裁定
-// (「max(その数, 今の段の位置 + 1)」・「その起動の中で見せた最大を下回らない」)から手で書いた(COACH_ORDER から読まない)。
-// 【便CF】流れの順の定数 COACH_ORDER を戻した。順はこの検査も手で持ち(FLOW)、定数と coachCandidates の出る順の両方と突き合わせる。
+// 【便BY】流れの順。期待値は仕様 coach3-spec.md §15 の手順(①〜⑤・到着・⑥⑦・⑧⑨⑩・到着・⑫⑬⑭⑭'・到着・⑯・goCompare・⑮⑰・⑱)から手で書いた。
+// 【便CG 2026-10-09 本人の要望「(進み具合の目印は)もうなくてもいいかなあ」】目印(1本の棒)を外し、流れの順の定数 COACH_ORDER・塗りの計算 coachProgress・
+// もう出ない段 COACH_SKIPPED は消した。順の検査(coachCandidates の出る順)はこの手で持つ FLOW と突き合わせて残す(目印が無くても流れの順は守る物)。
 const FLOW = ["tuner", "metronome", "metroTempo", "metroStart", "goReeds", "arriveReeds", "reeds", "reedsMeasure",
   "reedLinked", "measure", "goData", "arriveData", "calendarDay", "daySession", "trend", "goCommunity",
   "arriveCommunity", "adoptAverage", "goCompare", "idealSeen", "goMeasure", "finish"];
-const fillOf = (id, done = ALL_FALSE) => coachProgress(id, done).filled;
-describe("【便BY】流れの順・【便CF】1本の棒(COACH_ORDER / coachProgress)", () => {
-  it("【便CF】流れは22枚(FLOW のとおり)。⑪ data と ⑨ の measureReed は枚数に入らない。全部の段は流れの1枚か ⑨ と同じ段", () => {
-    expect(COACH_ORDER).toEqual(FLOW);
-    expect(coachProgress("tuner", ALL_FALSE)).toEqual({ filled: 1, total: 22 });
-    expect(COACH_ORDER).not.toContain("data");
-    expect(COACH_ORDER).not.toContain("measureReed");
-    // 流れに無い段は ⑪ と ⑨ の2つ目の文だけ(どちらも印 measure = ⑨ と同じ段)
+describe("【便BY】流れの順・【便CG】目印の作りは無い", () => {
+  it("流れは22枚(FLOW のとおり)。流れに無い段は ⑪ data と ⑨ の measureReed の2つだけ(どちらも印 measure)", () => {
+    expect(FLOW.every((id) => id in COACH_STEPS)).toBe(true);
     expect(Object.keys(COACH_STEPS).filter((id) => !FLOW.includes(id)).sort()).toEqual(["data", "measureReed"]);
     expect([COACH_STEPS.data.flag, COACH_STEPS.measureReed.flag]).toEqual(["measure", "measure"]);
-    // 4本の棒の作り(COACH_TABS・棒ごとの割合)は無い
-    expect(Object.keys(onboardingModule)).not.toContain("COACH_TABS");
-    expect(Object.keys(coachProgress("goData", ALL_FALSE)).sort()).toEqual(["filled", "total"]);
   });
-  it("【便CF】⑪ は ⑨ と同じ段(枚数は増やさない)。【便CF 審査】位置 + 1 の式で ⑨ と同じ 10/22", () => {
-    expect(fillOf("data")).toBe(10);
-    expect(fillOf("data", doneWith("tuner"))).toBe(10);
-    expect(fillOf("data", doneWith("tuner"))).toBe(fillOf("measure", doneWith("tuner")));
-    expect(fillOf("measureReed", doneWith("tuner"))).toBe(10);
-    expect(fillOf("data", doneWith(...FLOW.slice(0, 9), "goData", "arriveData"))).toBe(12);   // 済んだ数が位置より多ければそちら(⑨ は重ねて数えない)
-    expect(coachProgress("data", ALL_FALSE).total).toBe(22);
-  });
-  it("【便CF 審査】塗る数 = max(済んだ段 + もう出ない段 + 今の段, 今の段の位置 + 1, floor)。外押しで消した段が残っていても位置までは塗る", () => {
-    expect(fillOf("tuner")).toBe(1);
-    expect(fillOf("arriveReeds")).toBe(6);     // ①〜⑤ を外押しで消しただけの人: 位置 6
-    expect(fillOf("goData")).toBe(11);
-    expect(fillOf("arriveData", doneWith("trend", "adoptAverage"))).toBe(12);   // 済んだ3 < 位置 12
-    // もう出ない段(COACH_SKIPPED)は済んだ扱い: 済んだ数が位置より多いときはそちら
-    expect(fillOf("tuner", doneWith("reeds"))).toBe(3);              // ① + ⑥ + ⑤(出ない)> 位置 1
-    expect(fillOf("arriveData", doneWith("join"))).toBe(12);
-    expect(fillOf("goMeasure", doneWith("idealSeen"))).toBe(21);
-    expect(fillOf("reedLinked", doneWith(...FLOW.slice(0, 7)))).toBe(9);   // ⑦ の印がまだ(保存で立つ)でも ⑧ は 9
-    expect(Object.keys(COACH_SKIPPED).sort()).toEqual(["goCommunity", "goCompare", "goMeasure", "goReeds", "idealSeen", "trend"]);
-    expect(fillOf("bogus")).toBe(0);                                 // 知らない段は今の段も位置も持たない
-    expect(fillOf("bogus", doneWith("tuner", "metronome"))).toBe(2);
-    // floor(その起動の中で見せた最大)を下回らない・22 を越えない
-    expect(coachProgress("tuner", ALL_FALSE, 10)).toEqual({ filled: 10, total: 22 });
-    expect(coachProgress("tuner", ALL_FALSE, 0)).toEqual({ filled: 1, total: 22 });
-    expect(coachProgress("tuner", ALL_FALSE, 99).filled).toBe(22);
-  });
-  it("【便CF 審査】⑱ は必ず 22/22(何も済んでいない人・外押しで消した段が残っている人・終わった人)", () => {
-    expect(fillOf("finish")).toBe(22);
-    expect(fillOf("finish", doneWith("tuner", "measure", "goData", "goCommunity"))).toBe(22);   // ②〜⑧・到着・⑫〜⑭・⑯ などを外押しで消した人
-    expect(fillOf("finish", doneWith("goMeasure"))).toBe(22);
-    expect(fillOf("finish", doneWith("finish"))).toBe(22);
+  it("【便CG】目印の作り(COACH_ORDER・coachProgress・COACH_SKIPPED・便BZ の COACH_TABS)は onboarding.jsx の名前の一覧に無い", () => {
+    const names = Object.keys(onboardingModule);
+    for (const n of ["COACH_ORDER", "coachProgress", "COACH_SKIPPED", "COACH_STEP_ALIAS", "COACH_TABS", "CoachProgress"]) expect(names, n).not.toContain(n);
+    const src = readFileSync(join(process.cwd(), "src", "onboarding.jsx"), "utf8").replace(/\/\/.*$/gm, "").replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
+    expect(/coach-progress|shownMaxRef|CoachProgress|coachProgress|COACH_ORDER|COACH_SKIPPED|COACH_STEP_ALIAS/.test(src)).toBe(false);
   });
   // 本人が通す流れ(仕様 §15)を coachCandidates で1枚ずつ進め、出た段の順が FLOW と同じことを確かめる(順の検査)。
-  it("coachCandidates の出る順(本人の通す流れ)は FLOW のとおり。塗りは 1/22 → 22/22 と1枚ずつ増え、⑱ で 100%", () => {
+  it("coachCandidates の出る順(本人の通す流れ)は FLOW のとおり。⑱ のあとは何も出ない", () => {
     let done = { ...ALL_FALSE };
-    const seen = []; const fills = [];
+    const seen = [];
     const run = (ctx, max = 8) => {
       for (let i = 0; i < max; i++) {
         const c = coachCandidates({ ...ctx, done });
         if (c.length === 0) return;
         seen.push(c[0]);
-        fills.push(fillOf(c[0], done));
         done = { ...done, [COACH_STEPS[c[0]].flag]: true };
       }
     };
@@ -1467,19 +1433,20 @@ describe("【便BY】流れの順・【便CF】1本の棒(COACH_ORDER / coachPro
     run({ topTab: "measure", micReady: true });                                              // ⑱
     expect(seen.map((id) => (id === "measureReed" ? "measure" : id))).toEqual(FLOW);
     expect(seen).toContain("measureReed");   // ⑨ はリードが選ばれている文
-    expect(fills).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]);
-    expect(coachProgress("finish", done)).toEqual({ filled: 22, total: 22 });
+    expect(done.finish).toBe(true);
+    for (const tab of ["measure", "reeds", "analysis", "community"]) {
+      expect(coachCandidates({ topTab: tab, done, micReady: true, hasSessions: true }), tab).toEqual([]);
+    }
   });
   // アプリの本当の印の立ち方: ⑦(reedsMeasure)の印は「このリードで計測する」を押したときではなく、リードの紐づいた計測を保存したとき
-  // (onboardingFlagsForSavedSession)に ⑨ の印と一緒に立つ。【便CF 審査】の前は ⑦ 8/22・⑧ 8/22・⑨ 9/22・⑩ 11/22 と段差があった
-  // (dev サーバの見本で実測)。位置 + 1 の式で1つずつに直った。
-  it("【便CF 審査】⑦ の印は計測の保存で立つ本当の立ち方でも、1/22 → 22/22 と1つずつ増える", () => {
+  // (onboardingFlagsForSavedSession)に ⑨ の印と一緒に立つ。その立ち方でも出る順は FLOW のとおり。
+  it("⑦ の印は計測の保存で立つ本当の立ち方でも、出る順は FLOW のとおり", () => {
     let done = { ...ALL_FALSE };
-    const fills = [];
+    const seen = [];
     const show = (ctx) => {
       const c = coachCandidates({ ...ctx, done });
       expect(c.length, JSON.stringify(ctx)).toBeGreaterThan(0);
-      fills.push(fillOf(c[0], done));
+      seen.push(c[0]);
       return c[0];
     };
     const mark = (...flags) => { done = { ...done, ...Object.fromEntries(flags.map((f) => [f, true])) }; };
@@ -1499,16 +1466,16 @@ describe("【便BY】流れの順・【便CF】1本の棒(COACH_ORDER / coachPro
     for (let i = 0; i < 3; i++) mark(show({ topTab: "community" }));                    // 到着・⑯・⑯'
     for (let i = 0; i < 2; i++) mark(show({ topTab: "analysis", hasSessions: true, idealRequested: true }));   // ⑮⑰
     show(M);                                                                             // ⑱
-    expect(fills).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]);
+    expect(seen.map((id) => (id === "measureReed" ? "measure" : id))).toEqual(FLOW);
   });
-  it("リードが既にあり参加済みの人: ⑤ ⑥ ⑦ と到着2枚・⑭' は出ないが、もう出ない段・済んだ段は進んだ扱いで 7/22 から始まり ⑱ で 22/22", () => {
+  it("リードが既にあり参加済みの人: ⑤・リードの到着・⑥⑦・コミュニティの到着・⑭' は出ず、残りの16枚が流れの順で出て ⑱ で終わる", () => {
     let done = doneWith("reeds", "reedsMeasure", "arriveReeds", "join", "arriveCommunity");
-    const fills = [];
+    const seen = [];
     const run = (ctx, max = 8) => {
       for (let i = 0; i < max; i++) {
         const c = coachCandidates({ ...ctx, done });
         if (c.length === 0) return;
-        fills.push(fillOf(c[0], done));
+        seen.push(c[0]);
         done = { ...done, [COACH_STEPS[c[0]].flag]: true };
       }
     };
@@ -1519,31 +1486,44 @@ describe("【便BY】流れの順・【便CF】1本の棒(COACH_ORDER / coachPro
     run({ topTab: "community" });
     run({ topTab: "analysis", hasSessions: true, idealRequested: true });
     run({ topTab: "measure", micReady: true });
-    // ① + ⑤(リードがある)・リードの3つ・コミュニティの到着・⑭'(参加している)
-    expect(fills).toEqual([7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]);
+    expect(seen).toEqual(["tuner", "metronome", "metroTempo", "metroStart", "reedLinked", "measureReed", "goData",
+      "arriveData", "calendarDay", "daySession", "trend", "adoptAverage", "goCompare", "idealSeen", "goMeasure", "finish"]);
   });
-  it("【便CF 審査】順番どおりに進まない人(データタブ → コミュニティ → 計測 → リード …): 式だけなら手前の段で減るが、その起動の最大(floor)で戻らない", () => {
-    let done = doneWith("join");
-    const shown = []; const raw = [];
-    let max = 0;   // OnboardingCoach の shownMaxRef と同じ役(この起動の中で見せた最大)
-    const step = (id, set = true) => {
-      raw.push(fillOf(id, done));
-      const v = coachProgress(id, done, max).filled;
-      shown.push(v); max = Math.max(max, v);
-      if (set) done = { ...done, [COACH_STEPS[id].flag]: true };
-    };
-    step("data", false);            // ⑪ を見ただけ(計測はまだ)
-    step("arriveCommunity"); step("adoptAverage", false);   // ⑯ は外押しで消した
-    step("tuner"); step("metronome");
-    step("arriveReeds"); step("reeds");
-    step("goReeds", false);         // リードがあるので本当は出ない(済んだ扱い)
-    step("measure"); step("arriveData"); step("trend");
-    // 手で数えた(式だけ): ⑪ は位置 10 / 到着(コミュニティ)は位置 17 / ⑯ は位置 18 / ① は 済んだ2 + ⑭' + 今 = 3 / ② 4 / 到着(リード)は位置 6 /
-    // ⑥ は位置 7 / ⑤(出ない)7 / ⑨ は位置 10 / 到着(データ)は位置 12 / ⑭ は位置 15
-    expect(raw).toEqual([10, 17, 18, 3, 4, 6, 7, 7, 10, 12, 15]);
-    expect(shown).toEqual([10, 17, 18, 18, 18, 18, 18, 18, 18, 18, 18]);
-    for (let i = 1; i < shown.length; i++) expect(shown[i] >= shown[i - 1], `${i}`).toBe(true);
-    expect(fillOf("adoptAverage", done)).toBe(18);   // 次の起動(floor 0)でも ⑯ は位置 18
+});
+
+// 【便CG 2026-10-09 本人の要望「チュートリアル中は広告なしにできませんか」・統括の裁定】広告の帯を始めてよいか(adsAllowed)。
+// 期待値は統括の裁定の文((a) ⑱ が済んだ / (b) 初めて案内が出た起動の次の起動 / 既存の利用者は最初から / 見本は見本の案内が終わるまで)から手で書いた。
+describe("【便CG】広告の帯を始めてよいか(adsAllowed)", () => {
+  const FIN = doneWith("finish");
+  it("初めて案内が出る起動(印が読めた・⑱ 未・前の起動で案内が出ていない): 始めない", () => {
+    expect(adsAllowed({ loaded: true, readOk: true, done: ALL_FALSE, shownBefore: false })).toBe(false);
+    // ⑱ のほかが全部済んでいても(⑰ まで来た人)、⑱ が済むまでは始めない
+    expect(adsAllowed({ loaded: true, readOk: true, done: doneWith(...FLOW.filter((id) => id !== "finish").map((id) => COACH_STEPS[id].flag)), shownBefore: false })).toBe(false);
+  });
+  it("(a) ⑱ が済んだら始める(移行で案内が全部済んだ既存の利用者も finish が立っている = 最初から)", () => {
+    expect(adsAllowed({ loaded: true, readOk: true, done: FIN, shownBefore: false })).toBe(true);
+    const migrated = normalizeOnboardingDone(migrateOnboardingDone({}, { sessions: [{ id: "s1" }] }));
+    expect(migrated.finish).toBe(true);
+    expect(adsAllowed({ loaded: true, readOk: true, done: migrated, shownBefore: false })).toBe(true);
+  });
+  it("(b) 2回目以降の起動(前の起動で案内が出た)なら、案内が残っていても始める", () => {
+    expect(adsAllowed({ loaded: true, readOk: true, done: ALL_FALSE, shownBefore: true })).toBe(true);
+    expect(adsAllowed({ loaded: true, readOk: true, done: doneWith("tuner", "metronome"), shownBefore: true })).toBe(true);
+  });
+  it("読み込みが済むまでは始めない・読めなかった起動(案内を出さない)は今までどおり始める", () => {
+    expect(adsAllowed({ loaded: false, readOk: false, done: FIN, shownBefore: true })).toBe(false);
+    expect(adsAllowed({ loaded: true, readOk: false, done: ALL_FALSE, shownBefore: false })).toBe(true);
+    expect(adsAllowed()).toBe(false);
+  });
+  it("見本(?tutorialpreview=1)は見本の案内が終わる(見本の finish)まで始めない。2回目以降の起動の (b) は使わない", () => {
+    expect(adsAllowed({ preview: true, loaded: true, readOk: true, done: ALL_FALSE, shownBefore: true })).toBe(false);
+    expect(adsAllowed({ preview: true, loaded: false, readOk: false, done: FIN, shownBefore: false })).toBe(true);
+    expect(adsAllowed({ preview: true, loaded: true, readOk: false, done: ALL_FALSE })).toBe(false);
+  });
+  it("「初めて案内が出た起動」の印は kv の別の鍵 onboardingShown(印の表 ONBOARDING_FLAGS にも normalizeOnboardingDone にも入らない)", () => {
+    expect(ONBOARDING_SHOWN_KEY).toBe("onboardingShown");
+    expect(ONBOARDING_FLAGS).not.toContain("onboardingShown");
+    expect(Object.keys(normalizeOnboardingDone({ onboardingShown: true }))).not.toContain("onboardingShown");
   });
 });
 
@@ -1672,78 +1652,92 @@ describe("【便BX】到着カード(穴なし・どこを押しても次へ・�
   });
 });
 
-// 【便BY】→【便BZ】→【便CF】目印の描画(1本の棒)。期待値(塗る数)は上の規則から手で数えた
-const ALL_STEP_FLAGS = ["tuner", "metronome", "metroTempo", "metroStart", "goReeds", "reedLinked", "measure", "goData",
-  "arriveReeds", "reeds", "reedsMeasure", "arriveCommunity", "adoptAverage", "goCompare",
-  "arriveData", "calendarDay", "daySession", "trend", "goCommunity", "idealSeen", "goMeasure"];
-describe("【便CF】1本の棒の描画(カードの最初の子)", () => {
-  const bar = () => layer().querySelector(".coach-card").firstElementChild;
-  const width = () => Math.round(parseFloat(bar().firstElementChild.style.width) * 100) / 100;
-  it("⑩: 最初の子は棒1本(.coach-progress の中に <b> が1つだけ・字なし・4本の棒の i は無い)。【便CF 審査】⑩ の位置 = 11/22。「案内 11/22」", async () => {
+// 【便CG 2026-10-09 本人の要望「(進み具合の目印は)もうなくてもいいかなあ」】目印(便BY → 便BZ → 便CF の棒)を外した。カードの最初の子はアイコン。
+// 期待値(カードの子の並び)は本人の要望と統括の指示「目印の行が無くなった分だけ縦に短くなる。それ以外は今のまま」から手で書いた。
+describe("【便CG】目印が無い(カードの最初の子はアイコン)", () => {
+  const card = () => layer().querySelector(".coach-card");
+  const kids = () => [...card().children].map((c) => c.className);
+  it("⑩: カードの子はアイコン・見出しの2つ(1行の無い段)。.coach-progress も role=\"img\" の目印も無い。読み上げの文は変えていない", async () => {
     await drawBS(["goData"], { done: doneWith("goReeds"), extra: MEASURE_PAGE });
     await frames();
-    const card = layer().querySelector(".coach-card");
-    expect(bar().className).toBe("coach-progress");
-    expect(bar().getAttribute("role")).toBe("img");
-    expect(bar().getAttribute("aria-label")).toBe("案内 11/22");
-    expect([...bar().children].map((c) => [c.tagName, c.className, c.textContent])).toEqual([["B", "", ""]]);
-    expect(bar().textContent).toBe("");
-    expect(layer().querySelector(".coach-progress i, .coach-progress [data-tab], .coach-progress .now")).toBe(null);
-    expect(width()).toBe(50);
-    expect(card.children[1].className).toBe("coach-icon");   // 目印の次がアイコン
-    expect(layer().querySelector(".coach-marks, [data-coach-mark]")).toBe(null);
-    expect(live().textContent).toBe("計測の記録を見てみよう");   // 読み上げの文は変えていない
+    expect(layerId()).toBe("goData");
+    expect(kids()).toEqual(["coach-icon", "coach-title"]);
+    expect(layer().querySelector(".coach-progress")).toBe(null);
+    expect(card().querySelector('[role="img"]')).toBe(null);
+    expect(card().textContent.includes("案内")).toBe(false);
+    expect(live().textContent).toBe("計測の記録を見てみよう");
   });
-  it("① は 1/22・リードの到着は位置 6/22(①〜⑤ を外押しで消しただけでも)・コミュニティの到着は 17/22・⑱ は何も済んでいなくても 22/22 = 100%", async () => {
+  it("① / リードの到着 / コミュニティの到着 / ⑱(何も済んでいなくても・全部済んでいても): 子はアイコン・見出し・1行の3つ。目印は無い", async () => {
     const CASES = [
-      ["tuner", ALL_FALSE, <Band key="b" />, "案内 1/22", 4.55],
-      ["arriveReeds", ALL_FALSE, null, "案内 6/22", 27.27],
-      ["arriveCommunity", ALL_FALSE, null, "案内 17/22", 77.27],
-      ["finish", doneWith(...ALL_STEP_FLAGS), null, "案内 22/22", 100],
-      ["finish", ALL_FALSE, null, "案内 22/22", 100],
+      ["tuner", ALL_FALSE, <Band key="b" />],
+      ["arriveReeds", ALL_FALSE, null],
+      ["arriveCommunity", ALL_FALSE, null],
+      ["finish", ALL_FALSE, null],
+      ["finish", doneWith(...FLOW.filter((id) => id !== "finish").map((id) => COACH_STEPS[id].flag)), null],
     ];
-    for (const [id, done, extra, label, w] of CASES) {
+    for (const [id, done, extra] of CASES) {
       act(() => root.unmount());
       root = createRoot(host);
       await drawBS([id], { done, extra });
       await frames();
       expect(layerId(), id).toBe(id);
-      expect(bar().getAttribute("aria-label"), id).toBe(label);
-      expect(bar().children.length, id).toBe(1);
-      expect(width(), id).toBe(w);
+      expect(kids(), id).toEqual(["coach-icon", "coach-title", "coach-line"]);
+      expect(layer().querySelector(".coach-progress, .coach-progress b"), id).toBe(null);
     }
   });
-  it("済んだ段(done)は順に関係なく数える: ① で ⑥・⑤(出ない)・⑨・⑭・⑯ が済み → 済んだ数 6 が位置 1 より多いので 6/22", async () => {
-    await drawBS(["tuner"], { done: doneWith("measure", "reeds", "trend", "adoptAverage"), extra: <Band /> });
-    await frames();
-    expect(bar().getAttribute("aria-label")).toBe("案内 6/22");
-    expect(width()).toBe(27.27);
+  it("index.css に目印の規則(.coach-progress)は無い。.coach-card の行の間は --sp-2 のまま(カードは目印の行の分だけ短くなる)", () => {
+    const css = readFileSync(join(process.cwd(), "src", "index.css"), "utf8");
+    const code = css.replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(/coach-progress/.test(code)).toBe(false);
+    expect(/\.coach-card \{[^}]*display: grid; justify-items: center; gap: var\(--sp-2\); text-align: center;/.test(code)).toBe(true);
   });
-  it("【便CF 審査】その起動の中で見せた最大を下回らない: コミュニティの到着(17)のあと ① に戻っても 17/22。起動し直す(部品を作り直す)と ① は 1/22", async () => {
-    await drawBS(["arriveCommunity"]);
+});
+
+// 【便CG】「初めて案内が出た起動」の知らせ(onShown)。App.jsx はこれで kv の onboardingShown を立て、次の起動から広告を始める。
+// 期待値は統括の裁定「初めて案内が出た起動」(出た = 測り終えて見えているカード)から手で書いた。
+describe("【便CG】カードが出たら onShown を1回だけ呼ぶ", () => {
+  const drawShown = (candidates, onShown, { hidden = false, done = ALL_FALSE, extra = <Band /> } = {}) => act(async () => {
+    root.render(<><Nav />{extra}<OnboardingCoach candidates={candidates} done={done} hidden={hidden} onShown={onShown} /></>);
+  });
+  it("隠している間(hidden)・候補が無い間は呼ばない。見えたら1回。次の段に替わっても、溶けても、もう呼ばない", async () => {
+    let n = 0;
+    const onShown = () => { n += 1; };
+    await drawShown(["tuner"], onShown, { hidden: true });
     await frames();
-    expect(bar().getAttribute("aria-label")).toBe("案内 17/22");
-    await drawBS(["tuner"], { extra: <Band /> });
+    expect(layer()).toBe(null);
+    expect(n).toBe(0);
+    await drawShown([], onShown);
+    await frames();
+    expect(n).toBe(0);
+    await drawShown(["tuner"], onShown);
     await frames();
     expect(layerId()).toBe("tuner");
-    expect(bar().getAttribute("aria-label")).toBe("案内 17/22");
-    expect(width()).toBe(77.27);
+    expect(n).toBe(1);
+    await drawShown(["tuner"], onShown, { done: doneWith("tuner") });   // 済んで溶ける
+    expect(layer()?.getAttribute("data-leaving")).toBe("true");
+    await drawShown([], onShown, { done: doneWith("tuner") });
+    await frames(500);
+    expect(layer()).toBe(null);
+    await drawShown(["arriveReeds"], onShown, { done: doneWith("tuner"), extra: null });
+    await frames();
+    expect(layerId()).toBe("arriveReeds");
+    expect(n).toBe(1);
+  });
+  it("部品を作り直す(次の起動)と、また1回呼ぶ。onShown を渡さなくても出る(今までどおり)", async () => {
+    let n = 0;
+    await drawShown(["arriveData"], () => { n += 1; }, { extra: null });
+    await frames();
+    expect(n).toBe(1);
     act(() => root.unmount());
     root = createRoot(host);
-    await drawBS(["tuner"], { extra: <Band /> });
+    await drawShown(["arriveData"], () => { n += 1; }, { extra: null });
     await frames();
-    expect(layerId()).toBe("tuner");
-    expect(bar().getAttribute("aria-label")).toBe("案内 1/22");
-  });
-  it("塗りに動き(transition / animation)を付けない・色はトークン(塗り --c-accent / まだ --c-line-strong)・高さ --sp-1・角丸 --r-full", () => {
-    const css = readFileSync(join(process.cwd(), "src", "index.css"), "utf8");
-    const rules = css.split("\n").map((l) => l.replace(/\r$/, "")).filter((l) => l.startsWith(".coach-progress"));
-    expect(rules).toEqual([
-      ".coach-progress { justify-self: stretch; height: var(--sp-1); border-radius: var(--r-full); background: var(--c-line-strong); overflow: hidden; }",
-      ".coach-progress b { display: block; height: 100%; background: var(--c-accent); }",
-    ]);
-    expect(/coach-progress[^{]*\{[^}]*(transition|animation)/.test(css)).toBe(false);
-    expect(/coach-progress[^{]*\{[^}]*--c-accent-mid/.test(css)).toBe(false);
+    expect(n).toBe(2);
+    act(() => root.unmount());
+    root = createRoot(host);
+    await drawBS(["arriveData"]);
+    await frames();
+    expect(layerId()).toBe("arriveData");
   });
 });
 

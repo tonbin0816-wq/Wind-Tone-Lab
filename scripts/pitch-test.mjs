@@ -6380,7 +6380,10 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
     // 見本の帯の合図(<html data-ad-preview="1">)が付いたときだけ 50px に上書きする。**合図の属性つきの
     // 規則の中の1回だけ**を数えから外す(素の :root の末尾追記・2つ目の上書きは、これまでどおり落ちる)。
     // 【殻 S3 統括の裁定】上書きの値は 帯 50px + すき間 --sp-2(calc(50px + var(--sp-2)))になった。
-    const cssForDup = css.replace(/:root\[data-ad-preview="1"\]\s*\{\s*--ad-h:\s*calc\(50px \+ var\(--sp-2\)\);\s*\}/, "");
+    // 【便CG 2026-10-09 統括の裁定】例外をもう1つ: はじめの案内の間の印(<html data-ad-hold="1">)の規則の中の --ad-h: 0px(既定と同じ値に戻すだけ)。
+    // これも**その規則の中の1回だけ**を外す(素の :root の末尾追記・3つ目の上書きは、これまでどおり落ちる)。
+    const cssForDup = css.replace(/:root\[data-ad-preview="1"\]\s*\{\s*--ad-h:\s*calc\(50px \+ var\(--sp-2\)\);\s*\}/, "")
+      .replace(/:root\[data-ad-hold="1"\]\s*\{\s*--ad-h:\s*0px;\s*\}/, "");
     const defsIn = (text, n) => [...text.matchAll(new RegExp(`${n}\\s*:\\s*([^;]+);`, "g"))].length;
     const dup = [...new Set([...css.matchAll(/(--[a-z0-9-]+)\s*:/g)].map((m) => m[1]))]
       .filter((n) => defsIn(cssForDup, n) > 1);
@@ -32918,18 +32921,37 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
       /\nimport \{ shellStartAdsOnce, shellSetAdsHidden \} from "\.\/shell\/ads\.js";\n/.test(app));
     const iRoute = lines.findIndex((l) => l.trim() === "shellRouteToSpeaker();");
     const afterRoute = iRoute >= 0 ? lines.slice(iRoute + 1, iRoute + 4).map((l) => l.trim()) : [];
-    check("K.21 startListening: マイクが取れた直後(shellRouteToSpeaker の直後 3 行以内)に shellStartAdsOnce();",
-      iRoute >= 0 && afterRoute.includes("shellStartAdsOnce();") && iRoute > lines.findIndex((l) => l.trim() === "streamRef.current = stream;"), JSON.stringify(afterRoute));
-    check("K.21 startListening: 失敗の枝(getUserMedia failed の直後)にも shellStartAdsOnce();・その次の行は今までどおり setErrorMsg(MIC_DENIED_MSG);",
-      /\n      console\.error\("getUserMedia failed:", err\.name, err\.message, err\);\n      shellStartAdsOnce\(\);\s*\n      setErrorMsg\(MIC_DENIED_MSG\);\n/.test(app));
-    check("K.21 shellStartAdsOnce() の呼び手は2か所だけ(成功と失敗)", (app.match(/shellStartAdsOnce\(\);/g) || []).length === 2);
+    // 【便CG 2026-10-09 統括の裁定】はじめの案内が終わるまで帯(と ATT)を始めない。マイクの試みの直後には「試みが終わった」(setMicTried(true))を立てるだけにし、
+    // 帯を始めるのは「試みが終わった」かつ adsAllowed(onboarding.jsx)が立ったときの effect 1か所(マイクの許可の画面と ATT を重ねないのは今までどおり)
+    check("K.21 startListening: マイクが取れた直後(shellRouteToSpeaker の直後 3 行以内)に setMicTried(true);(【便CG】帯はここでは始めない)",
+      iRoute >= 0 && afterRoute.includes("setMicTried(true);") && !afterRoute.includes("shellStartAdsOnce();")
+      && iRoute > lines.findIndex((l) => l.trim() === "streamRef.current = stream;"), JSON.stringify(afterRoute));
+    check("K.21 startListening: 失敗の枝(getUserMedia failed の直後)にも setMicTried(true);・その次の行は今までどおり setErrorMsg(MIC_DENIED_MSG);",
+      /\n      console\.error\("getUserMedia failed:", err\.name, err\.message, err\);\n      setMicTried\(true\);\s*\n      setErrorMsg\(MIC_DENIED_MSG\);\n/.test(app));
+    check("K.21 【便CG】shellStartAdsOnce() の呼び手は1か所だけ: マイクの試みが終わった(micTried)かつ adsAllowed(adsOk)の effect",
+      (app.match(/shellStartAdsOnce\(\);/g) || []).length === 1
+      && /\n  const \[micTried, setMicTried\] = useState\(false\);\n  useEffect\(\(\) => \{\n    if \(micTried && adsOk\) shellStartAdsOnce\(\);\n  \}, \[micTried, adsOk\]\);\n/.test(app)
+      && (app.match(/setMicTried\(true\);/g) || []).length === 2);
     check("K.21 ShellAdBannerSync: BottomSheet が開いているかを読み、変わるたびに shellSetAdsHidden。何も描かない",
       /\nfunction ShellAdBannerSync\(\) \{\n  const sheetOpen = useAnyBottomSheetOpen\(\);\n  useEffect\(\(\) => \{ shellSetAdsHidden\(sheetOpen\); \}, \[sheetOpen\]\);\n  return null;\n\}\n/.test(app)
       && (app.match(/shellSetAdsHidden\(/g) || []).length === 1);
-    check("K.21 ShellAdBannerSync は根で見本の帯(AdPreviewStrip)のすぐ後に1つだけ描く",
-      /\n      <AdPreviewStrip \/>\n(?:\s*\{\}\n)?\s*<ShellAdBannerSync \/>\n/.test(app) && (app.match(/<ShellAdBannerSync \/>/g) || []).length === 1);
-    check("K.21 AdPreviewStrip: 殻では描かない(hooks の後・今までの return null の行の前に1行)。今までの行は綴りのまま",
-      /function AdPreviewStrip\(\) \{\n  const \[on\] = useState\(\(\) => isAdPreviewOn\(\)\);\n  const sheetOpen = useAnyBottomSheetOpen\(\);\n  if \(isNativeShell\(\)\) return null;\s*\n  if \(!on \|\| sheetOpen\) return null;\n/.test(app));
+    check("K.21 ShellAdBannerSync は根で見本の帯(AdPreviewStrip)のすぐ後に1つだけ描く(【便CG】見本の帯は held={!adsOk} を受ける)",
+      /\n      <AdPreviewStrip held=\{!adsOk\} \/>\n(?:\s*\{\}\n)?\s*<ShellAdBannerSync \/>\n/.test(app) && (app.match(/<ShellAdBannerSync \/>/g) || []).length === 1
+      && (app.match(/<AdPreviewStrip /g) || []).length === 1);
+    check("K.21 AdPreviewStrip: 殻では描かない(hooks の後・今までの return null の行の前に1行)。【便CG】案内の間(held)も描かない",
+      /function AdPreviewStrip\(\{ held = false \}\) \{\n  const \[on\] = useState\(\(\) => isAdPreviewOn\(\)\);\n  const sheetOpen = useAnyBottomSheetOpen\(\);\n  if \(isNativeShell\(\)\) return null;\s*\n  if \(!on \|\| held \|\| sheetOpen\) return null;\n/.test(app));
+    // 【便CG 2026-10-09 統括の裁定】案内の間の印(data-ad-hold)。最初の描画では子より先に(useState の初期化で)付け、変わったら描く前に付け外しして
+    // 測り直しの知らせ(AD_HEIGHT_EVENT)を出す。部品が外れたら外す。--ad-h は index.css の :root[data-ad-hold="1"] が 0px に戻す
+    check("K.21 【便CG】data-ad-hold の付け外し: 初期化で1回・変わったら AD_HEIGHT_EVENT・外れたら外す。index.css の規則は見本の規則より後ろで --ad-h: 0px",
+      /\n  useState\(\(\) => setAdHold\(!adsOk\)\);\n  useLayoutEffect\(\(\) => \{\n    if \(setAdHold\(!adsOk\)\) window\.dispatchEvent\(new Event\(AD_HEIGHT_EVENT\)\);\n  \}, \[adsOk\]\);\n  useLayoutEffect\(\(\) => \(\) => \{ setAdHold\(false\); \}, \[\]\);\n/.test(app)
+      && (app.match(/setAdHold\(/g) || []).length === 3
+      && /const ad = document\.documentElement\.hasAttribute\("data-ad-preview"\) && !isAdHeld\(\) \? 1 : 0;/.test(app)
+      && (() => { const c = codeOf(readA("src/index.css")); const i = c.indexOf(':root[data-ad-preview="1"] {'); const j = c.indexOf(':root[data-ad-hold="1"] {\n  --ad-h: 0px;\n}'); return i > 0 && j > i; })());
+    check("K.21 【便CG】adsOk = adsAllowed({ 見本・印と onboardingShown の読み込み・読めたか・案内の印・起動の最初に読んだ onboardingShown })。onShown は見本では本物の印に触らない",
+      /const adsOk = adsAllowed\(\{\n    preview: tutorialPreview,\n    loaded: onboardingLoaded && onboardingShownLoaded,\n    readOk: onboardingReadOk && onboardingShownReadOk,\n    done: coachDone,\n    shownBefore: shownAtLaunchRef\.current === true,\n  \}\);/.test(app)
+      && /if \(shownAtLaunchRef\.current === null && onboardingShownLoaded\) shownAtLaunchRef\.current = onboardingShown === true;/.test(app)
+      && /const markCoachShown = useCallback\(\(\) => \{\n    if \(tutorialPreview\) return;\n    setOnboardingShown\(true\);\n  \}, \[setOnboardingShown, tutorialPreview\]\);/.test(app)
+      && /\n        onShown=\{markCoachShown\}\n      \/>/.test(app));
     // 【殻 S3 統括の裁定】帯と下部タブの間に押せないすき間 --sp-2(地は塗らない)。見本の帯も殻と同じ置き方
     check("K.21 見本の帯: 下端 = 下部タブ + 安全域 + --sp-2・高さ = --ad-h − --sp-2。index.css の見本の --ad-h = 50px + --sp-2",
       /bottom: "calc\(var\(--nav-h\) \+ env\(safe-area-inset-bottom\) \+ var\(--sp-2\)\)",\n\s*height: "calc\(var\(--ad-h\) - var\(--sp-2\)\)",/.test(app)
@@ -33208,7 +33230,9 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
       // .coach-cover の1行を外す。外したあとの残りが便BX の前と同じ(1305文字 / 711e1907)なら、便BZ も他の規則に1文字も触れていない
       // 【便CF 2026-10-09 本人の選択「全体で1本の棒」】目印の規則は .coach-progress と .coach-progress b の2つになった。抜くのはその2つだけ
       // (4本の棒の i / i b / i.now b・便BY の i.on は抜く一覧から外した = 残っていれば下の固定が落ちる)。残りの固定(1305文字 / 711e1907)は変えない
-      for (const sel of [".coach-card", ".coach-icon", ".coach-card.join-card", ".join-card > .coach-icon", ".coach-progress", ".coach-progress b", ".coach-cover"]) {
+      // 【便CG 2026-10-09 本人の要望「もうなくてもいいかなあ」】目印を外した。.coach-progress の2つも抜く一覧から外した
+      // (= 目印の規則が1つでも戻れば、下の固定(1305文字 / 711e1907)が落ちる)。残りの固定は変えない(=便CG は .coach-* の他の規則に1文字も触れていない)
+      for (const sel of [".coach-card", ".coach-icon", ".coach-card.join-card", ".join-card > .coach-icon", ".coach-cover"]) {
         r = r.split("\n" + sel + " {").map((p, i) => (i === 0 ? p : p.slice(p.indexOf("}") + 1))).join("\n");
       }
       r = r.replace('\n.coach-layer[data-leaving="true"] .coach-cover,', "");
@@ -33339,23 +33363,21 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
   // 流れの順の定数 COACH_ORDER は使い手が無くなったので消した。期待値は本人の指示と統括の裁定の文から手で書いた
   // 【便CF 2026-10-09 本人の選択(モック progress-mock.html の案1「全体で1本の棒」。数字は添えない)】4本の棒(COACH_TABS)を1本の棒に替え、
   // 流れの順の定数 COACH_ORDER を段の id で戻した(DESIGN-SYSTEM §4.5b の22枚・流れの外の ⑪ は数えない)。期待の順は §4.5b の順の行から手で書いた
-  const orderCF = listOf("COACH_ORDER", ob);
-  check("BX.3 【便CF】目印は1本の棒: COACH_ORDER は §4.5b の22枚の順(⑪ data・measureReed は入らない)・COACH_TABS は無い・塗る数は max(済んだ段 + 出ない段 + 今の段, 位置 + 1, 起動の最大)・「案内 n/22」・中は <b> 1つ・カードの最初の子",
-    JSON.stringify(orderCF) === JSON.stringify(["tuner", "metronome", "metroTempo", "metroStart", "goReeds", "arriveReeds", "reeds", "reedsMeasure",
-      "reedLinked", "measure", "goData", "arriveData", "calendarDay", "daySession", "trend", "goCommunity",
-      "arriveCommunity", "adoptAverage", "goCompare", "idealSeen", "goMeasure", "finish"])
-    && !/COACH_TABS|data-tab=|bars\.map/.test(ob)
-    && /const COACH_STEP_ALIAS = Object\.freeze\(\{ measureReed: "measure", data: "measure" \}\);/.test(ob)
-    && /const filled = \(s\) => s === id \|\| d\[COACH_STEPS\[s\]\.flag\] === true \|\| COACH_SKIPPED\[s\]\?\.\(d\) === true;/.test(ob)
-    // 【便CF 審査 統括の裁定】塗る数 = max(上の数, 今の段の位置 + 1, その起動の中で見せた最大)・22 を越えない
-    && /const n = Math\.max\(COACH_ORDER\.filter\(filled\)\.length, COACH_ORDER\.indexOf\(id\) \+ 1, Number\.isFinite\(floor\) \? floor : 0\);\n\s*return \{ filled: Math\.min\(n, total\), total \};/.test(ob)
-    && /const shownMaxRef = useRef\(0\);/.test(ob)
-    && /const progress = view \? coachProgress\(view\.id, done, shownMaxRef\.current\) : null;/.test(ob)
-    && /if \(progress && view\?\.measured && progress\.filled > shownMaxRef\.current\) shownMaxRef\.current = progress\.filled;/.test(ob)
-    && !/localStorage|setPersisted/.test(ob.slice(ob.indexOf("const shownMaxRef"), ob.indexOf("const shownMaxRef") + 200))
-    && /<div className="coach-progress" role="img" aria-label=\{`案内 \$\{filled\}\/\$\{total\}`\}>\n\s*<b style=\{\{ width: `\$\{\(filled \/ total\) \* 100\}%` \}\} \/>\n\s*<\/div>/.test(ob)
-    && /onClick=\{view\.arrival \? advance : dismiss\}\n\s*>\n\s*<CoachProgress filled=\{progress\.filled\} total=\{progress\.total\} \/>\n\s*<CoachIcon name=\{step\.icon\} \/>/.test(ob)
-    && (ob.match(/<CoachProgress /g) || []).length === 1, JSON.stringify(orderCF));
+  // 【便CG 2026-10-09 本人の要望「(進み具合の目印は)もうなくてもいいかなあ 全部終わらせなくたってこのアプリは使えるわけだし」】
+  // 目印(1本の棒)を外した。流れの順の定数 COACH_ORDER・塗り coachProgress・もう出ない段 COACH_SKIPPED・読み替え COACH_STEP_ALIAS・
+  // その起動の最大 shownMaxRef・部品 CoachProgress は使い手が無くなったので消した。カードの最初の子はアイコン(見出し・1行は今のまま)
+  check("BX.3 【便CG】目印は無い: COACH_ORDER・coachProgress・COACH_SKIPPED・COACH_STEP_ALIAS・shownMaxRef・CoachProgress・coach-progress が onboarding.jsx の動く側に無い。カードの最初の子は CoachIcon",
+    !/COACH_ORDER|coachProgress|COACH_SKIPPED|COACH_STEP_ALIAS|shownMaxRef|CoachProgress|coach-progress|COACH_TABS|aria-label=\{`案内/.test(ob)
+    && /onClick=\{view\.arrival \? advance : dismiss\}\n\s*>\n\s*<CoachIcon name=\{step\.icon\} \/>\n\s*<div className="coach-title">\{step\.title\}<\/div>\n\s*\{step\.line \? <div className="coach-line">\{step\.line\}<\/div> : null\}\n\s*<\/div>/.test(ob)
+    && !/coach-progress|coachProgress|COACH_ORDER/.test(app));
+  // 【便CG 2026-10-09 統括の裁定】広告の帯を始めてよいか(adsAllowed)。(a) ⑱ が済んだ (b) 2回目以降の起動。見本は見本の finish だけ。読めない起動は今までどおり
+  check("BX.3 【便CG】adsAllowed の式(見本は finish だけ・読み込み前は始めない・読めない起動は始める・finish か起動の最初の onboardingShown)・鍵は onboardingShown",
+    /export function adsAllowed\(\{ preview = false, loaded = false, readOk = false, done = null, shownBefore = false \} = \{\}\) \{\n  if \(preview\) return done\?\.finish === true;\n  if \(!loaded\) return false;\n  if \(!readOk\) return true;\n  return done\?\.finish === true \|\| shownBefore === true;\n\}/.test(ob)
+    && /export const ONBOARDING_SHOWN_KEY = "onboardingShown";/.test(ob)
+    && !(listOf("ONBOARDING_FLAGS", ob) || ["onboardingShown"]).includes("onboardingShown"));
+  check("BX.3 【便CG】OnboardingCoach の onShown: 測り終えて見えているカード(view.measured・溶けていない)で、部品の間に1回だけ",
+    /export function OnboardingCoach\(\{ candidates, done, hidden, onMark = null, onShown = null \}\) \{/.test(ob)
+    && /const visibleNow = Boolean\(view\?\.measured && !view\.leaving\);\n  useEffect\(\(\) => \{\n    if \(!visibleNow \|\| shownOnceRef\.current\) return;\n    shownOnceRef\.current = true;\n    onShownRef\.current\?\.\(\);\n  \}, \[visibleNow\]\);/.test(ob));
   // 【便BZ 審査 統括の裁定】覆いは1つ目の穴(下部タブなど)にかかるボタンだけ(帯の箱 = 2つ目の穴の上には置かない)・穴と重なる所だけに切る
   check("BZ.8 浮かせるボタンの覆い: floatingCovers に渡す穴は [hole] だけ・覆いは clipPath で穴と重なる所に切る",
     /const covers = floatingCovers\(fabs, \[hole\]\);/.test(ob) && !/floatingCovers\(fabs, \[hole, extra\]\)/.test(ob)
@@ -33421,22 +33443,15 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
       /background: var\(--c-surface\); color: var\(--c-accent\);/.test(rule(".coach-icon"))
       && /background: var\(--c-surface\);/.test(rule(".coach-card.join-card"))
       && blk.includes("\n.join-card > .coach-icon { background: var(--c-accent-tint); }"));
-    // 【便BY 2026-10-07 本人の指示】章の目印(.coach-marks の6規則)を外し、枚数の目印(.coach-progress の3規則)に替えた。
-    // 値は既存のトークンだけ(高さ・間 --sp-1・角丸 --r-full・塗り --c-accent・まだ --c-line-strong)。動き(animation / transition)は持たない
-    // 【便BZ 2026-10-07 本人の指示】4本の棒: 地はまだの部分(--c-line-strong)・中の <b> が割合だけ塗る(今のタブ = --c-accent / ほか = --c-accent-mid)
-    // 【便CF 2026-10-09 本人の選択「全体で1本の棒」】棒は1本: 棒の地がまだの部分(--c-line-strong)・中の <b> が割合だけ塗る(--c-accent)。
-    // 高さ --sp-1・角丸 --r-full は便BZ の棒のまま。中間の紺(--c-accent-mid)は使わなくなった
-    const PROGRESS = [
-      ".coach-progress { justify-self: stretch; height: var(--sp-1); border-radius: var(--r-full); background: var(--c-line-strong); overflow: hidden; }",
-      ".coach-progress b { display: block; height: 100%; background: var(--c-accent); }",
-    ];
     check("BZ.5 浮かせるボタンの覆い(.coach-cover)は暗幕と同じ色・溶けている間は押させない",
       blk.includes("\n.coach-cover { position: fixed; pointer-events: auto; background: var(--c-coach-dim); }")
       && blk.includes('\n.coach-layer[data-leaving="true"] .coach-hit,\n.coach-layer[data-leaving="true"] .coach-cover,\n.coach-layer[data-leaving="true"] .coach-card { pointer-events: none; }'));
-    check("BX.5 【便BY】→【便BZ】→【便CF】目印の2規則(トークンだけ・動きなし)。章の目印(.coach-marks)の規則・便BY の .on・便BZ の4本の棒(i)の規則は無い",
-      PROGRESS.every((r) => blk.includes(`\n${r}`)) && (blk.match(/\n\.coach-progress/g) || []).length === 2 && !/\.coach-progress i\b/.test(blk)
-      && !/\.coach-marks/.test(css.replace(/\/\*[\s\S]*?\*\//g, "")) && !/coach-progress[^{]*\{[^}]*(animation|transition)/.test(css),
-      PROGRESS.filter((r) => !blk.includes(`\n${r}`)).join(" / "));
+    // 【便BY】章の目印(.coach-marks)→【便BY】枚数の目印 →【便BZ】4本の棒 →【便CF】1本の棒 →【便CG 2026-10-09 本人の要望「もうなくてもいいかなあ」】目印を外した。
+    // 目印の規則は1つも無い(コメントを抜いた CSS 全体で .coach-progress も .coach-marks も無い)。.coach-card の行の間 --sp-2 は今のまま(上の BX.5 の一字一句)
+    check("BX.5 【便CG】目印の規則は無い(.coach-progress・.coach-marks がコメントを抜いた index.css に0件)。中間の紺 --c-accent-mid も .coach-* の塊で使わない",
+      !/coach-progress/.test(css.replace(/\/\*[\s\S]*?\*\//g, "")) && !/\.coach-marks/.test(css.replace(/\/\*[\s\S]*?\*\//g, ""))
+      && !/--c-accent-mid/.test(blk.replace(/\/\*[\s\S]*?\*\//g, "")),
+      (css.replace(/\/\*[\s\S]*?\*\//g, "").match(/[^\n]*coach-progress[^\n]*/g) || []).join(" / "));
   }
 
   // --- BX.6 BackupPanel.jsx(処理をフックへ。描く中身は不変) ----------------------------------------------------

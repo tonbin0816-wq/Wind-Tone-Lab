@@ -80,3 +80,22 @@ export function applyAdPreview({
 export function isAdPreviewOn(doc = typeof document !== "undefined" ? document : null) {
   return doc?.documentElement?.getAttribute(AD_PREVIEW_ATTR) === "1";
 }
+
+// 【便CG 2026-10-09 本人の要望「チュートリアル中は広告なしにできませんか」・統括の裁定】はじめの案内が終わるまで広告の帯を出さない。
+// その間 <html> に付ける印。index.css の :root[data-ad-hold="1"] が --ad-h を 0px に戻し、見本の帯(App.jsx の AdPreviewStrip)も描かない。
+// 合図の印(data-ad-preview。端末が見本を望んでいるか)とは別に持つ ── 合図の印を外すと、部品を作り直したときに望みが消えるため。
+// 付け外しは App.jsx だけ(時機の判断は onboarding.jsx の adsAllowed)。
+export const AD_HOLD_ATTR = "data-ad-hold";
+// held に合わせて印を付け外しする。戻り値は「変わったか」(変わったときだけ呼び手が測り直しの知らせを出す)。
+export function setAdHold(held, doc = typeof document !== "undefined" ? document : null) {
+  const el = doc?.documentElement;
+  if (!el) return false;
+  const before = el.getAttribute(AD_HOLD_ATTR) === "1";
+  if (before === Boolean(held)) return false;
+  if (held) el.setAttribute(AD_HOLD_ATTR, "1");
+  else el.removeAttribute(AD_HOLD_ATTR);
+  return true;
+}
+export function isAdHeld(doc = typeof document !== "undefined" ? document : null) {
+  return doc?.documentElement?.getAttribute(AD_HOLD_ATTR) === "1";
+}

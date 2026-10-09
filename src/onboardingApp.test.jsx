@@ -1477,9 +1477,9 @@ describe("【便BX】⑭' と到着の受け・既存の利用者", () => {
     const navZ = Number(getComputedStyle(document.querySelector("[data-bottom-nav]")).zIndex || document.querySelector("[data-bottom-nav]").style.zIndex);
     expect(Number(layer().style.zIndex)).toBeGreaterThan(navZ);
     expect(layer().querySelector(".coach-title").textContent).toBe("ここはリードタブ");
-    // 【便BY】→【便BZ】→【便CF】目印は1本の棒。【便CF 審査】①〜④ が済んでいなくても、リードの到着は流れの位置 6/22
-    expect(layer().querySelector(".coach-progress").getAttribute("aria-label")).toBe("案内 6/22");
-    expect([...layer().querySelectorAll(".coach-progress > *")].map((b) => [b.tagName, Math.round(parseFloat(b.style.width) * 100) / 100])).toEqual([["B", 27.27]]);
+    // 【便BY】→【便BZ】→【便CF】の目印は【便CG】で外した
+    expect(layer().querySelector(".coach-progress")).toBe(null);   // 【便CG】目印は外した
+    expect(layer().querySelector(".coach-card").firstElementChild.className).toBe("coach-icon");   // 【便CG】カードの最初の子はアイコン
     await waitFor(() => kv("onboardingDone")?.goReeds === true, "goReeds の印");
   }, 30000);
 

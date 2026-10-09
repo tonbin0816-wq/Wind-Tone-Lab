@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React, { act, useState } from "react";
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createRoot } from "react-dom/client";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -17,7 +17,12 @@ import { join } from "node:path";
 // 期待値はここに手で書いた値(定数から逆算しない)。
 // 【守っていないもの】実寸(jsdom は配置も CSS の変数も計算しない)。帯の位置・計測タブの空き・
 // 浮かせるボタンが帯の上に来ることは、375×812 / 375×667 の実測で報告に書いた。
+// 【便CG 2026-10-09 統括の裁定】はじめの案内が終わるまで帯を出さない(<html data-ad-hold="1"> の間は --ad-h 0・帯なし)。
+//   帯の出し入れの検査は「既存の利用者」(移行で案内が全部済んだ人)の起動で描く(印を作り物の IndexedDB に入れ、App を読み直す)。
+//   案内の間・⑱・2回目の起動の検査は src/shell/shellAds.test.jsx の【便CG】。
 // ------------------------------------------------------------------
+import { createFakeIndexedDb } from "./backup/fakeIndexedDb.testutil.js";
+import { migrateOnboardingDone } from "./onboarding.jsx";
 const { default: App, BottomSheet } = await import("./App.jsx");
 const { adPreviewFromSearch, applyAdPreview, isAdPreviewOn, urlWithoutAdPreview } = await import("./adPreview.js");
 
@@ -127,6 +132,15 @@ describe("index.css の帯の高さ(便BL)", () => {
     expect(/--page-bottom-gap:\s*calc\(var\(--nav-h\) \+ var\(--ad-h\) \+ env\(safe-area-inset-bottom\)\);/.test(rootBlock)).toBe(true);
   });
   // 【殻 S3 2026-10-06 統括の裁定】帯と下部タブの間に押せないすき間 --sp-2。--ad-h は帯の 50px + すき間(中身も同じだけ上がる)
+  it("【便CG】案内の間の印(<html data-ad-hold=\"1\">)は --ad-h を既定の 0px に戻す(見本の規則より後ろ・同じ詳細度)", () => {
+    const iPrev = code.search(/:root\[data-ad-preview="1"\]\s*\{/);
+    const m = code.match(/:root\[data-ad-hold="1"\]\s*\{([^}]*)\}/);
+    expect(m).toBeTruthy();
+    expect(m[1].trim()).toBe("--ad-h: 0px;");
+    expect(iPrev).toBeGreaterThan(0);
+    expect(code.indexOf(m[0])).toBeGreaterThan(iPrev);
+  });
+
   it("合図(<html data-ad-preview=\"1\">)のときだけ --ad-h は 50px + --sp-2(帯 + すき間)", () => {
     const m = code.match(/:root\[data-ad-preview="1"\]\s*\{([^}]*)\}/);
     expect(m).toBeTruthy();
@@ -137,9 +151,19 @@ describe("index.css の帯の高さ(便BL)", () => {
   });
 });
 
-describe("帯の出し入れ(便BL)", () => {
+describe("帯の出し入れ(便BL)。【便CG】既存の利用者の起動", () => {
   let root; let host; let root2; let host2;
-  beforeEach(() => {
+  // 【便CG】既存の利用者(移行で finish)の印を入れた作り物の IndexedDB で、App を読み直して描く(案内の間は帯を出さないため)
+  let App; let BottomSheet; let fake;
+  const EXISTING = migrateOnboardingDone({}, { sessions: [{ id: "s1" }] });
+  beforeEach(async () => {
+    fake = createFakeIndexedDb();
+    vi.resetModules();
+    globalThis.indexedDB = fake;
+    const m = await import("./App.jsx");
+    App = m.default; BottomSheet = m.BottomSheet;
+    const db = await m.openIdb(); db.close?.();
+    fake._peek("windToneLabDB", "kv").set("onboardingDone", structuredClone(EXISTING));
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
     window.scrollTo = () => {};
     if (!window.matchMedia) window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
@@ -154,8 +178,17 @@ describe("帯の出し入れ(便BL)", () => {
     host.remove(); host2.remove();
     document.body.innerHTML = "";
     document.documentElement.removeAttribute("data-ad-preview");
+    document.documentElement.removeAttribute("data-ad-hold");
+    delete globalThis.indexedDB;
   });
   const strip = () => document.querySelector("[data-ad-preview-strip]");
+  // 印の読み込み(作り物の IndexedDB は setTimeout 0 で返す)が済み、帯の門が開くまで待つ
+  const loaded = async () => {
+    for (let i = 0; i < 100 && document.documentElement.getAttribute("data-ad-hold") === "1"; i++) {
+      await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+    }
+    expect(document.documentElement.hasAttribute("data-ad-hold")).toBe(false);
+  };
   const go = async (label) => {
     const b = document.querySelector(`button[aria-label="${label}"]`);
     expect(b, label).toBeTruthy();
@@ -164,6 +197,7 @@ describe("帯の出し入れ(便BL)", () => {
 
   it("合図が無ければ帯は描かれない", async () => {
     await act(async () => { root.render(<App />); });
+    await loaded();
     expect(host.querySelector(".app-root")).toBeTruthy();
     expect(strip()).toBe(null);
     expect(document.body.textContent.includes("広告(見本)")).toBe(false);
@@ -172,6 +206,7 @@ describe("帯の出し入れ(便BL)", () => {
   it("合図があれば、下部タブのすぐ上・高さ --ad-h・重なり順 30 で、下部タブより後ろに描かれる", async () => {
     document.documentElement.setAttribute("data-ad-preview", "1");
     await act(async () => { root.render(<App />); });
+    await loaded();
     const s = strip();
     expect(s).toBeTruthy();
     expect(s.textContent).toContain("広告(見本)");
@@ -190,6 +225,7 @@ describe("帯の出し入れ(便BL)", () => {
   it("シート(リードを追加)を開くと帯が消え、閉じると戻る", async () => {
     document.documentElement.setAttribute("data-ad-preview", "1");
     await act(async () => { root.render(<App />); });
+    await loaded();
     await go("リード");
     expect(strip()).toBeTruthy();
     await go("リードを追加");
@@ -203,6 +239,7 @@ describe("帯の出し入れ(便BL)", () => {
   it("2枚重ねたシートは、全部閉じるまで帯を出さない", async () => {
     document.documentElement.setAttribute("data-ad-preview", "1");
     await act(async () => { root.render(<App />); });
+    await loaded();
     expect(strip()).toBeTruthy();
     function Two() {
       const [open, setOpen] = useState({ A: true, B: true });
