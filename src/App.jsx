@@ -4087,7 +4087,8 @@ export default function WindToneLabPhaseMode() {
   useLayoutEffect(() => () => { setAdHold(false); }, []);
   // 【殻 S3 → 便CG】広告の帯(殻の本物の帯と ATT)は、最初のマイクの試みが終わった(成功でも失敗でも。startListening が立てる)**うえで**
   // adsAllowed が立ったときに1回だけ始める。マイクの試みを待つのは今までどおり(OS のマイクの許可の画面と ATT の画面を重ねない)。
-  // ATT は帯と同じ時(ads.native.js の startAds の中)。アプリが前面・フォーカスありを待つ尋ね直しも今の仕組みのまま。Web では何もしない。
+  // 【便CH】ATT は同意の画面の「次へ」の直後に尋ねる(ConsentScreen.jsx)。ここ(startAds)では決まった状態を読んで npa を決めるだけ。
+  // 同意の画面を通らずに起動した人で未決定なら、今までどおり startAds の中で尋ねる(前面・フォーカスありを待つ尋ね直しも今のまま)。Web では何もしない。
   const [micTried, setMicTried] = useState(false);
   useEffect(() => {
     if (micTried && adsOk) shellStartAdsOnce();

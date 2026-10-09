@@ -11,6 +11,9 @@ import { LoadingRing as SproutMark } from "./community/LoadingRing.jsx";
 // 写しを作らない。LegalSheet.jsx は App.jsx の BottomSheet を読むが、このファイルは App.jsx から読まれないので循環にはならない。
 import { loadLegalHtml, errorStyle } from "./community/LegalSheet.jsx";
 import { PRIVACY_URL, TERMS_URL } from "./support.js";
+// 【便CH】ATT(殻だけ)。ads.js は Capacitor に触れない呼び口で、プラグインは殻の枝の中で動的 import する(Web のバンドルに入れない)。
+import { isNativeShell } from "./shell/native.js";
+import { shellAskTrackingAfterConsent } from "./shell/ads.js";
 
 // ------------------------------------------------------------------
 // 【便CB 2026-10-08 本人の依頼】アプリを初めて開いたとき、計測タブより前に出す同意の画面。
@@ -32,10 +35,16 @@ import { PRIVACY_URL, TERMS_URL } from "./support.js";
 // (例外: 参加の印がある人には出さない ── 参加のときに参加のカードで同意している)。
 //
 // 【アプリの根(AppRoot)】main.jsx はこれを描く。同意の画面の間は**アプリ(WindToneLabPhaseMode)を描かない**:
-//   ・マイク(計測タブの自動の取得)・ATT・広告(どちらもマイクの最初の試みのあとに始まる shellStartAdsOnce)・はじめの案内は
+//   ・マイク(計測タブの自動の取得)・広告(マイクの最初の試みのあとに始まる shellStartAdsOnce)・はじめの案内は
 //     アプリの中にあるので、同意の前には**構造的に始まらない**(条件を足して止めるのではなく、描かれていない)
 //   ・下部タブと広告の帯もアプリの中にあるので出ない
-// 同意したら記録(日時と版)を kv に書き、同じ描画でアプリを描く。記録の判断がつくまで(kv の読み)は何も描かない ──
+// 同意したら記録(日時と版)を kv に書き、同じ描画でアプリを描く(Web)。
+// 【便CH 2026-10-10 本人「トラッキングの許可は最初のプライバシーポリシーとかと同じタイミングにして」】殻では「次へ」のあと
+//   1. 記録を書く → 2. ATT を尋ねる(未決定のときだけ。ads.js の shellAskTrackingAfterConsent)→ 3. 答えを待ってからアプリを描く。
+//   待つ間は2枚目をそのまま描く(新しい画面は作らない。ATT の画面がその上に出る)。ATT が出なかった・失敗した・
+//   ATT_FOCUS_WAIT_MAX_MS(policy.js)を過ぎたときも、アプリへ進む。記録の書き込み(usePersistedState の effect)は
+//   尋ねる effect より先に宣言してあるので、同じ描画の中で先に走る。見本(?tutorialpreview=1)では尋ねない(本物の状態に触れない)。
+// 記録の判断がつくまで(kv の読み)は何も描かない ──
 // main.jsx が温めを待つ間に何も描かないのと同じ(新しい待ち画面は作らない)。温めが済んでいれば1フレーム目から決まる。
 //
 // 【見本(?tutorialpreview=1)】はじめの案内を毎回最初から見せるための見本なので、同意の画面(1枚目 → 2枚目)も毎回出す。
@@ -190,14 +199,28 @@ export default function AppRoot() {
   // 参加した印(onboardingDone.join)を読むだけ。**ここでは書かない**(書くのはアプリの markOnboarding だけ)。
   const [onboardingRaw, , onboardingLoaded] = usePersistedState(ONBOARDING_KEY, ONBOARDING_INITIAL);
   const [previewAgreed, setPreviewAgreed] = useState(false);
+  // 【便CH】殻で ATT の答えを待っている間(この間も同意の画面の2枚目を描く)
+  const [attWaiting, setAttWaiting] = useState(false);
+  useEffect(() => {
+    if (!attWaiting) return;
+    let alive = true;
+    const p = shellAskTrackingAfterConsent();   // 殻でだけ尋ねる(Web は null。ここには殻でしか来ない)
+    Promise.resolve(p).then(() => { if (alive) setAttWaiting(false); });
+    return () => { alive = false; };
+  }, [attWaiting]);
+  const agree = () => {
+    if (attWaiting) return;                    // 答えを待つ間の2回目の「次へ」は何もしない
+    setConsent(makeConsentRecord());           // 1. 記録を書く
+    if (isNativeShell()) setAttWaiting(true);  // 2. 殻なら ATT を尋ね、3. 答えを待ってからアプリへ
+  };
 
   if (preview) {
     if (!previewAgreed) return <ConsentScreen onAgree={() => setPreviewAgreed(true)} />;
     return <WindToneLabPhaseMode />;   // 見本は記録を書かない
   }
   if (!consentLoaded || !onboardingLoaded) return null;
-  if (needsConsentScreen({ consent, onboardingDone: normalizeOnboardingDone(onboardingRaw) })) {
-    return <ConsentScreen onAgree={() => setConsent(makeConsentRecord())} />;
+  if (attWaiting || needsConsentScreen({ consent, onboardingDone: normalizeOnboardingDone(onboardingRaw) })) {
+    return <ConsentScreen onAgree={agree} />;
   }
   return <WindToneLabPhaseMode />;
 }

@@ -32865,18 +32865,23 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
       && /\n  const ok = await whenVisibleAndFocused\(ATT_FOCUS_WAIT_MAX_MS\);\n  if \(!ok\) return;\n  await sleep\(ATT_RETRY_DELAY_MS\);\n  await AdMob\.requestTrackingAuthorization\(\);$/.test(again)
       && /timer = setTimeout\(\(\) => done\(false\), maxMs\);/.test(waitFn) && /const check = \(\) => \{ if \(visibleAndFocused\(\)\) done\(true\); \};/.test(waitFn)
       && /const visibleAndFocused = \(\) => document\.visibilityState === "visible" && document\.hasFocus\(\);/.test(nat)
-      && /askAgain = now === "notDetermined";/.test(nat)
+      && /askAgain = !askedAtConsent && now === "notDetermined";/.test(nat)
       && nat.indexOf("await AdMob.showBanner(lastShow);") < nat.indexOf("if (askAgain) askTrackingAgain().catch(() => {});")
       && (nat.match(/requestTrackingAuthorization\(/g) || []).length === 2, (ask + " / " + again).replace(/\s+/g, " "));
     const at = (s) => nat.indexOf(s);
     const order = [
       "await AdMob.initialize({ initializeForTesting: ADMOB_USE_TEST_ADS });",
-      "const now = await askTracking();",
+      "const now = askedAtConsent ? (await AdMob.trackingAuthorizationStatus()).status : await askTracking();",
       'npa = now !== "authorized";',
       "await AdMob.showBanner(lastShow);",
     ].map(at);
     check("K.20 ads.native.js: initialize → ATT → 許可以外は npa(既定も npa)→ showBanner の順(ATT を尋ねる前に広告を出さない)",
       order.every((i) => i >= 0) && order.every((i, k) => k === 0 || i > order[k - 1]) && /let npa = true;/.test(nat), JSON.stringify(order));
+    // 【便CH】同意の画面の ATT は askTracking を使い回す(写しを作らない)。この起動で尋ねたら startAds は状態を読むだけ(尋ねない・尋ね直さない)
+    const afterConsent = (/export async function askTrackingAfterConsent\(\) \{([\s\S]*?)\n\}/.exec(nat) || [])[1] || "";
+    check("K.20 【便CH】ads.native.js: askTrackingAfterConsent = 印(askedAtConsent)を立てて askTracking を返すだけ。印があれば startAds は尋ねず尋ね直しもしない",
+      /^\n  askedAtConsent = true;\n  return askTracking\(\);$/.test(afterConsent) && /^let askedAtConsent = false;$/m.test(nat)
+      && (nat.match(/askTracking\(\)/g) || []).length === 3, afterConsent.replace(/\s+/g, " "));
     const show = (/lastShow = \{([\s\S]*?)\n  \};/.exec(nat) || [])[1] || "";
     check("K.20 ads.native.js: showBanner は adsConfig のユニット・ADAPTIVE_BANNER・BOTTOM_CENTER・margin は adBannerMargin(すき間込み)・isTesting は false・npa",
       /adId: ADMOB_BANNER_UNIT_ID_IOS, adSize: BannerAdSize\.ADAPTIVE_BANNER, position: BannerAdPosition\.BOTTOM_CENTER,/.test(show)
@@ -32893,10 +32898,10 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
       && (nat.match(/removeBanner\(/g) || []).length === 1 && (nat.match(/AdMob\.showBanner\(/g) || []).length === 2
       && /export function reloadAds\(\) \{\n  if \(!bannerUp \|\| !lastShow\) return Promise\.resolve\(\);/.test(nat));
     check("K.20 ads.js: Web では即 return(2つの呼び口とも)・ads.native.js は動的 import だけ・--ad-h = 帯 + すき間(--sp-2)を <html> の inline に px で",
-      (ads.match(/^import /gm) || []).length === 2 && /^import \{ isNativeShell \} from "\.\/native\.js";$/m.test(ads) && /^import \{ AD_H_INITIAL_PX, AD_RELOAD_DEBOUNCE_MS \} from "\.\/policy\.js";$/m.test(ads)
+      (ads.match(/^import /gm) || []).length === 2 && /^import \{ isNativeShell \} from "\.\/native\.js";$/m.test(ads) && /^import \{ AD_H_INITIAL_PX, AD_RELOAD_DEBOUNCE_MS, ATT_FOCUS_WAIT_MAX_MS \} from "\.\/policy\.js";$/m.test(ads)
       && /export function shellStartAdsOnce\(\) \{\n  if \(!isNativeShell\(\) \|\| started\) return;\n  started = true;\n  gapPx = readGapPx\(\);\n  setAdHeight\(AD_H_INITIAL_PX\);/.test(ads)
       && /export function shellSetAdsHidden\(hidden\) \{\n  if \(!isNativeShell\(\)\) return;/.test(ads)
-      && (ads.match(/import\("\.\/ads\.native\.js"\)/g) || []).length === 3
+      && (ads.match(/import\("\.\/ads\.native\.js"\)/g) || []).length === 4
       // 帯を出す前に失敗したら(プラグインの無い古い殻など)仮の高さを 0 に戻す
       && /\.then\(\(m\) => m\.startAds\(\{ \.\.\.geo, gap: gapPx, hidden: hiddenWanted, onHeight: setAdHeight \}\)\)\n\s*\.catch\(\(\) => setAdHeight\(0\)\);/.test(ads)
       && /const v = h > 0 \? Math\.round\(h\) \+ Math\.round\(gapPx\) : 0;\n\s*try \{ document\.documentElement\.style\.setProperty\("--ad-h", `\$\{Math\.max\(0, v\)\}px`\); \}/.test(ads)
@@ -32905,6 +32910,9 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     check("K.20 ads.js: 幅が変わったら(回転)AD_RELOAD_DEBOUNCE_MS 間引いて最後の1回だけ reloadAds。幅が同じなら何もしない",
       /window\.addEventListener\("resize", onResize\);/.test(ads)
       && /clearTimeout\(timer\);\n\s*timer = setTimeout\(\(\) => \{\n\s*if \(window\.innerWidth === lastW\) return;\n\s*lastW = window\.innerWidth;\n\s*import\("\.\/ads\.native\.js"\)\.then\(\(m\) => m\.reloadAds\(\)\)\.catch\(\(\) => \{\}\);\n\s*\}, AD_RELOAD_DEBOUNCE_MS\);/.test(ads));
+    // 【便CH】同意の画面の ATT の呼び口: Web は null(何もしない)・殻は必ず解決する(失敗でも・ATT_FOCUS_WAIT_MAX_MS を過ぎても)
+    check("K.20 【便CH】ads.js: shellAskTrackingAfterConsent は Web で null・殻で askTrackingAfterConsent を動的 import で呼び、失敗も上限(ATT_FOCUS_WAIT_MAX_MS)も解決にする",
+      /export function shellAskTrackingAfterConsent\(\) \{\n  if \(!isNativeShell\(\)\) return null;\n  return new Promise\(\(resolve\) => \{\n    const timer = setTimeout\(resolve, ATT_FOCUS_WAIT_MAX_MS\);\n    import\("\.\/ads\.native\.js"\)\n      \.then\(\(m\) => m\.askTrackingAfterConsent\(\)\)\n      \.catch\(\(\) => \{\}\)\n      \.finally\(\(\) => \{ clearTimeout\(timer\); resolve\(\); \}\);\n  \}\);\n\}/.test(ads));
     // 仕様の既定は "screen" だったが、プラグインの Swift(BannerExecutor.swift)が margin を safeAreaLayoutGuide の下端から数えるので "safe-area"
     check("K.20 policy.js: AD_MARGIN_MODE = \"safe-area\"・AD_H_INITIAL_PX = 50・adBannerMargin は負にしない + すき間・ATT の待ち 1500・取り直しの間引き 300",
       /export const AD_MARGIN_MODE = "safe-area";/.test(pol) && /export const AD_H_INITIAL_PX = 50;/.test(pol)
@@ -33555,9 +33563,21 @@ console.log("========== 検証CB: 便CB 起動の最初の同意の画面 ======
   check("CB.0 読む関数を切り出せている", gateFn.length > 300 && scrFn.length > 100 && welFn.length > 400 && trmFn.length > 1200,
     `gate ${gateFn.length} / screen ${scrFn.length} / welcome ${welFn.length} / terms ${trmFn.length}`);
   check("CB.2 同意の画面の間はアプリを描かない(同意の画面を返す枝にアプリが無い)・判断は needsConsentScreen",
-    /if \(needsConsentScreen\(\{ consent, onboardingDone: normalizeOnboardingDone\(onboardingRaw\) \}\)\) \{\s*return <ConsentScreen onAgree=\{\(\) => setConsent\(makeConsentRecord\(\)\)\} \/>;\s*\}/.test(gateFn)
+    // 【便CH】殻で ATT の答えを待つ間(attWaiting)も同意の画面を描く。記録を書くのは agree の1か所
+    /if \(attWaiting \|\| needsConsentScreen\(\{ consent, onboardingDone: normalizeOnboardingDone\(onboardingRaw\) \}\)\) \{\s*return <ConsentScreen onAgree=\{agree\} \/>;\s*\}/.test(gateFn)
+    && (gateFn.match(/setConsent\(makeConsentRecord\(\)\)/g) || []).length === 1
     && (gateFn.match(/return <WindToneLabPhaseMode \/>;/g) || []).length === 2
     && !/termsAgreed|onTermsAgreed|recordFromJoin/.test(codeOf(gateRaw))
+    && /if \(!previewAgreed\) return <ConsentScreen onAgree=\{\(\) => setPreviewAgreed\(true\)\} \/>;/.test(gateFn));
+  // 【便CH 2026-10-10 本人「トラッキングの許可は最初のプライバシーポリシーとかと同じタイミングにして」】「次へ」→ 1. 記録 → 2. 殻なら ATT → 3. 答えを待ってアプリ。
+  // 振る舞い(順番・未決定でないとき尋ねない・失敗/上限でも進む・Web で尋ねない)は src/consentAtt.test.jsx が根を描いて見る。ここは配線の綴りだけ。
+  check("CH.1 同意の画面: 記録を書いてから殻でだけ ATT を待つ(shell/ads.js の呼び口・@capacitor と *.native.js を静的に読まない)。見本では尋ねない",
+    /\n\s*setConsent\(makeConsentRecord\(\)\);[^\n]*\n\s*if \(isNativeShell\(\)\) setAttWaiting\(true\);/.test(gateFn)
+    && /const p = shellAskTrackingAfterConsent\(\);/.test(gateFn) && /if \(alive\) setAttWaiting\(false\);/.test(gateFn)
+    && /^import \{ isNativeShell \} from "\.\/shell\/native\.js";$/m.test(gateRaw) && /^import \{ shellAskTrackingAfterConsent \} from "\.\/shell\/ads\.js";$/m.test(gateRaw)
+    && !/@capacitor|\.native\.js|requestTrackingAuthorization|trackingAuthorizationStatus/.test(codeOf(gateRaw))
+    && gateFn.indexOf("usePersistedState(TERMS_CONSENT_KEY") >= 0
+    && gateFn.indexOf("usePersistedState(TERMS_CONSENT_KEY") < gateFn.indexOf("shellAskTrackingAfterConsent()")
     && /if \(!previewAgreed\) return <ConsentScreen onAgree=\{\(\) => setPreviewAgreed\(true\)\} \/>;/.test(gateFn));
   // 【便CC】どちらの枚かはメモリの上だけ(保存しない・履歴に積まない)。閉じたら次は1枚目から
   check("CB.6b 枚は ConsentScreen の state だけ(\"welcome\" から)。保存・履歴・location に触らない",

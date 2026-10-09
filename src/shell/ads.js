@@ -2,7 +2,7 @@
 // Web では即 return(動的 import も DOM への書き込みもしない)。殻では ads.native.js を動的 import で読む(殻の仕様 §5.3)。
 // 待たない・失敗は無視(帯が出なくても計測は止めない)。
 import { isNativeShell } from "./native.js";
-import { AD_H_INITIAL_PX, AD_RELOAD_DEBOUNCE_MS } from "./policy.js";
+import { AD_H_INITIAL_PX, AD_RELOAD_DEBOUNCE_MS, ATT_FOCUS_WAIT_MAX_MS } from "./policy.js";
 
 // --ad-h を書き換えたことを知らせる window の出来事の名前(参加の画面のカードが見える範囲を読み直す。CommunityTab.jsx)。
 export const AD_HEIGHT_EVENT = "ficus-ad-height";
@@ -65,6 +65,21 @@ export function shellStartAdsOnce() {
   import("./ads.native.js")
     .then((m) => m.startAds({ ...geo, gap: gapPx, hidden: hiddenWanted, onHeight: setAdHeight }))
     .catch(() => setAdHeight(0));
+}
+
+// 【便CH 2026-10-10 本人「トラッキングの許可は最初のプライバシーポリシーとかと同じタイミングにして」】
+// 同意の画面の2枚目の「次へ」の直後(記録を書いたあと)に ATT を尋ねる(未決定のときだけ。ads.native.js の askTrackingAfterConsent)。
+// Web では何もせず null を返す(待つものが無い)。殻では Promise を返し、答えが出たら・失敗したら・ATT_FOCUS_WAIT_MAX_MS を過ぎたら
+// 必ず解決する(棄却しない)── ATT の画面が出なかった・プラグインが無い・返ってこないときも、アプリ本体へ進めるように。
+export function shellAskTrackingAfterConsent() {
+  if (!isNativeShell()) return null;
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ATT_FOCUS_WAIT_MAX_MS);
+    import("./ads.native.js")
+      .then((m) => m.askTrackingAfterConsent())
+      .catch(() => {})
+      .finally(() => { clearTimeout(timer); resolve(); });
+  });
 }
 
 // シートが開いている間は帯を隠す(本人裁定)。--ad-h は戻さない(便BL の規則。裏のページを跳ねさせない)。

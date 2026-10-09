@@ -38,4 +38,5 @@ export const AD_RELOAD_DEBOUNCE_MS = 300;
 export const ATT_RETRY_DELAY_MS = 1500;
 // 【殻 S3 統括の裁定】その「見えていてフォーカスがある」状態を待つのはこの時間まで。過ぎたら尋ね直さない(次の起動でまた尋ねる)。
 // WKWebView で document.hasFocus() が true にならない端末があっても、尋ね直しの待ちが残り続けないように。
+// 【便CH】同意の画面の「次へ」の直後に ATT を尋ねるとき、答えを待ってアプリ本体へ進むまでの上限にも使う(ads.js の shellAskTrackingAfterConsent)。
 export const ATT_FOCUS_WAIT_MAX_MS = 10000;

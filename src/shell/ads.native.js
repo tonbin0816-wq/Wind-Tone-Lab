@@ -34,6 +34,7 @@ function whenVisibleAndFocused(maxMs) {
 }
 
 // ATT: 未決定のときだけ尋ね、答えを読み直す(プラグインの requestTrackingAuthorization は答えを返さない)。
+// 【便CH】同意の画面(askTrackingAfterConsent)と広告を始めるとき(startAds)の両方がこの1つを使う(写しを作らない)。
 async function askTracking() {
   const { status } = await AdMob.trackingAuthorizationStatus();
   if (status !== "notDetermined") return status;
@@ -52,6 +53,16 @@ async function askTrackingAgain() {
   await AdMob.requestTrackingAuthorization();
 }
 
+// 【便CH 2026-10-10 本人「トラッキングの許可は最初のプライバシーポリシーとかと同じタイミングにして」】
+// 同意の画面の2枚目で「次へ」を押した直後に尋ねる(殻だけ。呼び口は ads.js の shellAskTrackingAfterConsent。待ちの上限もそちら)。
+// この起動で同意の画面が尋ねたら、広告を始めるとき(startAds)は尋ねず、決まっている状態を読んで npa を決めるだけ(尋ね直しもしない)。
+// 同意の画面を通らずに起動した人(記録がすでにある人)で未決定なら、今までどおり広告を始めるときに尋ねる。
+let askedAtConsent = false;
+export async function askTrackingAfterConsent() {
+  askedAtConsent = true;
+  return askTracking();
+}
+
 // onHeight(h): 帯の実寸の高さ(pt = CSS px)を受ける。0 は「帯が無い」(読み込みの失敗)。すき間は呼び手(ads.js)が足す。
 // navTop / inset / innerHeight / gap: 下部タブの上端・安全域の下の幅・画面の高さ・すき間(呼び手が測る)。
 export async function startAds({ onHeight, navTop, inset = 0, gap = 0, innerHeight = window.innerHeight, hidden: hiddenAtStart = false }) {
@@ -63,9 +74,9 @@ export async function startAds({ onHeight, navTop, inset = 0, gap = 0, innerHeig
   let npa = true;
   let askAgain = false;
   try {
-    const now = await askTracking();
+    const now = askedAtConsent ? (await AdMob.trackingAuthorizationStatus()).status : await askTracking();
     npa = now !== "authorized";
-    askAgain = now === "notDetermined";
+    askAgain = !askedAtConsent && now === "notDetermined";
   } catch { /* 続ける(npa のまま) */ }
   // SizeChanged は hideBanner でも高さ 0 で来る(BannerExecutor.swift の hideBanner)。0 は無視して --ad-h を戻さない
   // (シートの間も裏のページを跳ねさせない。便BL の規則)。帯が無いこと(0)は FailedToLoad で知る。

@@ -216,6 +216,31 @@ describe("殻: ATT と npa(許可のときだけパーソナライズ)", () => {
   }, 30000);
 });
 
+// 【便CH 2026-10-10】同意の画面の「次へ」の直後に尋ねる呼び口(shellAskTrackingAfterConsent)。根を描く検査は src/consentAtt.test.jsx。
+describe("【便CH】同意の画面の ATT の呼び口", () => {
+  it("Web: null を返し、プラグインに何も渡らない", async () => {
+    expect(ads.shellAskTrackingAfterConsent()).toBe(null);
+    await flush();
+    expect(ad.log).toEqual([]);
+  });
+  it("殻: 未決定なら尋ねて読み直し、解決する。そのあと帯を始めるときは状態を読むだけ(尋ねない)。npa は読んだ答えから", async () => {
+    ad.statuses = ["notDetermined", "authorized"];
+    asShell(); placeNav();
+    await ads.shellAskTrackingAfterConsent();
+    expect(ad.log).toEqual(["trackingAuthorizationStatus", "requestTrackingAuthorization", "trackingAuthorizationStatus"]);
+    ads.shellStartAdsOnce();
+    await untilShown();
+    expect(ad.log.slice(3, 5)).toEqual(["initialize", "trackingAuthorizationStatus"]);
+    expect(count("requestTrackingAuthorization")).toBe(1);
+    expect(showArgs().npa).toBe(false);
+  });
+  it("殻: 状態が読めなくても(例外)棄却せず解決する", async () => {
+    ad.statusThrows = true;
+    asShell();
+    await expect(ads.shellAskTrackingAfterConsent()).resolves.toBe(undefined);
+  });
+});
+
 describe("殻: 帯を出す前に失敗したとき", () => {
   it("プラグインが無い(古い殻のビルドで initialize が失敗する)と、仮の高さを 0px に戻す。showBanner は呼ばない", async () => {
     asShell(); placeNav();
