@@ -810,10 +810,12 @@ function Centered({ children }) {
 //   2. 暗幕 … .coach-dim(--c-coach-dim)。タップは下へ通す(下部タブは今までどおり押せる)
 //   3. カード … はじめの一手のカード(.coach-card)と同じ形(角丸・影・内側)で、見える範囲の中央(.join-frame)。地は白のまま
 //      (【便BX】案内のカードの地は --c-accent-tint になったが、参加のカードは白・アイコンの丸は --c-accent-tint のまま)。中身は上から
-//      アイコン・見出し・1行・説明(以前の2段落のまま)。【便CD 2026-10-08 本人「まででいい / それ以下の利用規約やボタン自体もいらない」】
+//      アイコン・見出し・1行(【便CI】説明の2段落は外した)。【便CD 2026-10-08 本人「まででいい / それ以下の利用規約やボタン自体もいらない」】
 //      規約の導線・「参加する」・「端末を替えるとき」は外した。**カードそのものが「参加する」**(押すと今までの「参加する」と同じ処理。
 //      読み上げでもカード全体が「参加する」のボタン)。本人「参加しないという選択肢ないです / デフォでは参加して、非公開の選択肢はプロフィールであるという構図」
 // (【便CC】同意のチェックは外した。同意は起動の最初の同意の画面で取る)。**カードの外を押しても Escape でも消えない**(【便CD 統括の裁定】参加しない道は置かない)。
+// 【便CI 2026-10-10 本人の依頼】説明の2段落は外した(中身はアイコン・見出し・1行だけ)。**カードの外(暗幕・裏の見本の上)を押しても参加が始まる**
+// (枠 .join-frame が受ける。下部タブは枠の外なので押せばタブが移る)。
 // 以前の見出し「コミュニティ」はカードの見出しに替わった。
 // 参加の段は、はじめの一手(onboarding.jsx)からは外した(済んだ印を持たない。参加していなければ出る・参加すれば出ない)。
 // 暗幕とカードは document.body へ出す(はじめの一手と同じ重なり順 COACH_Z。シートの暗幕 60 より下)。
@@ -822,8 +824,9 @@ const JOIN_TITLE = "コミュニティに参加しよう";
 const JOIN_LINE = "みんなの計測データが見られます";
 // 【便CD】カードの読み上げの名前(以前の主ボタンの文字と同じ語)。
 const JOIN_ACTION = "参加する";
-// 説明の1段落目(版の p.body。--fs-sm・行間 --lh-loose・--c-ink-2・上に --sp-1)。2段落目は noteStyle(小さく --c-ink-3)のまま。
-const joinLeadStyle = { fontSize: "var(--fs-sm)", color: "var(--c-ink-2)", lineHeight: "var(--lh-loose)", marginTop: "var(--sp-1)" };
+// (ここに説明の1段落目の体裁 joinLeadStyle があった。【便CI 2026-10-10 本人「コミュニティの最初の以下の説明文削除」】2段落ともカードから外し、
+//  読み手がゼロになったので消した。同じ事実(匿名のアカウントは端末に紐づき、替える・消すと失われる)は利用規約・プライバシーポリシーに書いてあり、
+//  起動の最初の同意の画面の2枚目で読む)
 // (ここに細い導線の体裁 JOIN_QUIET_LINK_STYLE があった。最後の読み手 DeviceTransferPanel.jsx を【便CE 2026-10-08】に消したので一緒に消した)
 const NOOP = () => {};
 // 見える範囲の下端(下部タブの上端 − 広告の帯 --ad-h)。はじめの一手のカードと同じ読み方(onboarding.jsx の readBottomLimit)。
@@ -868,13 +871,22 @@ export function JoinIntro({ onJoin, notice = null, wide = false }) {
     e.preventDefault();
     join();
   };
+  // 【便CI 2026-10-10 本人「コミュニティに参加しようのカード以外の箇所をタップしても次に進めるように変更」】カードの外を押しても、
+  // カードを押したときと同じ join(二度押しの歯止め・準備中は押せないも同じ ref)。受けは枠(.join-frame)── 画面の上端から
+  // 見える範囲の下端(下部タブの上端 − 広告の帯)までを覆い、暗幕と裏の見本の上を受ける。下部タブは枠の外なので今までどおりタブが移る。
+  // カードの中を押したときはカードの onClick が受ける(ここへ泡立ってきても枠そのものを押したときだけ走らせる = 1回の押下で1回)。
+  // 読み上げの「参加する」はカード(role="button")の1つのまま(枠は読み上げに名乗らない)。
+  const onFrameClick = (e) => {
+    if (e.target !== e.currentTarget) return;
+    join();
+  };
   const card = (
     <div className="coach-layer" data-join-layer="" style={{ zIndex: COACH_Z }}>
       <div className="coach-dim" aria-hidden="true" />
       {/* 【便CE 2026-10-08】削除の結果の説明(notice)の読み上げ。カード(role="button")の外に置く。見た目には出さない
           (.coach-live = 「画面から外して読み上げにだけ残す」はじめの一手の読み上げの入れ物と同じ規則。新しい値は無い) */}
       <div className="coach-live" role="status" data-join-notice-live="">{notice ?? ""}</div>
-      <div className="join-frame" style={{ height: frameH }}>
+      <div className="join-frame" style={{ height: frameH }} onClick={onFrameClick} data-join-frame="">
         <div className="coach-card join-card sans" role="button" tabIndex={0} aria-label={JOIN_ACTION} aria-disabled={busy ? "true" : undefined}
           onClick={join} onKeyDown={onCardKey} data-join-card="" style={{ cursor: "pointer" }}>
           <CoachIcon name="community" />
@@ -884,19 +896,11 @@ export function JoinIntro({ onJoin, notice = null, wide = false }) {
               【便CE 2026-10-08】カードは role="button" で、中身は読み上げでは「参加する」の1語に畳まれる(button の子は飾りの扱い)。
               見た目はここに残し(aria-hidden)、読み上げはカードの外の status(下の data-join-notice-live)が持つ */}
           {notice ? <div className="sans" aria-hidden="true" style={bodyStyle}>{notice}</div> : null}
-          {/* 【便BS 審査】1つの文字列で書く(JSX の改行は半角の空白になり、「なります。 メール」と句点のあとに空白が入っていた) */}
-          <div style={joinLeadStyle}>
-            {"参加すると匿名のアカウントが作られ、他の奏者のデータが見られるようになります。メールアドレスなどの個人情報は公表されません。"}
-          </div>
-          {/* spec §6: 匿名のままのアカウントは端末を替える・アプリを削除すると失われる。この告知は本来
-              アカウント連携の画面(後続の計画)に付くものだが、その画面が出来る前から
-              「失われうるアカウント」は作られてしまうので、作る前のここで先に言っておく。
-              【便BX 2026-10-06 本人の決定 D1】語を「端末を替えたりアプリを削除したりすると」に(導線の名前と揃える)。 */}
-          <div style={noteStyle}>
-            匿名のアカウントはこの端末にだけ残ります。端末を替えたりアプリを削除したりすると失われ、元に戻せません。
-          </div>
+          {/* (【便CI 2026-10-10 本人「コミュニティの最初の以下の説明文削除」】ここに説明の2段落
+              「参加すると匿名のアカウントが作られ、…」「匿名のアカウントはこの端末にだけ残ります。…」があった。カードの中身は上の1行まで
+              (と、条件付きの notice)。同じ事実は利用規約・プライバシーポリシーにある) */}
           {/* (【便CD 2026-10-08 本人「まででいい / それ以下の利用規約やボタン自体もいらない」】ここに規約・ポリシー・お問い合わせの導線、
-              主ボタン「参加する」(SHEET_PRIMARY_BUTTON_STYLE)、細い導線「端末を替えるとき」があった。カードの中身は上の段落まで。
+              主ボタン「参加する」(SHEET_PRIMARY_BUTTON_STYLE)、細い導線「端末を替えるとき」があった。カードの中身は上の1行まで(【便CI】)。
               参加はカードを押して始める(上の role="button")) */}
         </div>
       </div>

@@ -920,10 +920,12 @@ body {
    【便BX】地は白(--c-surface)のまま・アイコンの丸は --c-accent-tint のまま(案内のカードの地と丸だけが変わった。下の .coach-card.join-card)。
    置き場所だけ違う: 見える範囲(画面の上端 〜 下部タブ・帯の上端。高さは JoinIntro が測って .join-frame に書く)の縦横の中央、
    上下左右は 22px(本人裁定の 22)。**画面の高さが足りないときは、カードの高さを枠に収めて中を縦にスクロールする**(中身を切らない)。
-   中身は左揃え(アイコン・見出し・1行だけ中央。版の .coach.join)。枠そのものはタップを通す(下部タブは押せる)。 */
+   中身は左揃え(アイコン・見出し・1行だけ中央。版の .coach.join)。
+   【便CI 2026-10-10 本人「カード以外の箇所をタップしても次に進めるように」】枠はタップを受ける(pointer-events: auto。押すとカードと同じく参加が始まる)。
+   枠の高さは見える範囲の下端(下部タブの上端 − 帯)までなので、下部タブは枠の外 ── 暗幕と層はタップを通したままで、下部タブは今までどおり押せる。 */
 /* 【便BT 2026-10-03 本人裁定】カードの幅の上限は列(--page-max-w)で、枠の中で中央(justify-content)。
    375 ではカードが 331 幅(< 640)なので今と同じ。 */
-.join-frame { position: fixed; left: 0; right: 0; top: 0; box-sizing: border-box; padding: 22px; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+.join-frame { position: fixed; left: 0; right: 0; top: 0; box-sizing: border-box; padding: 22px; display: flex; align-items: center; justify-content: center; pointer-events: auto; }
 .coach-card.join-card {
   position: relative; left: auto; right: auto; width: 100%; max-width: var(--page-max-w); max-height: 100%;
   overflow-y: auto; overscroll-behavior: contain; justify-items: stretch; text-align: left;

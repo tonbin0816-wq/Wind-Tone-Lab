@@ -33221,6 +33221,8 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
   // --- BW.7 CSS は触らない・帯の文・DESIGN-SYSTEM ----------------------------------------------------
   {
     const css = rd("src/index.css");
+    // 【便CI】参加の画面の枠の1行(外の押下を受ける = pointer-events: auto)。CI.2 も同じ文字列を見る
+    const JOIN_FRAME_RULE_CI = ".join-frame { position: fixed; left: 0; right: 0; top: 0; box-sizing: border-box; padding: 22px; display: flex; align-items: center; justify-content: center; pointer-events: auto; }";
     const a = css.indexOf("@keyframes coach-out");
     const b = css.indexOf("}", css.indexOf(".coach-live {")) + 1;
     const blk = a >= 0 && b > a ? css.slice(a, b) : "";
@@ -33244,6 +33246,10 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
         r = r.split("\n" + sel + " {").map((p, i) => (i === 0 ? p : p.slice(p.indexOf("}") + 1))).join("\n");
       }
       r = r.replace('\n.coach-layer[data-leaving="true"] .coach-cover,', "");
+      // 【便CI 2026-10-10 本人「カード以外の箇所をタップしても次に進めるように変更」】.join-frame の pointer-events を none → auto に変えた
+      // (この便の意図した変更はこの1語だけ)。その1行を便CI の前の形に戻してから固定と比べる(= ほかは1文字も触れていない)。
+      // 今の .join-frame の1行は CI.2 が一字一句で見る(戻っていれば CI.2 が落ちる)。
+      r = r.replace(JOIN_FRAME_RULE_CI, JOIN_FRAME_RULE_CI.replace("pointer-events: auto; }", "pointer-events: none; }"));
       return r.replace(/[ \t]+\n/g, "\n").replace(/\n{2,}/g, "\n");
     })();
     check("BW.7 【便BX】.coach-* の塊から便BX が変えた規則を抜いた残りは、便BX の前と1文字も変わらない(長さ・fnv1a)",
@@ -33505,8 +33511,9 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     const ctRaw = rd("src/community/CommunityTab.jsx");
     const ji = codeOf(srcOfFn(ctRaw, "JoinIntro"));
     // 【便CD 2026-10-08】参加のカードの導線「端末を替えるとき」は外した(部品 DeviceTransferSheet / DeviceTransferPanel は残す)。
-    check("BX.8 JoinIntro: 「機種変更」が無く「端末を替えたりアプリを削除したりすると失われ、元に戻せません。」がある・【便CD】導線は無い",
-      ji.length > 800 && !/機種変更/.test(ji) && ji.includes("端末を替えたりアプリを削除したりすると失われ、元に戻せません。")
+    // 【便CI 2026-10-10 本人「コミュニティの最初の以下の説明文削除」】説明の2段落はカードから外した(同じ事実は利用規約・ポリシー。CI.3)。
+    check("BX.8 JoinIntro: 「機種変更」が無い・【便CI】説明の2段落目もカードから外した・【便CD】導線は無い",
+      ji.length > 800 && !/機種変更/.test(ji) && !ji.includes("端末を替えたりアプリを削除したりすると失われ、元に戻せません。")
       && !/JOIN_QUIET_LINK_STYLE|DEVICE_TRANSFER_TITLE/.test(ji));
     check("BX.8 【便CE】DeviceTransferSheet は JoinIntro にも定義にも無い・BackupSheet の定義は便BX の前のまま",
       (ji.match(/<DeviceTransferSheet onClose=/g) || []).length === 0
@@ -33640,9 +33647,10 @@ console.log("========== 検証CD: 便CD 参加のカードは説明だけ(カー
   // vitest(joinCard / joinCardPress / joinCardFlow / consentGate)が描いて見る。ここは綴りの形と DESIGN-SYSTEM の記録だけ。
   const ctCD = readFileSync(join(__dirname, "..", "src", "community", "CommunityTab.jsx"), "utf8");
   const jiCD = codeOf(srcOfFn(ctCD, "JoinIntro"));
-  check("CD.1 参加のカードの最後の子は説明の2段落目(その後ろに部品が無い = カード → 枠 → 層が続けて閉じる)",
+  // 【便CI 2026-10-10】説明の2段落を外したので、カードの最後の子は条件付きの notice(その後ろに部品が無い)。
+  check("CD.1 参加のカードの最後の子は【便CI】条件付きの notice(その後ろに部品が無い = カード → 枠 → 層が続けて閉じる)",
     jiCD.length > 800
-    && /匿名のアカウントはこの端末にだけ残ります。端末を替えたりアプリを削除したりすると失われ、元に戻せません。\s*<\/div>\s*(?:\{\s*\}\s*)*<\/div>\s*<\/div>\s*<\/div>\s*\);/.test(jiCD)
+    && /\{notice \? <div className="sans" aria-hidden="true" style=\{bodyStyle\}>\{notice\}<\/div> : null\}\s*(?:\{\s*\}\s*)*<\/div>\s*<\/div>\s*<\/div>\s*\);/.test(jiCD)
     && (jiCD.match(/<button\b/g) || []).length === 0);
   check("CD.2 カードは role=\"button\"・名前は「参加する」・押すと join(onJoin)・Enter / Space も join",
     /className="coach-card join-card sans" role="button" tabIndex=\{0\} aria-label=\{JOIN_ACTION\}/.test(jiCD)
@@ -33655,6 +33663,43 @@ console.log("========== 検証CD: 便CD 参加のカードは説明だけ(カー
   check("CD.3 DESIGN-SYSTEM: §4.5b に【便CD】カードそのものが「参加する」・§4.5c に「はじめる」の枠線(WELCOME_START_OUTLINE・1.5px)",
     s45b.length > 1000 && /【便CD/.test(s45b) && s45b.includes("カードそのものが「参加する」")
     && /`WELCOME_START_OUTLINE`/.test(s45c) && s45c.includes("1.5px solid var(--c-accent)") && s45c.includes("「次へ」は塗りのまま"));
+  console.log("  -> done");
+}
+
+console.log("========== 検証CI: 便CI 参加のカードは見出しと1行だけ・カードの外を押しても参加 ==========");
+{
+  // 【便CI 2026-10-10 本人「コミュニティの最初の以下の説明文削除 / … / コミュニティに参加しようのカード以外の箇所をタップしても次に進めるように変更」】
+  // 振る舞い(文は2つ・外を押すと参加・下部タブでは始まらない・準備中/二度押し・案内の流れ)は vitest(joinCard / joinCardPress / joinCardFlow)が描いて見る。
+  // ここは綴りの形・CSS の1行・規約とポリシーの文・DESIGN-SYSTEM の記録だけ。
+  const ctCI = readFileSync(join(__dirname, "..", "src", "community", "CommunityTab.jsx"), "utf8");
+  const jiCI = codeOf(srcOfFn(ctCI, "JoinIntro"));
+  const cardCI = (/<div className="coach-card join-card sans"[\s\S]*?<\/div>\s*<\/div>\s*<\/div>\s*\);/.exec(jiCI) || [""])[0];
+  check("CI.1 参加のカードの中身はアイコン・見出し・1行(+ 条件付きの notice)だけ。説明の2段落(匿名・端末・個人情報の文)と joinLeadStyle は無い",
+    cardCI.length > 200
+    && /<CoachIcon name="community" \/>\s*<div className="coach-title">\{JOIN_TITLE\}<\/div>\s*<div className="coach-line">\{JOIN_LINE\}<\/div>\s*(?:\{\s*\}\s*)*\{notice \?/.test(cardCI)
+    && !/匿名|端末|個人情報|noteStyle|joinLeadStyle/.test(cardCI)
+    && !/joinLeadStyle/.test(codeOf(ctCI))
+    && /const JOIN_TITLE = "コミュニティに参加しよう";/.test(ctCI) && /const JOIN_LINE = "みんなの計測データが見られます";/.test(ctCI));
+  const cssCI = readFileSync(join(__dirname, "..", "src", "index.css"), "utf8");
+  check("CI.2 枠(.join-frame)が外の押下を受ける: CSS は pointer-events: auto の1行・JSX は onClick={onFrameClick}・枠そのものを押したときだけ join(歯止めは同じ join の ref)",
+    cssCI.includes(".join-frame { position: fixed; left: 0; right: 0; top: 0; box-sizing: border-box; padding: 22px; display: flex; align-items: center; justify-content: center; pointer-events: auto; }")
+    && /<div className="join-frame" style=\{\{ height: frameH \}\} onClick=\{onFrameClick\} data-join-frame="">/.test(jiCI)
+    && /const onFrameClick = \(e\) => \{\s*if \(e\.target !== e\.currentTarget\) return;\s*join\(\);\s*\};/.test(jiCI)
+    && /const frameH = useJoinFrameHeight\(\);/.test(jiCI)
+    && /\.coach-layer \{ position: fixed; inset: 0; pointer-events: none; \}/.test(cssCI)
+    && cssCI.includes(".coach-dim { position: fixed; inset: 0; pointer-events: none; background: var(--c-coach-dim); }"));
+  const termsCI = readFileSync(join(__dirname, "..", "public", "terms.html"), "utf8");
+  const privCI = readFileSync(join(__dirname, "..", "public", "privacy.html"), "utf8");
+  check("CI.3 カードから外した事実は規約とポリシーにある(匿名のアカウントは端末に紐づく・替える/消すと失われ元に戻せない・氏名やメールと結び付かない)。最終更新日は 2026年10月8日 のまま",
+    termsCI.includes("コミュニティの匿名アカウントは端末に紐づいています。") && termsCI.includes("端末を替えたりアプリを削除したりすると失われ、元に戻せません。")
+    && privCI.includes("匿名アカウントはお使いの端末に紐づいています。") && privCI.includes("端末を替えたりアプリを削除したりするとアカウントは失われ、元に戻せません。")
+    && privCI.includes("氏名・メールアドレス・電話番号とは結び付いていません。")
+    && termsCI.includes("最終更新日: 2026年10月8日") && privCI.includes("最終更新日: 2026年10月8日"));
+  const dsCI = readFileSync(join(__dirname, "..", "design", "DESIGN-SYSTEM.md"), "utf8");
+  const s45bCI = dsCI.slice(dsCI.indexOf("## 4.5b"), dsCI.indexOf("## 4.5c"));
+  check("CI.4 DESIGN-SYSTEM §4.5b: 【便CI】中身はアイコン・見出し・1行だけ・カードの外を押しても参加が始まる(下部タブは枠の外)",
+    /【便CI/.test(s45bCI) && s45bCI.includes("中身はアイコン・見出し「コミュニティに参加しよう」・1行「みんなの計測データが見られます」**だけ**")
+    && s45bCI.includes("**カードの外を押しても参加が始まる**") && !s45bCI.includes("・説明2段落**だけ**"));
   console.log("  -> done");
 }
 

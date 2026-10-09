@@ -10,7 +10,8 @@ import { createFakeIndexedDb } from "../backup/fakeIndexedDb.testutil.js";
 //   ・まだ誰でもない(getSignedInUid が null)人がカードを押すと、ensureSignedIn(匿名のアカウントを作る唯一の口)が1回だけ呼ばれ、
 //     プロフィールの入力(「プロフィールを作る」)へ進む = 以前の「参加する」と同じ処理
 //   ・準備中(ensureSignedIn が返る前)はカードが aria-disabled になり、押しても・Enter でも2回目は呼ばれない
-//   ・カードの外(暗幕・枠)を押しても参加は始まらず、カードは消えない
+//   ・【便CI 2026-10-10 本人「カード以外の箇所をタップしても次に進めるように変更」】カードの外(枠 = 暗幕・裏の見本の上)を押しても
+//     同じく参加が始まる(ensureSignedIn は1回・プロフィールの入力へ)。準備中は外を押しても2回目は呼ばれない
 //   ・失敗したら今までどおりエラーの画面(通信の失敗の文)
 // サーバーは作り物(accountRepo / directory / idealRepo / reportRepo を差し替える。Firebase に触らない・アカウントを作らない)。
 // ------------------------------------------------------------------
@@ -91,13 +92,20 @@ describe("【便CD】参加のカードを押すと参加が始まる", () => {
     expect(repo.ensureSignedIn).toHaveBeenCalledTimes(1);
   });
 
-  it("カードの外(暗幕・枠)を押しても参加は始まらず、カードは消えない(外を押しても閉じない例外のまま)", async () => {
+  it("【便CI】カードの外(枠 = 暗幕・裏の見本の上)を押しても参加が始まる → 匿名のアカウントを1回作る → プロフィールの入力へ。準備中は外を押しても2回目は無い", async () => {
     await drawTab();
-    await click(document.querySelector(".coach-dim"));
-    await click(document.querySelector(".join-frame"));
-    await click(document.querySelector("[data-join-preview]"));
     expect(repo.ensureSignedIn).not.toHaveBeenCalled();
-    expect(joinCard()).not.toBe(null);
+    await click(document.querySelector(".join-frame"));
+    expect(repo.ensureSignedIn).toHaveBeenCalledTimes(1);
+    expect(joinCard().getAttribute("aria-disabled")).toBe("true");
+    await click(document.querySelector(".join-frame"));
+    await click(joinCard());
+    expect(repo.ensureSignedIn).toHaveBeenCalledTimes(1);
+    expect(formShown()).toBe(false);
+    await act(async () => { account.release(); });
+    await waitFor(() => formShown(), "プロフィールの入力");
+    expect(document.querySelector("[data-join-layer]")).toBe(null);
+    expect(repo.ensureSignedIn).toHaveBeenCalledTimes(1);
   });
 
   it("作れなかったら今までどおりエラーの画面(通信の失敗の文と「もう一度試す」)", async () => {

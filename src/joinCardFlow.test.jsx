@@ -10,6 +10,7 @@ import { createFakeIndexedDb } from "./backup/fakeIndexedDb.testutil.js";
 //   ・getSignedInUid は「作った後」だけ uid を返す / ensureSignedIn は作り物の uid を返す / saveProfile は手元に覚える
 //   ・フォームの中身の判定(buildProfileDoc)は作り物(判定そのものは profile.test.js が守る。ここで見るのは流れだけ)
 // 的の矩形は idealSeenFlow.test.jsx と同じ 375×812 の値。
+// 【便CI 2026-10-10 本人「カード以外の箇所をタップしても次に進めるように変更」】カードの外(枠 .join-frame)を押す参加でも同じ流れが通る。
 // 【守っていないもの】実寸の見た目(Browser ペインのスクショ)。
 // ------------------------------------------------------------------
 
@@ -132,8 +133,11 @@ async function start(kvEntries, sessions = []) {
   await waitFor(() => nav("コミュニティ"), "下部タブ");
 }
 
+const joinFrame = () => document.querySelector("[data-join-layer] .join-frame");
+
 describe("【便CD】便BX の案内の流れを、カードを押す参加で通す", () => {
-  it("⑭' → コミュニティ(参加のカード)→ カードを押す → プロフィールの入力 → 作る → join → 到着コミュニティ → ⑯", async () => {
+  for (const [how, target] of [["カードを押す", joinCard], ["【便CI】カードの外(枠)を押す", joinFrame]]) {
+  it(`⑭' → コミュニティ(参加のカード)→ ${how} → プロフィールの入力 → 作る → join → 到着コミュニティ → ⑯`, async () => {
     await start({ onboardingDone: BASE }, [SESSION("s1")]);
     await click(nav("データ"));
     await waitFor(() => layerId() === "goCommunity", "⑭'");
@@ -144,7 +148,7 @@ describe("【便CD】便BX の案内の流れを、カードを押す参加で�
     expect(layerId()).toBe(null);
     expect(kv("onboardingDone").join).toBeUndefined();
     expect(server.signIns).toBe(0);
-    await click(joinCard());
+    await click(target());
     await waitFor(() => buttonsNamed("プロフィールを作る").length > 0, "プロフィールの入力");
     expect(server.signIns).toBe(1);
     expect(document.querySelector("[data-join-card]")).toBe(null);
@@ -155,5 +159,21 @@ describe("【便CD】便BX の案内の流れを、カードを押す参加で�
     await waitFor(() => kv("onboardingDone")?.arriveCommunity === true, "arriveCommunity の印");
     await waitFor(() => layerId() === "adoptAverage", "⑯");
     expect(server.signIns).toBe(1);
+  }, 60000);
+  }
+
+  // 【便CI】外を押すと参加が始まるようになっても、本物の下部タブは枠の外(層の中に居ない)。押せばタブが移り、参加は始まらない。
+  it("【便CI】参加のカードの間に下部タブを押すと、タブが移るだけ(参加は始まらない・アカウントは作られない)", async () => {
+    await start({ onboardingDone: BASE }, [SESSION("s1")]);
+    await click(nav("コミュニティ"));
+    await waitFor(() => joinCard(), "参加のカード");
+    const navEl = document.querySelector("[data-bottom-nav]");
+    expect(document.querySelector("[data-join-layer]").contains(navEl)).toBe(false);
+    expect(joinFrame().contains(navEl)).toBe(false);
+    await click(nav("データ"));
+    await waitFor(() => document.querySelector("[data-join-card]") === null, "データタブへ移った(参加のカードが消えた)");
+    await tick(50);
+    expect(server.signIns).toBe(0);
+    expect(buttonsNamed("プロフィールを作る")).toHaveLength(0);
   }, 60000);
 });

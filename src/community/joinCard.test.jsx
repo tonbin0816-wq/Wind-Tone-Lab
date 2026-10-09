@@ -14,6 +14,11 @@ import { join } from "node:path";
 //     ボタン・導線は無い。**カードを押すと参加が始まる**(Enter / Space も)。読み上げではカード全体が「参加する」のボタン。準備中は押せない
 //   ・カードの外を押しても・Escape でも消えない(【便CD 統括の裁定】本人「参加しないという選択肢ないです」)
 //   ・下部タブは押せる(暗幕・枠・層はタップを通し、カードは見える範囲 = 下部タブの上端より上に収まる)
+//   ・【便CI 2026-10-10 本人「コミュニティの最初の以下の説明文削除 / … / コミュニティに参加しようのカード以外の箇所をタップしても次に進めるように変更」】
+//     説明の2段落は外した(文は見出しと1行の2つだけ)。カードの外を押しても参加が始まる ── 受けは枠(.join-frame。画面の上端 〜 下部タブの上端)。
+//     暗幕と層はタップを通したまま、下部タブは枠の外なので押せばタブが移り、参加は始まらない。二度押し・準備中の歯止めは外を押しても効く。
+//     【守っていないもの(jsdom は当たり判定をしない)】実画面のどの点を押すと枠に当たるか。ここで見るのは枠の当たりの有無と高さ(= 下部タブの上端)で、
+//     実際の当たりは dev サーバで elementFromPoint を測った(報告の表)。
 // index.css をそのまま読み込む(jsdom は stylesheet の宣言を getComputedStyle に通す)。
 // 【守っていないもの】実寸の見た目と、375×667 でカードが切れないこと(headless Chrome で実測。報告の表)。
 // 【便BX 2026-10-06 本人の決定 D1】説明の2段落目「機種変更やアプリの削除で」→「端末を替えたりアプリを削除したりすると」。
@@ -66,12 +71,12 @@ const draw = async (props) => { await act(async () => { root.render(<Page {...pr
 
 describe("参加の画面はカード1枚(便BS)", () => {
   // 【便CD 2026-10-08 本人「コミュニティに参加しよう / みんなの計測データが見られます / (2段落) / まででいい / それ以下の利用規約やボタン自体もいらない」】
-  it("【便CD】カードの中身はアイコン・見出し・1行・説明2段落の5つだけ(文は4つ・一字一句)。ボタン・導線・チェックは無い", async () => {
+  it("【便CI】カードの中身はアイコン・見出し・1行の3つだけ(文は2つ・一字一句)。説明の2段落・ボタン・導線・チェックは無い", async () => {
     await draw();
     const c = card();
     expect(c).not.toBe(null);
     const kids = [...c.children];
-    expect(kids).toHaveLength(5);
+    expect(kids).toHaveLength(3);
     // 1. 丸いアイコン(コミュニティの絵)
     expect(kids[0].className).toBe("coach-icon");
     expect(kids[0].querySelector("circle").getAttribute("cx")).toBe("9");
@@ -80,18 +85,14 @@ describe("参加の画面はカード1枚(便BS)", () => {
     expect(kids[1].textContent).toBe("コミュニティに参加しよう");
     expect(kids[2].className).toBe("coach-line");
     expect(kids[2].textContent).toBe("みんなの計測データが見られます");
-    // 4. 説明(以前の JoinIntro の2段落のまま)。1段落目は --fs-sm、2段落目は小さく --c-ink-3
-    // 【便BS 審査】句点のあとに半角の空白を入れない(以前は JSX の改行が空白になっていた)
-    expect(kids[3].textContent).toBe("参加すると匿名のアカウントが作られ、他の奏者のデータが見られるようになります。メールアドレスなどの個人情報は公表されません。");
-    expect(kids[3].style.fontSize).toBe("var(--fs-sm)");
-    expect(kids[4].textContent).toBe("匿名のアカウントはこの端末にだけ残ります。端末を替えたりアプリを削除したりすると失われ、元に戻せません。");
-    expect([kids[4].style.fontSize, kids[4].style.color]).toEqual(["var(--fs-xs)", "var(--c-ink-3)"]);
-    // カードの文はこの4つをつないだものだけ(ほかの文が1字も無い)
-    expect(c.textContent).toBe(kids.slice(1).map((k) => k.textContent).join(""));
+    // (【便CI】ここにあった説明の2段落「参加すると匿名のアカウントが…」「匿名のアカウントはこの端末にだけ…」は外した)
+    // カードの文は見出しと1行の2つをつないだものだけ(ほかの文が1字も無い。期待値は本人の原文から手で書いた)
+    expect(c.textContent).toBe("コミュニティに参加しようみんなの計測データが見られます");
     expect(c.textContent).not.toMatch(/機種/);
+    for (const w of ["匿名", "アカウント", "端末", "個人情報", "元に戻せません"]) expect(c.textContent, w).not.toContain(w);
     // 押せる部品(ボタン・リンク・入力)はカードの中に1つも無い。外した導線の語も無い
     expect(c.querySelectorAll("button, a, input, label, select, textarea")).toHaveLength(0);
-    // (「参加する」は1段落目の「参加すると」に含まれるので語では見ない。上の textContent の一致が、ボタンの字が無いことを見ている)
+    // (上の textContent の一致が、ボタンの字「参加する」も無いことを見ている)
     for (const w of ["準備中", "利用規約", "プライバシーポリシー", "お問い合わせ", "端末を替えるとき", "アカウント引継", "同意"]) {
       expect(c.textContent, w).not.toContain(w);
     }
@@ -132,18 +133,18 @@ describe("参加の画面はカード1枚(便BS)", () => {
     expect(live.className).toBe("coach-live");   // 見た目には出さない(はじめの一手の読み上げの入れ物と同じ規則)
   });
 
-  it("notice が無いときは、読み上げの入れ物は空でカードの中に説明の行も無い(5つの子のまま)", async () => {
+  it("notice が無いときは、読み上げの入れ物は空でカードの中に説明の行も無い(3つの子のまま)", async () => {
     await draw();
     expect(document.querySelector("[data-join-notice-live]").textContent).toBe("");
-    expect(card().children).toHaveLength(5);
+    expect(card().children).toHaveLength(3);
   });
 
-  it("【便CD】カードを押すと参加が始まる(onJoin。今までの「参加する」と同じ口)。どこを押しても(見出し・段落・アイコン)同じ", async () => {
+  it("【便CD】カードを押すと参加が始まる(onJoin。今までの「参加する」と同じ口)。どこを押しても(アイコン・見出し・1行)同じ。1回の押下で1回", async () => {
     let joined = 0;
     await draw({ onJoin: async () => { joined += 1; } });
     await act(async () => { card().click(); });
     expect(joined).toBe(1);
-    for (const i of [0, 1, 4]) {
+    for (const i of [0, 1, 2]) {
       await act(async () => { card().children[i].click(); });
     }
     expect(joined).toBe(4);
@@ -179,19 +180,44 @@ describe("参加の画面はカード1枚(便BS)", () => {
     await act(async () => { finish(); });
   });
 
-  // 【便CD 2026-10-08 本人「参加しないという選択肢ないです」・統括の裁定】外を押しても閉じない(今までどおりの例外)。外を押しても参加も始まらない。
-  it("カードの外(暗幕・裏・枠)を押しても、Escape でも消えない。外を押しても参加は始まらない", async () => {
+  // 【便CD 2026-10-08 本人「参加しないという選択肢ないです」・統括の裁定】外を押しても閉じない(今までどおりの例外)。
+  // 【便CI 2026-10-10 本人「コミュニティに参加しようのカード以外の箇所をタップしても次に進めるように変更」】外を押すと、カードを押したときと同じく参加が始まる。
+  //   実画面で暗幕・裏の見本の上を押すと当たるのは枠(.join-frame。pointer-events: auto・画面の上端 〜 下部タブの上端)。
+  //   暗幕と裏は当たりを持たない(下の「下部タブは押せる」で pointer-events を見る)ので、ここでは枠を押す。
+  it("【便CI】カードの外(枠 = 暗幕・裏の見本の上)を押すと参加が始まる。1回の押下で1回。Escape では消えず・始まらない", async () => {
     let joined = 0;
     await draw({ onJoin: async () => { joined += 1; } });
-    await act(async () => { document.querySelector(".coach-dim").click(); });
-    await act(async () => { document.querySelector("[data-join-preview]").click(); });
     await act(async () => { document.querySelector(".join-frame").click(); });
+    expect(joined).toBe(1);
+    await act(async () => { document.querySelector(".join-frame").click(); });
+    expect(joined).toBe(2);
     await act(async () => { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
     await act(async () => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
     await tick();
+    expect(joined).toBe(2);
     expect(card()).not.toBe(null);
     expect(document.querySelector("[data-join-layer]")).not.toBe(null);
-    expect(joined).toBe(0);
+  });
+
+  // 【便CI】外を押しても二度押しの歯止め(busyRef)と準備中の扱いはカードと同じ 1 つ。onJoin は終わらせずに待たせておく。
+  it("【便CI】準備中は外を押しても始まらない: 外を続けて2回・外 → カード・カード → 外 のどれでも onJoin は1回。終われば外でまた押せる", async () => {
+    let calls = 0; let finish = null;
+    await draw({ onJoin: () => { calls += 1; return new Promise((r) => { finish = r; }); } });
+    const frame = () => document.querySelector(".join-frame");
+    await act(async () => { frame().click(); frame().click(); });   // 2回目は描き直しの前
+    expect(calls).toBe(1);
+    expect(card().getAttribute("aria-disabled")).toBe("true");
+    await act(async () => { card().click(); frame().click(); });
+    await key(card(), "Enter");
+    expect(calls).toBe(1);
+    await act(async () => { finish(); });
+    expect(card().hasAttribute("aria-disabled")).toBe(false);
+    await act(async () => { card().click(); frame().click(); });   // カード → 外(描き直しの前)
+    expect(calls).toBe(2);
+    await act(async () => { finish(); });
+    await act(async () => { frame().click(); });
+    expect(calls).toBe(3);
+    await act(async () => { finish(); });
   });
 
   it("【便CD】規約・ポリシー・お問い合わせ・「端末を替えるとき」のシートは参加のカードから開かない(導線ごと外した)", async () => {
@@ -202,7 +228,7 @@ describe("参加の画面はカード1枚(便BS)", () => {
     expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(0);
   });
 
-  it("下部タブは押せる: 層・暗幕・枠はタップを通す。枠(カードの置き場)は下部タブの上端までで止まる。カードは中で縦にスクロールできる", async () => {
+  it("下部タブは押せる: 層・暗幕はタップを通す。枠(カードの置き場・【便CI】外の押下の受け)は画面の上端から下部タブの上端までで止まる。カードは中で縦にスクロールできる", async () => {
     let nav = 0; let joined = 0;
     await draw({ onNav: () => { nav += 1; }, onJoin: async () => { joined += 1; } });
     const pe = (el) => getComputedStyle(el).pointerEvents;
@@ -211,15 +237,20 @@ describe("参加の画面はカード1枚(便BS)", () => {
     expect(Number(layer.style.zIndex)).toBe(55);   // はじめの一手と同じ。シートの暗幕(60)より下
     expect(pe(layer)).toBe("none");
     expect(pe(document.querySelector(".coach-dim"))).toBe("none");
-    expect(pe(document.querySelector(".join-frame"))).toBe("none");
+    // 【便CI】枠は当たりを持つ(外の押下を受ける)。覆うのは画面の上端・左右いっぱい 〜 下部タブの上端(= 下部タブは枠の外)
+    const frameCss = getComputedStyle(document.querySelector(".join-frame"));
+    expect(pe(document.querySelector(".join-frame"))).toBe("auto");
+    expect([frameCss.position, frameCss.top, frameCss.left, frameCss.right]).toEqual(["fixed", "0px", "0px", "0px"]);
     expect(pe(card())).toBe("auto");
     expect(document.querySelector(".join-frame").style.height).toBe(`${NAV_TOP}px`);
+    // 下部タブの代わりは層(枠)の中に居ない
+    expect(document.querySelector("[data-join-layer]").contains(document.querySelector("[data-bottom-nav]"))).toBe(false);
     expect(getComputedStyle(card()).overflowY).toBe("auto");
     expect(getComputedStyle(card()).maxHeight).toBe("100%");
     expect(getComputedStyle(document.querySelector(".join-frame")).padding).toBe("22px");
     await act(async () => { document.querySelector('button[aria-label="データ"]').click(); });
     expect(nav).toBe(1);
-    expect(joined).toBe(0);   // 下部タブを押しても参加は始まらない(カードの外)
+    expect(joined).toBe(0);   // 下部タブを押しても参加は始まらない(枠の外)
   });
 
   it("裏は参加後の画面の見本で、触れない(inert・aria-hidden・pointer-events: none)。子タブ・条件・平均カード・人の行3つ", async () => {
