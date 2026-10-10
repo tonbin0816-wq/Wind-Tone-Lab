@@ -361,6 +361,14 @@ html, body {
   background-color: var(--c-bg);
 }
 
+/* 【便CK 2026-10-10 本人「よくある下にスワイプでリロードの仕様も追加して」】コミュニティタブの間だけ、ページの端の標準の動き
+   (iPhone の Safari の引っ張ってページごと再読み込み・端の跳ね返り)を止める。こちらの引っ張って更新(src/community/PullToRefresh.jsx)
+   だけが走るようにするため(二重にしない)。印は CommunityTab が付け外しする(タブを離れれば外れ、ほかのタブは今までどおり)。
+   DESIGN-SYSTEM §6.3a。 */
+html[data-pull-refresh] {
+  overscroll-behavior-y: none;
+}
+
 * {
   margin: 0;
   padding: 0;

@@ -49,13 +49,16 @@ export function sproutStage(p) {
   };
 }
 
-export function LoadingRing({ p }) {
+// 【便CK 2026-10-10】size = 引っ張って更新の印(PullToRefresh.jsx)が同じ芽を小さく描くための口(値はトークン var(--tap-min))。
+// 渡さない呼び手(読み込み中の画面)は今までどおり 88px の属性だけで描く(style も1文字も変わらない)。
+export function LoadingRing({ p, size = null }) {
   const { outer, hole, fill, line } = sproutStage(p);
   // **pathLength=1** にしてあるので、dasharray に「見せる割合」をそのまま書ける(長さを計算しない)。
   const stroke = { pathLength: "1", fill: "none", stroke: INK, strokeWidth: W,
     strokeLinecap: "round", strokeLinejoin: "round", opacity: line };
   return (
-    <svg viewBox={VIEWBOX} width={SIZE} height={SIZE} aria-hidden="true" style={{ display: "block" }}>
+    <svg viewBox={VIEWBOX} width={SIZE} height={SIZE} aria-hidden="true"
+      style={size ? { display: "block", width: size, height: size } : { display: "block" }}>
       {fill > 0 && <path d={SPROUT_OUTER + SPROUT_HOLE} fillRule="evenodd" fill={INK} opacity={fill} />}
       {/* 【0 のときは描かない】丸い先端は**長さ 0 の破線も点として描く**ので、
           素直に書くと 0% の芽の先に点が1つ乗る(株と輪で同じ罠を2度踏んでいる)。

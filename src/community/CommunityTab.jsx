@@ -19,6 +19,8 @@ import { saveAvatarPhoto } from "./photoRepo.js";
 // 【便CJ】読み込みの1往復を待つ上限(返ってこなければ失敗として扱い、輪を 63% で止めない)
 import { withinLoadLimit } from "./loadLimit.js";
 import PhotoZoom from "./PhotoZoom.jsx";
+// 【便CK 2026-10-10 本人「よくある下にスワイプでリロードの仕様も追加して」】引っ張って更新(指の扱いと印。§6.3a)
+import PullToRefresh, { PULL_REFRESH_ATTR } from "./PullToRefresh.jsx";
 import { RankScreen, ShareScreen, DataScreen, PersonSheet, SaxTypeRow, usePublicUsers, DANGER_OUTLINE_STYLE } from "./screens.jsx";
 // 【便BS 2026-10-03 本人裁定】参加の画面: 裏の見本(JoinPreviewDataScreen)、
 // カードの絵・重なり順・見える範囲の下端は、はじめの一手(onboarding.jsx)と同じものを読む(写しを作らない)。
@@ -162,6 +164,13 @@ const DELETE_PARTIAL_NOTICE =
 // 【便BV 2026-10-04 本人裁定(案B)】wide = iPad の「広い」画面か(App の useWideLayout)。参加後の画面(JoinedView)と参加前の見本
 // (JoinIntro)へ配るだけ。渡されない(false)ときは今までの木のまま(iPhone は1文字も変わらない)。
 export default function CommunityTab({ sessions, tuningHz, onAdoptIdeal, landTab = null, onLanded = null, onOnboarding = null, wide = false }) {
+  // 【便CK】このタブの間だけ <html> に印を立て、index.css がページの overscroll-behavior-y を止める
+  // (iPhone の Safari の「ページごと再読み込み」と、こちらの引っ張って更新を二重にしない)。離れたら外す(ほかのタブは今までどおり)。
+  useEffect(() => {
+    const el = document.documentElement;
+    el.setAttribute(PULL_REFRESH_ATTR, "");
+    return () => el.removeAttribute(PULL_REFRESH_ATTR);
+  }, []);
   return (
     <>
       <AvatarSprite />
@@ -182,7 +191,9 @@ const SUB_TABS = [
 // 【便BE】export は振る舞いの検査(block.test.jsx)が実物を描くための出口。
 // 【便BV 2026-10-04 本人裁定(案B)】wide = iPad の「広い」画面。true なら下の広い木(2ペイン / 列)を描く。
 // 渡されない(false)ときは今までの return のまま(iPhone の木は1文字も変わらない)。
-export function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, onTogglePublic, onChangeAvatar, onPhotoChanged, onDelete, initialTab = "data", watchPhoto = null, wide = false }) {
+// 【便CK】refreshKey = 引っ張って更新の合図(親が値を変えたら、名簿と目安を同じ読みでもう1回読む)。
+// onRefreshed(key) = その回の名簿と目安が片付いた(成功でも失敗でも)ことを親へ返す口。渡さない呼び手は今までどおり。
+export function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onEdit, onTogglePublic, onChangeAvatar, onPhotoChanged, onDelete, initialTab = "data", refreshKey = 0, onRefreshed = null, watchPhoto = null, wide = false }) {
   // 【初期値としてしか読まない】この画面は編集フォームとの行き来で作り直されるので、
   // 「どのタブで開くか」は作り直しのたびに親が渡す。以後の切り替えはここが持つ。
   const [tab, setTab] = useState(initialTab);
@@ -196,7 +207,7 @@ export function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onE
   // 読み取り回数は費用そのもので、利用者数の2乗で増える(設計書の決定1-b)。
   // 【便BG 2026-10-01 本人指示】通報された人を一覧から落とすのをやめた(usePublicUsers は flags を読まない)。
   // uid を渡すのは、uid が変わったら読み直すため。
-  const dir = usePublicUsers(uid);
+  const dir = usePublicUsers(uid, refreshKey);
   // 【便Z 2026-09-21】自分の練習記録は**この端末が数える**。サーバの写しを待たない。
   // 便Q(保存が消していた)・便S(読みと書きの順)・便W(差分が古いキーを残す)と
   // 原因を1つずつ潰しても本人の端末で再発したのは、**自分が順位に出るかどうかを
@@ -226,19 +237,27 @@ export function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onE
   // 目安も1度だけ読む。データタブを開くまで読まないのではなく、
   // 公開ユーザーと同じ1回で済ませる(タブを行き来しても読み直さない)。
   const [ideals, setIdeals] = useState(null);
+  // 【便CK】どの回の目安の読みが片付いたか(引っ張って更新の印を消す時機)。読み直しの間も今の目安を出したまま(null に戻さない)。
+  const [idealsKey, setIdealsKey] = useState(null);
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
         // 【便CJ】上限(withinLoadLimit)まで。過ぎたら下の catch(空 = 順位とシェアは見せる)
         const list = await withinLoadLimit(listIdeals());
-        if (alive) setIdeals(list);
+        if (alive) { setIdeals(list); setIdealsKey(refreshKey); }
       } catch (e) {
-        if (alive) setIdeals([]); // 読めなくても順位とシェアは見せる
+        if (alive) { setIdeals([]); setIdealsKey(refreshKey); } // 読めなくても順位とシェアは見せる
       }
     })();
     return () => { alive = false; };
-  }, []);
+  }, [refreshKey]);
+  // 【便CK】この回の名簿と目安が両方片付いたら親へ返す(親は自分が待っている回のときだけ印を消す)。
+  const onRefreshedRef = useRef(onRefreshed);
+  onRefreshedRef.current = onRefreshed;
+  useEffect(() => {
+    if (dir.settledKey === refreshKey && idealsKey === refreshKey) onRefreshedRef.current?.(refreshKey);
+  }, [dir.settledKey, idealsKey, refreshKey]);
 
   // 【練習日数はタブを開いたときに1度だけ書く】練習のたびには書かない。
   // 書き込み回数が無駄に増えるだけで、順位は開いて見るものなので即時性が要らない。
@@ -518,6 +537,17 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRe
   const [profile, setProfile] = useState(null);
   const [errorMsg, setErrorMsg] = useState(null);
   const [reloadKey, setReloadKey] = useState(0);
+  // 【便CK 2026-10-10 本人「よくある下にスワイプでリロードの仕様も追加して」】引っ張って更新。
+  // 中身は「もう一度試す」と同じ読み(下の effect = アカウントの確認・プロフィール、JoinedView = 名簿・目安。上限 withinLoadLimit もそのまま)。
+  // 違いは画面を読み込み中(輪と%)へ入れ替えないことだけ: 引いた画面を出したまま、上の小さな印が待ちを受け持つ。
+  //   ・softKeyRef = 引っ張って更新で始めた回の reloadKey(その回だけ phase を "loading" にしない)
+  //   ・pullRef = 走っている更新 { from: 引いたときの phase, listKey: 名簿・目安を待っている回 }。null = 走っていない(二重に走らせない)
+  //   ・印を消すのは: 名簿と目安が片付いたとき / 画面が入れ替わったとき(失敗の画面 → 参加後の画面などは、入れ替わった先の今までの待ちの表示へ渡す)
+  const softKeyRef = useRef(-1);
+  const pullRef = useRef(null);
+  const [pullBusy, setPullBusy] = useState(false);
+  const [listKey, setListKey] = useState(0);
+  const finishPull = () => { pullRef.current = null; setPullBusy(false); };
   // 削除の結果、未参加へ戻ったときに一度だけ出す説明(DELETE_PARTIAL_NOTICE)。
   const [notice, setNotice] = useState(null);
   // 【編集から戻ったときに開く子タブ】プロフィールの編集は**マイページから開く**ので、
@@ -562,7 +592,12 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRe
 
   useEffect(() => {
     let alive = true;
-    setPhase("loading");
+    const soft = softKeyRef.current === reloadKey;
+    if (!soft) {
+      // 「もう一度試す」(今までの読み直し)。引っ張って更新の途中で押されたら、そちらの印はここで下ろす(画面ごと読み込み中へ入れ替わるため)。
+      if (pullRef.current) finishPull();
+      setPhase("loading");
+    }
     (async () => {
       try {
         // 【ここで ensureSignedIn を呼ばない】呼ぶと「参加すると匿名のアカウントが
@@ -574,14 +609,19 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRe
         // 過ぎたら下の catch(「通信に失敗しました」+「もう一度試す」)へ ── 以前は返ってこない限り輪が 63% のまま動かなかった
         const id = await withinLoadLimit(getSignedInUid());
         if (!alive) return;
-        if (!id) { setPhase("notJoined"); return; } // まだ誰でもない。作らずに説明だけ出す
+        if (!id) { setPhase("notJoined"); if (soft) finishPull(); return; } // まだ誰でもない。作らずに説明だけ出す
         setUid(id);
         const p = await withinLoadLimit(loadProfile(id));
         if (!alive) return;
         setProfile(p);
         setPhase(p ? "profile" : "notJoined");
+        // 【便CK】参加後の画面で引いたなら、名簿と目安の読み直しを始め(listKey)、片付くまで印を出しておく。それ以外は画面が入れ替わったので印を下ろす
+        if (soft) {
+          if (p && pullRef.current?.from === "profile") { pullRef.current.listKey = reloadKey; setListKey(reloadKey); }
+          else finishPull();
+        }
       } catch (e) {
-        if (alive) { setErrorMsg(connectErrorOf(e)); setPhase("error"); }
+        if (alive) { setErrorMsg(connectErrorOf(e)); setPhase("error"); if (soft) finishPull(); }
       }
     })();
     return () => { alive = false; };
@@ -600,9 +640,28 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRe
     return id;
   };
 
+  // 【便CK】引いて離したら呼ばれる。走っている間は何もしない(二重に走らせない)。
+  const refresh = () => {
+    if (pullRef.current) return;
+    const next = reloadKey + 1;
+    softKeyRef.current = next;
+    pullRef.current = { from: phase, listKey: null };
+    setPullBusy(true);
+    setReloadKey(next);
+  };
+  const onListRefreshed = (k) => {
+    if (pullRef.current && pullRef.current.listKey === k) finishPull();
+  };
+  // 引っ張って更新を出すのは、参加後の画面(4つの子タブ・名簿の失敗を含む)と読み込みの失敗の画面だけ。
+  // 失敗と参加後は同じ包み(PullToRefresh)の中に描くので、失敗の画面で引いて開けたときも包みは作り直されない。
+  const pullable = (node, enabled = true) => (
+    <PullToRefresh enabled={enabled} busy={pullBusy} onRefresh={refresh}>{node}</PullToRefresh>
+  );
+
   if (phase === "loading") return <LoadingRing step="account" />;
   if (phase === "error") {
-    return (
+    // 【設定の欠落では引いても読み直さない】「もう一度試す」を出さないのと同じ理由(押しても同じ結果にしかならない)。
+    return pullable(
       <Centered>
         <div>{errorMsg}</div>
         {/* 【設定の欠落では再試行を出さない】押しても同じ結果にしかならないボタンは、
@@ -612,7 +671,8 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRe
             もう一度試す
           </button>
         )}
-      </Centered>
+      </Centered>,
+      errorMsg !== CONFIG_ERROR,
     );
   }
   if (phase === "notJoined") {
@@ -686,7 +746,7 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRe
       />
     );
   }
-  return (
+  return pullable(
     <JoinedView
       profile={profile}
       uid={uid}
@@ -696,6 +756,9 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRe
       initialTab={landTab}
       /* 【便BV】広いなら2ペイン(データ・順位)/ 列(シェア・マイページ)。 */
       wide={wide}
+      /* 【便CK】引っ張って更新: 名簿と目安を読み直す合図と、片付いた知らせ。 */
+      refreshKey={listKey}
+      onRefreshed={onListRefreshed}
       onEdit={() => setPhase("form")}
       onTogglePublic={async (v) => {
         await setProfilePublic(uid, v); // 失敗は ProfileView が受けて文言を出す

@@ -709,7 +709,8 @@ export function SwipePager({ index: indexProp, onIndexChange, bleed = false, fil
 // viewport の clientWidth とページ幅が一致しなくなった(padding が入る)。
 // SwipePager 側は swipePagerPageWidth で padding を引いてページ幅を渡している。
 const SWIPE_BACK_THRESHOLD_RATIO = 0.2;
-const SWIPE_BACK_THRESHOLD_MIN = 60;
+// 【便CK】export は引っ張って更新(src/community/PullToRefresh.jsx)が「測れなければ」のしきい値として読むため(写しを作らない)。
+export const SWIPE_BACK_THRESHOLD_MIN = 60;
 // 縦横どちらのジェスチャーかを決めるまでの移動量(SwipePager と同じ 6px)。
 const SWIPE_AXIS_LOCK_PX = 6;
 // 「縦」と断定するのに要る縦成分と横成分の比。縦成分が横成分のこの倍以上でなければ
@@ -744,7 +745,8 @@ function swipeBackThreshold(width) {
 //   横と確定: |dx| が軸ロック距離に達し、かつ横成分が縦成分より大きい
 //   縦と確定: |dy| が軸ロック距離に達し、かつ縦成分が横成分の SWIPE_VERTICAL_BIAS 倍以上
 //   それ以外: null(未確定)
-function swipeAxisIsHorizontal(dx, dy) {
+// 【便CK】export は引っ張って更新(src/community/PullToRefresh.jsx)が同じ軸判定で「縦の引き」と決めるため(写しを作らない)。
+export function swipeAxisIsHorizontal(dx, dy) {
   const ax = Math.abs(dx), ay = Math.abs(dy);
   if (ax >= SWIPE_AXIS_LOCK_PX && ax > ay) return true;
   if (ay >= SWIPE_AXIS_LOCK_PX && ay >= ax * SWIPE_VERTICAL_BIAS) return false;

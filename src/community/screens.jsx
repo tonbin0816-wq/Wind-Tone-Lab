@@ -440,8 +440,12 @@ function filterTerms(filter, keys) {
 // 【setUsers を返す理由】自分が公開/非公開を切り替えたとき、サーバへは書くが
 // **読み直さない**。他人の変更まで即時に追う必要は無いので、自分の行だけ
 // 手元の配列で差し引く(2026/09/06 本人指摘「非公開にしてもその場で反映されない」)。
-export function usePublicUsers(myUid = null) {
-  const [state, setState] = useState({ phase: "loading", users: [], error: null });
+// 【便CK 2026-10-10 本人「よくある下にスワイプでリロードの仕様も追加して」】reloadKey = 引っ張って更新の合図(CommunityTab.jsx)。
+// 値が変わったときだけ同じ読みをもう1回する(読み直す道は増やさない。上限 withinLoadLimit もそのまま)。
+// 読み直しの間は phase を "loading" に戻さない ── 今の一覧(または失敗の1行)を出したまま、上の小さな印が待ちを受け持つ。
+// settledKey = どの回の読みが片付いたか(成功でも失敗でも)。引っ張って更新の印を消す時機に使う。渡さない呼び手は 0 のまま。
+export function usePublicUsers(myUid = null, reloadKey = 0) {
+  const [state, setState] = useState({ phase: "loading", users: [], error: null, settledKey: null });
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -453,13 +457,13 @@ export function usePublicUsers(myUid = null) {
         // myUid は受け取り続ける ── サインインし直して uid が変わったら読み直す(読み直す時機は変えない)。
         // 【便CJ 2026-10-10】上限(withinLoadLimit)まで。過ぎたら下の catch(「みんなのデータを読み込めませんでした」)
         const users = await withinLoadLimit(listPublicUsers());
-        if (alive) setState({ phase: "ready", users, error: null });
+        if (alive) setState({ phase: "ready", users, error: null, settledKey: reloadKey });
       } catch (e) {
-        if (alive) setState({ phase: "error", users: [], error: "みんなのデータを読み込めませんでした" });
+        if (alive) setState({ phase: "error", users: [], error: "みんなのデータを読み込めませんでした", settledKey: reloadKey });
       }
     })();
     return () => { alive = false; };
-  }, [myUid]);
+  }, [myUid, reloadKey]);
   // 読み込み中/失敗中は phase を保ったまま配列だけ差し替える(phase を書き換えない)
   const setUsers = (fn) => setState((s) => ({ ...s, users: typeof fn === "function" ? fn(s.users) : fn }));
   return { ...state, setUsers };
