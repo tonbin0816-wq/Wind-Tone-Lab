@@ -9824,7 +9824,7 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
           if (o.start >= c.start && o.start < end) return c;
         return null;
       };
-      const unreadable = [], both = [], framed = [], mockOutline = [], dangerOutline = [];
+      const unreadable = [], both = [], framed = [], mockOutline = [], dangerOutline = [], swapOutline = [];
       for (const o of opens) {
         const owner = ownerOf(o);
         if (!owner) continue;
@@ -9880,8 +9880,13 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
         // 展開しているもの)は、状態を持たなくても赤の枠を持つ(人物のページの「通報」と同じ形)。
         // 名指しなので、他の要素に枠を足せば従来どおり落ちる。件数も下で固定する。
         const DANGER_OUTLINE_ONLY = /style=\{\{\s*\.\.\.DANGER_OUTLINE_STYLE,/;
+        // 【便CL 2026-10-11 本人が承認したモックの .swap】分析の ⇄(縦軸と横軸を入れ替える)は
+        // 「24px の輪郭だけの円」で、状態を持たない一手(押すたびに入れ替えるだけ)。テンポの ± と同じく
+        // モックが正典なので名指しで外す。名指しなので他の要素に枠を足せば従来どおり落ちる。件数も下で固定する。
+        const SWAP_OUTLINE_ONLY = /aria-label="縦軸と横軸を入れ替える"/;
         if (hasFrame && !hasState) {
           if (MOCK_OUTLINE_ONLY.test(owner.tag)) mockOutline.push(`${lineOf(owner.start)}`);
+          else if (SWAP_OUTLINE_ONLY.test(owner.tag) && o !== owner) swapOutline.push(`${lineOf(owner.start)}`);
           else if (DANGER_OUTLINE_ONLY.test(owner.tag) && o === owner) dangerOutline.push(`${lineOf(owner.start)}: ${(/onClick=\{[^}]*\}/.exec(owner.tag) || ["?"])[0]}`);
           else framed.push(`${lineOf(o.start)}: <${o.el}> 枠あり / 状態なし(操作は ${lineOf(owner.start)} 行の <${owner.el}>)`);
         }
@@ -9908,6 +9913,9 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
       // 例外は**テンポシートの ± の2つだけ**。増えたら「例外に逃がした」ということ。
       check("芯2 の例外は正典 .pm(テンポシートの ±)の2つだけ",
         mockOutline.length === 2, `${mockOutline.length}件: ` + mockOutline.join(" | "));
+      // 【便CL】⇄ の輪郭の円は1つだけ(丸の <span> 1つ。ボタン自身は枠を持たない)。
+      check("芯2 の例外(便CL): 分析の ⇄ の輪郭だけの円は1つだけ",
+        swapOutline.length === 1, `${swapOutline.length}件: ` + swapOutline.join(" | "));
       // 【便BI 2026-10-02】App.jsx の中で危険な一手の赤枠を持つのは、リードの箱の編集シートの「削除」1つだけ。
       // (コミュニティの赤枠はこの走査の外。screens.jsx / CommunityTab.jsx は検証89 と block.test.jsx が見る。)
       check("芯2 の例外(便BI): 危険な一手の赤枠は App.jsx では箱の編集シートの「削除」(onClick={onDelete})1つだけ",
@@ -11089,6 +11097,9 @@ console.log("=== 検証19: F-45 PIVOTのピッチ集計ゲート適用 ===");
       extractFunction("pitchCellColor"),
       extractConst("PIVOT_DIMENSIONS"),
       extractConst("PIVOT_MEASURES"),
+      // 【便CL】抽出条件の判定を buildPivot から切り出して散布図と共有した(式は同じ)。
+      extractFunction("pivotActiveFilters"),
+      extractFunction("pivotFrameRejected"),
       extractFunction("buildPivot"),
     ].join("\n\n");
     for (const [from, to] of edits) {
@@ -12162,6 +12173,9 @@ console.log("=== 検証22: F-54 音名を実音へ / F-56 3段評価 / F-57〜F-
       extractFunction("pitchCellColor"),
       extractConst("PIVOT_DIMENSIONS"),
       extractConst("PIVOT_MEASURES"),
+      // 【便CL】抽出条件の判定を buildPivot から切り出して散布図と共有した(式は同じ)。
+      extractFunction("pivotActiveFilters"),
+      extractFunction("pivotFrameRejected"),
       extractFunction("buildPivot"),
     ].join("\n\n");
     for (const [from, to] of edits) {
@@ -12639,7 +12653,13 @@ console.log("=== 検証22: F-54 音名を実音へ / F-56 3段評価 / F-57〜F-
     }
 
     // F-59: 保持したい状態だけを親へ持ち上げる。navNonce による再マウントの意図は壊さない。
-    for (const name of ["pivotRow", "pivotCol", "pivotMetric", "pivotFilters"]) {
+    // 【便CL 2026-10-11】縦軸・横軸は鍵の組1つ(pivotAxes = { v, h })になった。pivotRow / pivotMetric は
+    // AnalysisLabView が pivotAxes から導く値で、状態ではない(下の「useState ではない」は引き続き成り立つ)。
+    check("F-59 便CL: pivotRow / pivotMetric は親の状態ではなく、AnalysisLabView が pivotAxes から導く",
+      !/const \[pivotRow, setPivotRow\]/.test(root) && !/const \[pivotMetric, setPivotMetric\]/.test(root)
+      && /const pivotShape = useMemo\(\(\) => pivotAxesShape\(pivotAxes\), \[pivotAxes\]\);/.test(lab)
+      && /const pivotRow = pivotShape\.dimKey;/.test(lab) && /const pivotMetric = pivotShape\.measureKey;/.test(lab));
+    for (const name of ["pivotAxes", "pivotCol", "pivotFilters"]) {
       check(`F-59: ${name} は親(WindToneLabPhaseMode)が持つ`,
         new RegExp(`const \\[${name}, set${name[0].toUpperCase()}${name.slice(1)}\\] = useState\\(`).test(root));
       check(`F-59: ${name} は AnalysisLabView の useState ではない(再マウントで消えなくなる)`,
@@ -17838,13 +17858,15 @@ console.log("\n========== 検証29: N-9 セッション詳細 + 分析(PIVOT)の
     // 【D-14】行の直後に JSX の注釈が入り得る(チップが開閉を兼ねるようになった経緯を書いた)。
     // 注釈1つだけを挟むのを許す ── 他の要素が入れば落ちる(隣接の主張は残る)。
     && /minHeight: ANALYSIS_ROW_H \}\}>\s*\r?\n\s*(\{\/\*[\s\S]*?\*\/\}\s*)?\{pivotFilters\.map\(/.test(opsCardBlock.text)
-    && /gridTemplateColumns: "1fr 1fr 1fr"/.test(opsCardBlock.text),
+    // 【便CL 2026-10-11 統括の決定】軸の行は 縦軸 | ⇄ | 横軸 | 分析軸 の4列(⇄ の列 28px)。
+    && /gridTemplateColumns: "1fr 28px 1fr 1fr"/.test(opsCardBlock.text),
     opsCardBlock === null ? "範囲を取れなかった"
-      : `チップの行 ${/\{pivotFilters\.map\(/.test(opsCardBlock.text)} / 軸の行 ${/gridTemplateColumns: "1fr 1fr 1fr"/.test(opsCardBlock.text)}`);
+      : `チップの行 ${/\{pivotFilters\.map\(/.test(opsCardBlock.text)} / 軸の行 ${/gridTemplateColumns: "1fr 28px 1fr 1fr"/.test(opsCardBlock.text)}`);
+  // 【便CL 2026-10-11】空状態の判定は、散布図のときは点の数・折れ線のときは行の数(どちらもカードの直下の分岐)。
   check("29.2 D-10: グラフもカード1枚(隣接: 直後に空状態の分岐)",
-    /<div className="card">\s*\r?\n\s*\{pivot\.rowKeys\.length === 0 \? \(/.test(lab29));
+    /<div className="card">\s*\r?\n\s*\{\(pivotScatter \? pivotScatter\.total === 0 : pivot\.rowKeys\.length === 0\) \? \(/.test(lab29));
   check("29.2 D-10: 操作のカードとグラフのカードの間は 12px の余白(罫ではない)",
-    /<div style=\{\{ height: 12 \}\} \/>\s*\r?\n[\s\S]{0,400}?<div className="card">\s*\r?\n\s*\{pivot\.rowKeys\.length === 0/.test(lab29));
+    /<div style=\{\{ height: 12 \}\} \/>\s*\r?\n[\s\S]{0,700}?<div className="card">\s*\r?\n\s*\{\(pivotScatter \? pivotScatter\.total === 0 : pivot\.rowKeys\.length === 0\)/.test(lab29));
   check("29.2 D-10: 軸の列の境界の罫(中央の列の左右)も引いていない",
     !/borderLeft: "1px solid var\(--c-line\)", borderRight: "1px solid var\(--c-line\)"/.test(lab29));
   // 【D-3 2026/08/22 本人指示で書き換え】セッション詳細は正典 #14b で**カードの画面**になった
@@ -18054,11 +18076,16 @@ console.log("\n========== 検証29: N-9 セッション詳細 + 分析(PIVOT)の
       ["値チップの選択", /updateFilter\(\{ values: selected \? flt\.values\.filter/],
       ["日付範囲の入力", /rangeMin: e\.target\.value \? new Date\(e\.target\.value\)\.setHours\(0, 0, 0, 0\) : null/],
       ["日数範囲の入力", /日目 〜/],
-      ["測度の切替", /PIVOT_MEASURES\.map/],
+      // 【便CL 2026-10-11】数値(測度)と項目は縦横どちらの一覧にも出る(pivotAxisOptions。一覧は App.jsx の
+      // モジュールの関数が作るので、ここでは配線を見る)。
+      ["測度の切替", /options=\{pivotAxisOptions\(pivotAxes, z\.side\)\}/],
       ["指標(色分け)の切替", /なし\(全体\)/],
       // 【D-2】3枚の <select> は PlainSelect へ寄せたので、配線の綴りが onChange だけになった
-      ["並べる軸の切替", /onChange: \(v\) => setPivotRow\(v\)/],
-      ["数値の切替", /onChange: \(v\) => setPivotMetric\(v\)/],
+      ["並べる軸の切替", /onChange: \(v\) => setPivotAxes\(\(a\) => pivotPickAxis\(a, "v", v\)\)/],
+      ["数値の切替", /onChange: \(v\) => setPivotAxes\(\(a\) => pivotPickAxis\(a, "h", v\)\)/],
+      ["縦横の入れ替え(便CL)", /<PivotSwapButton key="swap" onClick=\{\(\) => setPivotAxes\(swapPivotAxes\)\} \/>/],
+      ["問いの行(便CL)", /<PivotQuestionRow\b/],
+      ["散布図(便CL)", /<PivotScatterChart\b/],
       ["分け方の切替", /onChange: \(v\) => setPivotCol\(v\)/],
       // \b が要る: 無いと <PivotLineChartGone> への改名(描かない変異)が接頭辞一致で生き残る
       // (変異試験 M17 で実際に生存した)。下の2つも同じ形で縛る。
@@ -18532,8 +18559,11 @@ console.log("\n========== 検証32: D-2 分析(PIVOT)タブ(正典 dc-mydata-red
         const cols = (/gridTemplateColumns:\s*"([^"]+)"/.exec(rowLit) || [])[1];
         const gapName = (/gap:\s*"var\((--sp-\d)\)"/.exec(rowLit) || [])[1];
         const gapTok = gapName ? (new RegExp(`${gapName}:\\s*([\\d.]+)px`).exec(css32) || [])[1] : undefined;
-        check("32.1 D-10c: 軸の行は正典と同じ3カラムの等幅グリッド(列の並びと gap が正典と一致)",
-          cols === axisRow[1] && gapTok === axisRow[2],
+        // 【便CL 2026-10-11 統括の決定】正典の3カラムの等幅に、縦軸と横軸の間の ⇄ の列(28px)を1つ挟んだ4列。
+        // 3つのセルは等幅のまま(⇄ の列を除くと正典と同じ並び)。
+        const colsNoSwap = (cols || "").split(/\s+/).filter((c, i) => !(i === 1 && c === "28px")).join(" ");
+        check("32.1 D-10c / 便CL: 軸の行は正典の3カラムの等幅グリッドに ⇄ の列を1つ挟んだもの(gap は正典と一致)",
+          cols === "1fr 28px 1fr 1fr" && colsNoSwap === axisRow[1] && gapTok === axisRow[2],
           `実装=${cols} / gap ${gapName}=${gapTok}px  正典=${axisRow[1]} / ${axisRow[2]}px`);
         // 【D-10b の反省】ここに px の下限を戻さないこと。min-width は無条件の床なので、
         // 自然幅が下限に満たない組を押し広げて**余っていた行に不足を作る**。
@@ -28481,13 +28511,15 @@ console.log("\n========== 検証75: 便R 後半-前半 下から出る全幅の�
 
   // --- 75.3 PlainSelect の呼び手3つは1文字も変えていない -------------------------
   {
-    const calls75 = [...src.matchAll(/<PlainSelect[\s\S]*?\/>/g)].map((m) => m[0].replace(/\s+/g, " ").trim());
+    // 【便CL】呼び手2は中にシートの <PivotAxisSheet … /> を持つので、閉じは**行頭の** /> で取る。
+    const calls75 = [...src.matchAll(/<PlainSelect[\s\S]*?\n\s*\/>/g)].map((m) => m[0].replace(/\s+/g, " ").trim());
     // 【便R 後半-後半 2026-09-20 で 3 → 2】編集シートのリードは PlainSelect をやめ、
     // 段階選択の ReedPickSheet を直に開くようになった(1列の一覧ではリードを選べないため)。
     // **残る2つは1文字も変わっていない。**
     const want75 = [
       `<PlainSelect ariaLabel="絞り込む次元" text={dim?.label ?? flt.dimKey} value={flt.dimKey} onChange={(v) => setPivotFilters((prev) => prev.map((p, j) => (j === i ? { dimKey: v, values: [], rangeMin: null, rangeMax: null } : p)))} options={PIVOT_DIMENSIONS.map((d) => ({ value: d.key, label: d.label }))} />`,
-      `<PlainSelect strong caption={z.label} ariaLabel={z.aria} text={z.text} value={z.value} onChange={z.onChange} options={z.options} />`,
+      // 【便CL 2026-10-11 本人裁定】縦軸・横軸は「数値 / 項目」の一覧(PivotAxisSheet)を開く。⇄ は軸の行の専用の列(セルの値の幅は削らない)。
+      `<PlainSelect strong caption={z.label} ariaLabel={z.aria} text={z.text} value={z.value} onChange={z.onChange} options={z.options} sheet={z.side ? (close) => ( <PivotAxisSheet ariaLabel={z.aria} options={pivotAxisOptions(pivotAxes, z.side)} onPick={z.onChange} onClose={close} /> ) : null} />`,
     ];
     check("75.3 PlainSelect の呼び手は2つ(絞り込む次元 / 軸の3列)",
       calls75.length === 2, `${calls75.length}箇所`);
@@ -33731,6 +33763,277 @@ console.log("========== 検証CI: 便CI 参加のカードは見出しと1行だ
   check("CI.4 DESIGN-SYSTEM §4.5b: 【便CI】中身はアイコン・見出し・1行だけ・カードの外を押しても参加が始まる(下部タブは枠の外)",
     /【便CI/.test(s45bCI) && s45bCI.includes("中身はアイコン・見出し「コミュニティに参加しよう」・1行「みんなの計測データが見られます」**だけ**")
     && s45bCI.includes("**カードの外を押しても参加が始まる**") && !s45bCI.includes("・説明2段落**だけ**"));
+  console.log("  -> done");
+}
+
+{
+  console.log("\n========== 検証CL: 便CL 分析の縦軸・横軸の同じ一覧・⇄・散布図・秒・問い ==========");
+  // 【便CL 2026-10-11 本人裁定】実ソースから関数を抜き出して実行で確かめる(テスト側に再実装を持たない)。
+  // 期待値はここに手で書いた(項目の鍵の一覧・問いの表・幅の表・境目の数)。PIVOT_DIMENSIONS などの定数から逆算しない。
+  // 画面の配線(シートの薄い行・⇄・問いのピル・秒・canvas の点の数・テーマの描き直し)は src/pivotAxes.test.jsx が本物のアプリで見る。
+  const clSrc = [
+    extractConst("TIMBRE_SUSTAIN_MS"),
+    extractFunction("frameWeight"),
+    extractFunction("timbreSustained"),
+    extractFunction("harmonicSliceMean"),
+    extractFunction("pitchCellColor"),
+    extractFunction("groupDigits"),
+    extractConst("PIVOT_DIMENSIONS"),
+    extractConst("PIVOT_MEASURES"),
+    extractFunction("pivotActiveFilters"),
+    extractFunction("pivotFrameRejected"),
+    extractFunction("buildPivot"),
+    extractConst("PIVOT_AXES_DEFAULT"),
+    extractFunction("pivotAxisKind"),
+    extractFunction("pivotAxisLabel"),
+    extractFunction("pivotAxesValid"),
+    extractFunction("pivotAxesShape"),
+    extractFunction("pivotAxisOptions"),
+    extractFunction("pivotPickAxis"),
+    extractFunction("swapPivotAxes"),
+    extractConst("PIVOT_QUESTIONS"),
+    extractFunction("pivotQuestionActive"),
+    extractConst("PIVOT_FRAME_SEC"),
+    extractConst("PIVOT_FEW_SEC"),
+    extractFunction("pivotSec"),
+    extractFunction("pivotSecText"),
+    extractFunction("pivotIsFew"),
+    extractFunction("pivotCellsTotal"),
+    extractConst("PIVOT_SCATTER_BIN_W"),
+    extractConst("PIVOT_SCATTER_MIN_BIN_SEC"),
+    extractConst("PIVOT_SCATTER_RANGE_PCT"),
+    extractFunction("pivotScatterAlpha"),
+    extractFunction("pivotPercentileRange"),
+    extractFunction("pivotScatterBins"),
+    extractFunction("buildPivotScatter"),
+  ].join("\n\n");
+  let cl = null, clErr = "";
+  try {
+    cl = new Function(`${clSrc}
+      return { PIVOT_DIMENSIONS, PIVOT_MEASURES, buildPivot, pivotAxesShape, pivotAxisOptions, pivotPickAxis,
+        swapPivotAxes, pivotAxesValid, PIVOT_QUESTIONS, pivotQuestionActive, pivotSecText, pivotIsFew, pivotCellsTotal,
+        PIVOT_SCATTER_BIN_W, pivotScatterAlpha, pivotPercentileRange, pivotScatterBins, buildPivotScatter };`)();
+  } catch (e) { clErr = String(e && e.message || e); }
+  check("CL.0 便CL の関数を実ソースから組み立てられた", cl !== null, clErr);
+  if (cl) {
+    // 手で書いた鍵の一覧(数値7 → 項目12)
+    const MEAS = ["pitchCents", "pitchHz", "volume", "lowHarm", "highHarm", "hnr", "centroid"];
+    const DIMS = ["note", "band", "reed", "brand", "strength", "rating", "reedDays", "date", "performer", "saxType", "source", "memo"];
+    const ALL = [...MEAS, ...DIMS];
+    const isDim = (k) => DIMS.includes(k);
+
+    // --- CL.1 一覧の押せない決まり ---------------------------------------------------
+    const optsV = cl.pivotAxisOptions({ v: "note", h: "pitchCents" }, "v");
+    const optsH = cl.pivotAxisOptions({ v: "note", h: "pitchCents" }, "h");
+    check("CL.1 縦横の一覧は同じ並び(数値7 → 項目12)",
+      JSON.stringify(optsV.map((o) => o.key)) === JSON.stringify(ALL) && JSON.stringify(optsH.map((o) => o.key)) === JSON.stringify(ALL)
+      && optsV.slice(0, 7).every((o) => o.group === "measure") && optsV.slice(7).every((o) => o.group === "dim"),
+      optsV.map((o) => o.key).join(","));
+    check("CL.1 既定(縦=音名・横=音程)の縦の一覧: 押せないのは音程(¢)だけ・音名が選ばれている",
+      JSON.stringify(optsV.filter((o) => o.disabled).map((o) => o.key)) === '["pitchCents"]'
+      && optsV.find((o) => o.selected)?.key === "note",
+      optsV.filter((o) => o.disabled).map((o) => o.key).join(","));
+    check("CL.1 既定の横の一覧: 項目12は全部押せない・数値は押せる",
+      JSON.stringify(optsH.filter((o) => o.disabled).map((o) => o.key)) === JSON.stringify(DIMS)
+      && optsH.find((o) => o.selected)?.key === "pitchCents",
+      optsH.filter((o) => o.disabled).map((o) => o.key).join(","));
+    // 全部の組で: 押せない = もう一方で選ばれている / もう一方が項目なら項目は全部
+    let badRule = [], validPairs = 0;
+    for (const v of ALL) for (const h of ALL) {
+      if (v === h || (isDim(v) && isDim(h))) { if (cl.pivotAxesValid(v, h)) badRule.push(`valid?${v}/${h}`); continue; }
+      validPairs++;
+      for (const side of ["v", "h"]) {
+        const other = side === "v" ? h : v;
+        for (const o of cl.pivotAxisOptions({ v, h }, side)) {
+          const want = o.key === other || (isDim(o.key) && isDim(other));
+          if (o.disabled !== want) badRule.push(`${v}/${h}/${side}:${o.key}`);
+          // 押せる行はどれを押しても決まりを満たす / 押せない行は受け付けない
+          const next = cl.pivotPickAxis({ v, h }, side, o.key);
+          if (!o.disabled && !cl.pivotAxesValid(next.v, next.h)) badRule.push(`pick→invalid ${v}/${h}/${side}:${o.key}`);
+          if (o.disabled && (next.v !== v || next.h !== h)) badRule.push(`pick disabled accepted ${v}/${h}/${side}:${o.key}`);
+        }
+      }
+    }
+    check("CL.1 全部の組(縦横 19×19)で押せない行の決まりが成り立ち、押せない行は受け付けない",
+      badRule.length === 0 && validPairs === 19 * 19 - 19 - 12 * 11, `${badRule.slice(0, 5).join(" | ")} / 組 ${validPairs}`);
+
+    // --- CL.2 ⇄ --------------------------------------------------------------------
+    const sw = cl.swapPivotAxes({ v: "note", h: "pitchCents" });
+    check("CL.2 ⇄ は縦と横をそのまま入れ替える(既定 → 縦=音程・横=音名)", sw.v === "pitchCents" && sw.h === "note", JSON.stringify(sw));
+    let badSwap = [];
+    for (const v of ALL) for (const h of ALL) {
+      if (!cl.pivotAxesValid(v, h)) continue;
+      const s1 = cl.swapPivotAxes({ v, h }), s2 = cl.swapPivotAxes(s1);
+      if (!cl.pivotAxesValid(s1.v, s1.h) || s2.v !== v || s2.h !== h) badSwap.push(`${v}/${h}`);
+    }
+    check("CL.2 ⇄ はどの組でも決まりを壊さず、2回押すと元に戻る(いつでも押せる)", badSwap.length === 0, badSwap.join(","));
+    const shapes = [cl.pivotAxesShape({ v: "note", h: "pitchCents" }), cl.pivotAxesShape({ v: "pitchCents", h: "note" }), cl.pivotAxesShape({ v: "pitchCents", h: "volume" })];
+    check("CL.2 グラフの種類: 縦=項目 → rows / 横=項目 → cols / 数値×数値 → scatter。項目と数値の鍵も導く",
+      shapes[0].kind === "rows" && shapes[0].dimKey === "note" && shapes[0].measureKey === "pitchCents"
+      && shapes[1].kind === "cols" && shapes[1].dimKey === "note" && shapes[1].measureKey === "pitchCents"
+      && shapes[2].kind === "scatter" && shapes[2].dimKey === null && shapes[2].v === "pitchCents" && shapes[2].h === "volume",
+      JSON.stringify(shapes));
+
+    // --- CL.3 ⇄ は専用の列・当たり判定は列+左右の溝(統括の決定・再審査) ------------------------
+    // 軸の行は 縦軸 | ⇄ | 横軸 | 分析軸 の4列(⇄ の列 28px・gap = --sp-2)。当たり判定は ⇄ の列のセルに絶対配置で、
+    // 上下は行いっぱい(top: 0 / bottom: 0)、左右は溝の端まで(left / right: −--sp-2)= 28 + 8 + 8 = 44。
+    // セルの値と ▾ は列の幅をまるごと使う(PlainSelect に空きの受け口が無い)。375 幅の重なりの実測は報告に書いた。
+    {
+      const swapSrc = codeOf(srcOfFn(src, "PivotSwapButton"));
+      const plainSrc = codeOf(srcOfFn(src, "PlainSelect"));
+      const labSrc = codeOf(srcOfFn(src, "AnalysisLabView"));
+      check("CL.3 ⇄ の列: 軸の行は4列(1fr 28px 1fr 1fr・gap --sp-2)で、⇄ は縦軸のセルの次に1つだけ",
+        /gridTemplateColumns: "1fr 28px 1fr 1fr", gap: "var\(--sp-2\)"/.test(labSrc)
+        && /\]\.flatMap\(\(z\) => \[/.test(labSrc)
+        && /\.\.\.\(z\.side === "v" \? \[<PivotSwapButton key="swap" onClick=\{\(\) => setPivotAxes\(swapPivotAxes\)\} \/>\] : \[\]\),/.test(labSrc)
+        && (labSrc.match(/<PivotSwapButton\b/g) || []).length === 1);
+      check("CL.3 ⇄ の当たり判定: 列のセルに絶対配置・上下は行いっぱい・左右は溝の端まで・--tap-min 以上",
+        /<div ref=\{ref\} style=\{\{ position: "relative", minWidth: 0 \}\}>/.test(swapSrc)
+        && /position: "absolute", top: 0, bottom: 0, left: "calc\(var\(--sp-2\) \* -1\)", right: "calc\(var\(--sp-2\) \* -1\)",/.test(swapSrc)
+        && /minWidth: "var\(--tap-min\)", minHeight: "var\(--tap-min\)"/.test(swapSrc));
+      check("CL.3 セルの値は列の幅をまるごと使う(PlainSelect に空きの受け口が無い・maxWidth は 100%)",
+        /maxWidth: "100%" \}\}/.test(plainSrc) && !/reserveRight|PIVOT_SWAP_RESERVE/.test(codeOf(src)));
+    }
+
+    // --- CL.4 散布図の幅ごとの平均(20点未満で線が切れる) -------------------------------
+    const xs = [], ys = [], ws = [];
+    const put = (b, n, y, w = 1) => { for (let i = 0; i < n; i++) { xs.push(b + 0.5); ys.push(y); ws.push(w); } };
+    put(0, 20, 1); put(1, 19, 2); put(2, 20, 3); put(3, 25, 4); put(5, 30, 6);
+    put(7, 10, 10, 1); put(7, 10, 20, 0.5);
+    const bins = cl.pivotScatterBins(xs, ys, ws, 1, 20);
+    check("CL.4 20点(2秒)以上ある幅だけを結ぶ。足りない幅(19点)・点の無い幅で線を切る",
+      JSON.stringify(bins.segments.map((sg) => sg.map((b) => b.b))) === "[[0],[2,3],[5],[7]]",
+      JSON.stringify(bins.segments.map((sg) => sg.map((b) => b.b))));
+    const b7 = bins.bins.find((b) => b.b === 7);
+    check("CL.4 幅の平均は今の折れ線と同じ clarity 重み付き(10点×1.0 の 10 と 10点×0.5 の 20 → 13.33)",
+      b7 && Math.abs(b7.mean - 200 / 15) < 1e-9 && b7.count === 20 && b7.x === 7.5 && b7.center === 7.5, JSON.stringify(b7));
+    const edge = cl.pivotScatterBins([-28, -28, -28, -27.5], [1, 1, 1, 1], [1, 1, 1, 1], 1, 1).bins[0];
+    check("CL.4 平均の点の横の位置はその幅の点の重み付き平均(値が幅の端に偏っても幅の中央へ寄せない)",
+      edge.b === -28 && Math.abs(edge.x - (-27.875)) < 1e-9 && edge.center === -27.5, JSON.stringify(edge));
+    const neg = cl.pivotScatterBins([-20.5, -20.0, -0.5, -0.0001, 0.5], [1, 2, 3, 4, 5], null, 1, 1);
+    check("CL.4 負の値(dBFS)の幅は切り捨て(floor)で決まる: -20.5 → -21 / -20.0 → -20 / -0.5・-0.0001 → -1 / 0.5 → 0",
+      JSON.stringify(neg.bins.map((b) => [b.b, b.count])) === "[[-21,1],[-20,1],[-1,2],[0,1]]",
+      JSON.stringify(neg.bins.map((b) => [b.b, b.count])));
+    check("CL.4 足りない幅も bins には残る(線を結ばないだけ)", bins.bins.find((b) => b.b === 1)?.count === 19);
+    const bw = cl.pivotScatterBins([0.06, 0.01, 0.039], [1, 2, 3], null, 0.02, 1);
+    check("CL.4 小数の幅でも浮動小数で隣の幅へずれない(0.06 / 0.02 = 3)",
+      JSON.stringify(bw.bins.map((b) => b.b)) === "[0,1,3]", JSON.stringify(bw.bins.map((b) => b.b)));
+    check("CL.4 幅の表: 音量 1dB・音程 2¢・HNR 1dB・重心 50Hz・ピッチ 5Hz・倍音 0.02(画面の 2)。7指標すべてに幅がある",
+      JSON.stringify(cl.PIVOT_SCATTER_BIN_W) === '{"volume":1,"pitchCents":2,"hnr":1,"centroid":50,"pitchHz":5,"lowHarm":0.02,"highHarm":0.02}'
+      && MEAS.every((k) => cl.PIVOT_SCATTER_BIN_W[k] > 0));
+
+    // --- CL.5 ゲートの両方通過・抽出条件は buildPivot と同じ式 ------------------------------
+    const fr = (o) => ({ semitoneIndex: 10, pitchCents: 5, volumeDb: -20, hnrDb: 20, clarity: 1, performer: "A", ...o });
+    const frames = [
+      fr({ _pitchGateOk: false, noteAgeMs: 300 }),   // 音程のゲートで落ちる
+      fr({ _pitchGateOk: true, noteAgeMs: 50 }),     // 音色のゲート(吹き始め 0.12秒)で落ちる
+      fr({ _pitchGateOk: true, noteAgeMs: 300 }),    // 両方通る
+      fr({ _pitchGateOk: true, noteAgeMs: null }),   // 旧データ(noteAgeMs 無し)は音色のゲートを通る
+      fr({ _pitchGateOk: true, noteAgeMs: 300, performer: "B" }),
+    ];
+    const ctx = { reeds: [], tuningHz: 442 };
+    const sc = (h, v, f = []) => cl.buildPivotScatter(frames, ctx, h, v, "none", f);
+    check("CL.5 音程(¢)×HNR: 縦と横で違うゲートなら両方を通ったフレームだけ(5 → 3)",
+      sc("pitchCents", "hnr").total === 3, String(sc("pitchCents", "hnr").total));
+    check("CL.5 音量×音程(¢): 音程のゲートだけ(音量はゲート無し。5 → 4)", sc("volume", "pitchCents").total === 4, String(sc("volume", "pitchCents").total));
+    check("CL.5 音量×HNR: 音色のゲートだけ(5 → 4)", sc("volume", "hnr").total === 4, String(sc("volume", "hnr").total));
+    const flt = [{ dimKey: "performer", values: ["A"], rangeMin: null, rangeMax: null }];
+    const piv = cl.buildPivot(frames, ctx, "performer", "none", "pitchCents", flt);
+    check("CL.5 抽出条件は buildPivot と同じ式で効く(奏者=A で B のフレームが散布図からも項目×数値からも落ちる)",
+      sc("pitchCents", "hnr", flt).total === 2 && cl.pivotCellsTotal(piv.cells) === 3 && piv.rowKeys.join() === "A",
+      `${sc("pitchCents", "hnr", flt).total} / ${cl.pivotCellsTotal(piv.cells)}`);
+    // 重み: 同じ幅に clarity の違う点。散布図の幅の平均 = 同じデータの折れ線(buildPivot)の平均 ≠ 重み無しの平均
+    const wf = [0.5, 1, 0.8, 0.6].map((c, k) => fr({ _pitchGateOk: true, noteAgeMs: 300, clarity: c, pitchCents: [10, 0, 4, -6][k], volumeDb: -20.3 }));
+    const wsc = cl.buildPivotScatter(wf, ctx, "volume", "pitchCents", "none", []);
+    const wpv = cl.buildPivot(wf, ctx, "performer", "none", "pitchCents", []);
+    const lineMean = wpv.cells.A["全体"].wsum / wpv.cells.A["全体"].wtotal;
+    const plain = (10 + 0 + 4 - 6) / 4;
+    check("CL.5 散布図の幅の平均は frameWeight(clarity)で重み付け = 同じデータの折れ線の平均と一致(重み無しとは違う)",
+      wsc.series[0].ws.join() === "0.5,1,0.8,0.6" && wsc.series[0].bins.length === 1
+      && Math.abs(wsc.series[0].bins[0].mean - lineMean) < 1e-9 && Math.abs(lineMean - plain) > 0.1,
+      `${wsc.series[0].bins[0]?.mean} / ${lineMean} / ${plain}`);
+    // 幅は横軸の鍵で引く: 横=音量(1dB)なら -20.3 と -21.7 は別の幅 / 横=音程(2¢)なら 1.0 と 1.9 は同じ幅
+    const hv = [fr({ _pitchGateOk: true, noteAgeMs: 300, volumeDb: -20.3, pitchCents: 1.0 }), fr({ _pitchGateOk: true, noteAgeMs: 300, volumeDb: -21.7, pitchCents: 1.9 })];
+    const byVol = cl.buildPivotScatter(hv, ctx, "volume", "pitchCents", "none", []).series[0].bins.map((b) => b.b);
+    const byCents = cl.buildPivotScatter(hv, ctx, "pitchCents", "volume", "none", []).series[0].bins.map((b) => b.b);
+    check("CL.5 平均の幅は横軸の指標の幅(縦軸の幅ではない)", JSON.stringify(byVol) === "[-22,-21]" && JSON.stringify(byCents) === "[0]",
+      `${JSON.stringify(byVol)} / ${JSON.stringify(byCents)}`);
+    // 2秒(20点)の境目は buildPivotScatter が渡す: 音量 -20.x の幅に 19 点・-25.x の幅に 20 点 → 線を結ぶ(平均の点を打つ)のは 20 点の幅だけ
+    const edgeF = [...Array.from({ length: 19 }, () => fr({ _pitchGateOk: true, noteAgeMs: 300, volumeDb: -20.3 })),
+      ...Array.from({ length: 20 }, () => fr({ _pitchGateOk: true, noteAgeMs: 300, volumeDb: -25.3 }))];
+    const edgeS = cl.buildPivotScatter(edgeF, ctx, "volume", "pitchCents", "none", []).series[0];
+    check("CL.5 散布図の平均は 20点(2秒)以上の幅だけ(19点の幅は線にも点にも入らない)",
+      JSON.stringify(edgeS.segments.map((sg) => sg.map((b) => [b.b, b.count]))) === "[[[-26,20]]]" && edgeS.bins.length === 2,
+      JSON.stringify(edgeS.segments.map((sg) => sg.map((b) => [b.b, b.count]))));
+    const byPerf = cl.buildPivotScatter(frames, ctx, "volume", "pitchCents", "performer", []);
+    check("CL.5 分析軸の値ごとに系列(点の数 = 秒の元)", JSON.stringify(byPerf.series.map((s) => [s.key, s.count])) === '[["A",3],["B",1]]',
+      JSON.stringify(byPerf.series.map((s) => [s.key, s.count])));
+
+    // --- CL.6 パーセンタイルの範囲 ---------------------------------------------------------
+    const seq = Array.from({ length: 1000 }, (_, i) => i);
+    const withOut = [...seq.slice(0, 999), 1e6];
+    check("CL.6 範囲は 0.5〜99.5 パーセンタイル(0..999 → 5..995)", JSON.stringify(cl.pivotPercentileRange(seq)) === "[5,995]", JSON.stringify(cl.pivotPercentileRange(seq)));
+    check("CL.6 外れ値1点で範囲が潰れない(1,000,000 が混ざっても上端は 995)", cl.pivotPercentileRange(withOut)[1] === 995, JSON.stringify(cl.pivotPercentileRange(withOut)));
+    check("CL.6 1点・空でも落ちない", JSON.stringify(cl.pivotPercentileRange([7])) === "[7,7]" && cl.pivotPercentileRange([]) === null);
+    check("CL.6 点の濃さ = min(.25, 9/√点数)(4千点 .142・2万点 .064・100点 .25)",
+      Math.abs(cl.pivotScatterAlpha(4000) - 0.1423) < 1e-3 && Math.abs(cl.pivotScatterAlpha(20000) - 0.0636) < 1e-3 && cl.pivotScatterAlpha(100) === 0.25);
+
+    // --- CL.7 問いの書き込みと強調判定 -------------------------------------------------------
+    const QS = [
+      ["音ごとの音程のクセは?", "note", "pitchCents", "none"],
+      ["音量で音程は変わる?", "pitchCents", "volume", "none"],
+      ["音量で音色は変わる?", "hnr", "volume", "none"],
+      ["リードで音色は違う?", "note", "hnr", "reed"],
+      ["リードは使うほど変わる?", "reedDays", "hnr", "none"],
+      ["日によって変わる?", "date", "pitchCents", "none"],
+    ];
+    check("CL.7 問いは6つ・この順・この中身(定数1か所)",
+      JSON.stringify(cl.PIVOT_QUESTIONS.map((q) => [q.label, q.v, q.h, q.col])) === JSON.stringify(QS),
+      JSON.stringify(cl.PIVOT_QUESTIONS.map((q) => q.label)));
+    check("CL.7 どの問いの組も決まりを満たす", cl.PIVOT_QUESTIONS.every((q) => cl.pivotAxesValid(q.v, q.h)));
+    const q4 = cl.PIVOT_QUESTIONS[3];
+    check("CL.7 強調は今の組(縦・横・分析軸)と一致するときだけ。分析軸が違う・縦横が逆なら強調しない",
+      cl.pivotQuestionActive(q4, { v: "note", h: "hnr" }, "reed")
+      && !cl.pivotQuestionActive(q4, { v: "note", h: "hnr" }, "none")
+      && !cl.pivotQuestionActive(q4, { v: "hnr", h: "note" }, "reed")
+      && cl.PIVOT_QUESTIONS.filter((q) => cl.pivotQuestionActive(q, { v: "note", h: "pitchCents" }, "none")).length === 1);
+    const lab = codeOf(srcOfFn(src, "AnalysisLabView"));
+    const pick = (/<PivotQuestionRow[\s\S]*?\/>/.exec(lab) || [""])[0];
+    check("CL.7 問いを押すと縦軸・横軸・分析軸を書き、抽出条件は触らない",
+      /onPick=\{\(q\) => \{ setPivotAxes\(\{ v: q\.v, h: q\.h \}\); setPivotCol\(q\.col\); \}\}/.test(pick) && !/setPivotFilters/.test(pick)
+      && /axes=\{pivotAxes\} col=\{pivotCol\}/.test(pick), pick.replace(/\s+/g, " "));
+    const row = codeOf(srcOfFn(src, "PivotQuestionRow"));
+    check("CL.7 ピルの強調は pivotQuestionActive から毎回導く(別の状態を持たない)・押せる高さは --tap-min",
+      /const on = pivotQuestionActive\(q, axes, col\);/.test(row) && !/useState/.test(row) && /\.\.\.TAP_BUTTON_RESET/.test(row)
+      && /background: on \? "var\(--c-accent\)" : "var\(--c-surface\)"/.test(row) && /color: on \? "var\(--c-on-accent\)"/.test(row)
+      && /"1px solid var\(--c-line-strong\)"/.test(row));
+
+    // --- CL.8 秒 -------------------------------------------------------------------------
+    check("CL.8 秒 = フレーム数 × 0.1 を丸めて3桁区切り(20,660 → 2,066秒 / 0 → 0秒)",
+      cl.pivotSecText(20660) === "2,066秒" && cl.pivotSecText(0) === "0秒" && cl.pivotSecText(4120) === "412秒",
+      `${cl.pivotSecText(20660)} / ${cl.pivotSecText(4120)}`);
+    check("CL.8 20秒未満は薄い(194 フレーム = 19秒は薄い / 200 = 20秒は薄くない)",
+      cl.pivotIsFew(194) && !cl.pivotIsFew(200) && cl.pivotIsFew(0));
+    check("CL.8 合計の秒は cells のフレーム数の合計", cl.pivotCellsTotal({ a: { x: { count: 3 }, y: { count: 4 } }, b: { x: { count: 5 } } }) === 12
+      && cl.pivotCellsTotal({}) === 0);
+
+    // --- CL.9 配線(画面) ---------------------------------------------------------------
+    const chart = codeOf(srcOfFn(src, "PivotScatterChart"));
+    check("CL.9 散布図の点の色は CSS のトークンを描くときに読む(getComputedStyle。色を手で写さない)",
+      /const rootStyle = getComputedStyle\(document\.documentElement\);/.test(chart)
+      && /pivotResolveCssColor\(SERIES_STYLES\[si\]\.color, rootStyle\)/.test(chart)
+      && /\[data, dom, W\]/.test(chart) && !/#[0-9A-Fa-f]{6}/.test(chart) && !/useThemeRepaintNonce|MutationObserver/.test(codeOf(src)));
+    check("CL.9 散布図の点は1.8px の正方形を間引かずに全部(範囲の外だけ描かない)・devicePixelRatio に合わせる",
+      /for \(let i = 0; i < s\.count; i\+\+\)/.test(chart) && /g\.fillRect\(geom\.px\(x\) - h, geom\.py\(y\) - h, d, d\);/.test(chart)
+      && /window\.devicePixelRatio/.test(chart) && /g\.setTransform\(dpr, 0, 0, dpr, 0, 0\);/.test(chart));
+    const swap = codeOf(srcOfFn(src, "PivotSwapButton"));
+    check("CL.9 ⇄ は 24px の丸・当たり判定は --tap-min 以上・名前「縦軸と横軸を入れ替える」",
+      /const PIVOT_SWAP_D = 24;/.test(src) && /aria-label="縦軸と横軸を入れ替える"/.test(swap)
+      && /minWidth: "var\(--tap-min\)", minHeight: "var\(--tap-min\)"/.test(swap) && /width: PIVOT_SWAP_D, height: PIVOT_SWAP_D/.test(swap));
+    const ds2 = readFileSync(join(__dirname, "..", "design", "D2-SPEC.md"), "utf8");
+    check("CL.10 正典 D2-SPEC に便CL の決まりが書かれている(D-2 の向きの凍結の解除・⇄・散布図・秒・問い)",
+      /便CL/.test(ds2) && /2026-10-11/.test(ds2) && ds2.includes("⇄") && ds2.includes("散布図") && ds2.includes("20秒未満") && ds2.includes("問い"));
+  }
   console.log("  -> done");
 }
 

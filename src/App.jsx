@@ -3931,9 +3931,12 @@ export default function WindToneLabPhaseMode() {
   // 開いていた個別セッションを閉じて一覧に戻す)。その意図は壊さずに条件だけ残すため、
   // 保持したい状態だけをここへ持ち上げる。**再マウントで消えるべきもの
   // (開いている個別セッション selectedSessionId・子タブ dataSubTab)は子の useState のまま。**
-  const [pivotRow, setPivotRow] = useState("note");
+  // 【便CL 2026-10-11 本人裁定】縦軸と横軸は**同じ一覧**(数値7 + 項目12)から選ぶ。持つのは
+  // 縦 v と横 h の2つの鍵の組だけ(⇄ で入れ替えるので1つの値で持つ)。以前の pivotRow(項目)/
+  // pivotMetric(数値)は、ここから AnalysisLabView が導く(pivotAxesShape)。
+  // 設定は保存しない(F-59 のとおりメモリの上だけ)ので、古い形を読み直す経路は持たない。
+  const [pivotAxes, setPivotAxes] = useState(() => ({ ...PIVOT_AXES_DEFAULT }));
   const [pivotCol, setPivotCol] = useState("brand");
-  const [pivotMetric, setPivotMetric] = useState("pitchCents");
   // null = まだ本人が触っていない。既定値(「サックス種別=今の楽器」)はここで作らない:
   // saxType は IndexedDB から**非同期に**復元されるため、アプリ起動時点では既定の "alto" しか
   // 見えず、テナー使用者の初期フィルターが誤って固定される(以前は子が毎回マウントし直されて
@@ -5525,9 +5528,8 @@ export default function WindToneLabPhaseMode() {
           updateSessions={updateSessions} deleteSessions={deleteSessions} restoreSessions={restoreSessions}
           performers={performers} setPerformers={setPerformers}
           saxType={saxType} tuningHz={effectiveTuningHz}
-          pivotRow={pivotRow} setPivotRow={setPivotRow}
+          pivotAxes={pivotAxes} setPivotAxes={setPivotAxes}
           pivotCol={pivotCol} setPivotCol={setPivotCol}
-          pivotMetric={pivotMetric} setPivotMetric={setPivotMetric}
           pivotFilters={pivotFilters} setPivotFilters={setPivotFilters}
           /* 【C-1/C-2 で移設】録音のアップロードはデータタブで完結させる(正典)。
              解析処理・エラーモーダルの配線はそのまま流用し、入口と告知だけを移した。 */
@@ -5863,13 +5865,17 @@ function AdPreviewStrip({ held = false }) {
 // option = false のときは「一覧の中の1つ」ではなく素のボタンとして名乗る
 // (ReedPickSheet の「紐付けない」の1行は listbox の外に置くため。
 //  listbox の外の role="option" は読み上げに嘘をつく)。
-function OptionRow({ label, selected, last, onClick, option = true }) {
+// 【便CL 2026-10-11】disabled: 押せない行(分析の縦軸・横軸の一覧)。薄く(.35)・押せない。
+// 既定 false なので既存の呼び出しは 1px も変わらない。
+function OptionRow({ label, selected, last, onClick, option = true, disabled = false }) {
   return (
     <button
       type="button"
       role={option ? "option" : undefined}
       aria-selected={option ? selected : undefined}
       aria-pressed={option ? undefined : selected}
+      aria-disabled={disabled || undefined}
+      disabled={disabled || undefined}
       onClick={onClick}
       className="sans"
       style={{
@@ -5877,7 +5883,8 @@ function OptionRow({ label, selected, last, onClick, option = true }) {
         display: "flex", alignItems: "center", gap: "var(--sp-2)",
         background: "none", border: "none",
         borderBottom: last ? "none" : "1px solid var(--c-line)",
-        padding: 0, cursor: "pointer", textAlign: "left",
+        padding: 0, cursor: disabled ? "default" : "pointer", textAlign: "left",
+        opacity: disabled ? 0.35 : undefined,
         fontSize: "var(--fs-md)",
         fontWeight: selected ? 700 : 400,
         color: selected ? "var(--c-accent)" : "var(--c-ink)",
@@ -10582,7 +10589,10 @@ function MeasureView(props) {
 // CSS の `min-width` は**無条件の床**なので、自然幅が下限に満たないアイテムを押し広げ、
 // 幅が余っていた組にまで不足を作る(実測: 1文字も切れない組が 18/30 → 4/30)。
 // 幅の取り合いは3列を**等幅グリッド**にして構造ごと無くした(呼び出し側)。
-function PlainSelect({ text, value, onChange, options, ariaLabel, strong = false, caption = null }) {
+// 【便CL 2026-10-11】sheet: 開く一覧を呼び出し側が描く任意指定((close) => シート)。分析の縦軸・横軸は
+// 「数値 / 項目」のまとまりと押せない行を持つので、平らな OptionSheet では描けない。
+// 既定 null = 既存の呼び出しは今までどおり OptionSheet を開く(1px も変わらない)。
+function PlainSelect({ text, value, onChange, options, ariaLabel, strong = false, caption = null, sheet = null }) {
   // 【M4 2026-09-16】開閉はこの部品が自分で持つ。計測タブの上部設定行と違って、
   // この2画面(セッション詳細の編集シート / 分析タブの軸)には
   // 「開いている間は無効化する背面レイヤ」が無いので、外へ出す必要がない。
@@ -10611,14 +10621,14 @@ function PlainSelect({ text, value, onChange, options, ariaLabel, strong = false
       >
         {captionNode}{valueNode}
       </button>
-      {open && (
+      {open && (sheet ? sheet(() => setOpen(false)) : (
         <OptionSheet
           options={list.map((o) => o.value)} value={value}
           onChange={(v) => onChange(v)} onClose={() => setOpen(false)}
           labelFn={(v) => (list.find((o) => o.value === v) || { label: v }).label}
           ariaLabel={ariaLabel}
         />
-      )}
+      ))}
     </>
   );
 }
@@ -15216,35 +15226,44 @@ function pivotDimensionValues(frames, ctx, dimKey) {
 // dimKindが"dateRange"/"numberRange"の次元は{dimKey, rangeMin, rangeMax}を使い、
 // どちらか一方でも指定されていれば有効(未指定側は無制限)。
 // colKey === "none" の場合は横軸なし(「全体」1列)として集計する。
-function buildPivot(frames, ctx, rowKey, colKey, measureKey, filters) {
-  const rowDim = PIVOT_DIMENSIONS.find((d) => d.key === rowKey);
-  const colDim = colKey === "none" ? null : PIVOT_DIMENSIONS.find((d) => d.key === colKey);
-  const measure = PIVOT_MEASURES.find((m) => m.key === measureKey);
-  if (!rowDim || !measure) return { cells: {}, rowKeys: [], colKeys: [], measure: null };
-
-  const activeFilters = (filters || [])
+// 【便CL 2026-10-11】抽出条件の判定は buildPivot(項目 × 数値)と buildPivotScatter(数値 × 数値)の
+// **2つで共有する**(式を複製しない。片方だけ直して食い違うのを防ぐ)。中身は buildPivot の中に
+// あった式をそのまま切り出したもので、判定は1つも変えていない。
+function pivotActiveFilters(filters) {
+  return (filters || [])
     .map((flt) => ({ ...flt, dim: PIVOT_DIMENSIONS.find((d) => d.key === flt.dimKey) }))
     .filter((flt) => {
       if (!flt.dim) return false;
       if (flt.dim.filterKind) return flt.rangeMin != null || flt.rangeMax != null;
       return (flt.values || []).length > 0;
     });
+}
+function pivotFrameRejected(f, ctx, activeFilters) {
+  return activeFilters.some((flt) => {
+    if (flt.dim.filterKind) {
+      const rv = flt.dim.getRangeValue(f, ctx);
+      if (rv === null || rv === undefined) return true;
+      if (flt.rangeMin != null && rv < flt.rangeMin) return true;
+      if (flt.rangeMax != null && rv > flt.rangeMax) return true;
+      return false;
+    }
+    return !flt.values.includes(flt.dim.getValue(f, ctx));
+  });
+}
+
+function buildPivot(frames, ctx, rowKey, colKey, measureKey, filters) {
+  const rowDim = PIVOT_DIMENSIONS.find((d) => d.key === rowKey);
+  const colDim = colKey === "none" ? null : PIVOT_DIMENSIONS.find((d) => d.key === colKey);
+  const measure = PIVOT_MEASURES.find((m) => m.key === measureKey);
+  if (!rowDim || !measure) return { cells: {}, rowKeys: [], colKeys: [], measure: null };
+
+  const activeFilters = pivotActiveFilters(filters);
 
   const cells = {}; // rowKey -> colKey -> {sum, count}
   const rowSort = {};
   const colSort = {};
   for (const f of frames) {
-    const rejected = activeFilters.some((flt) => {
-      if (flt.dim.filterKind) {
-        const rv = flt.dim.getRangeValue(f, ctx);
-        if (rv === null || rv === undefined) return true;
-        if (flt.rangeMin != null && rv < flt.rangeMin) return true;
-        if (flt.rangeMax != null && rv > flt.rangeMax) return true;
-        return false;
-      }
-      return !flt.values.includes(flt.dim.getValue(f, ctx));
-    });
-    if (rejected) continue;
+    if (pivotFrameRejected(f, ctx, activeFilters)) continue;
     const rk = rowDim.getValue(f, ctx);
     const ck = colDim ? colDim.getValue(f, ctx) : "全体";
     const v = measure.getValue(f);
@@ -15271,9 +15290,196 @@ function buildPivot(frames, ctx, rowKey, colKey, measureKey, filters) {
   return { cells, rowKeys, colKeys, measure };
 }
 
+// ================= 【便CL 2026-10-11 本人裁定・design/D2-SPEC.md §6】=================
+// 縦軸と横軸は**同じ一覧**から選ぶ(「数値」= PIVOT_MEASURES の7つ → 「項目」= PIVOT_DIMENSIONS の12)。
+// 決まり: 項目は縦横どちらか一方だけ / もう一方で選ばれているものは選べない。⇄ でいつでも入れ替えられる
+// (決まりが縦横で対称なので、入れ替えた組も必ず決まりを満たす)。グラフは組み合わせで決まる:
+//   縦=項目・横=数値 … 今の折れ線(PivotLineChart。行の右に秒数)        kind "rows"
+//   縦=数値・横=項目 … 横=項目・縦=値の折れ線(PivotLineChart catAxis="h") kind "cols"
+//   数値 × 数値     … 散布図(PivotScatterChart)+ 幅ごとの平均の線         kind "scatter"
+// 状態は縦 v と横 h の鍵の組1つだけ。一覧の押せない行は、もう一方の鍵から毎回導く(状態を増やさない)。
+const PIVOT_AXES_DEFAULT = { v: "note", h: "pitchCents" };
+
+function pivotAxisKind(key) {
+  if (PIVOT_MEASURES.some((m) => m.key === key)) return "measure";
+  if (PIVOT_DIMENSIONS.some((d) => d.key === key)) return "dim";
+  return null;
+}
+function pivotAxisLabel(key) {
+  return (PIVOT_MEASURES.find((m) => m.key === key) || PIVOT_DIMENSIONS.find((d) => d.key === key))?.label ?? key;
+}
+// 縦 v・横 h の組が決まりを満たすか(どちらも知っている鍵・同じ鍵ではない・項目が2つではない)。
+function pivotAxesValid(v, h) {
+  const kv = pivotAxisKind(v), kh = pivotAxisKind(h);
+  return kv !== null && kh !== null && v !== h && !(kv === "dim" && kh === "dim");
+}
+// 組から「どのグラフか」と、項目 × 数値の集計(buildPivot)に渡す鍵を導く。
+// dimKey = 項目の側(以前の pivotRow)/ measureKey = 数値の側(以前の pivotMetric)。散布図ではどちらも null。
+function pivotAxesShape(axes) {
+  const ok = pivotAxesValid(axes?.v, axes?.h);
+  const v = ok ? axes.v : PIVOT_AXES_DEFAULT.v;
+  const h = ok ? axes.h : PIVOT_AXES_DEFAULT.h;
+  if (pivotAxisKind(v) === "dim") return { kind: "rows", dimKey: v, measureKey: h, v, h };
+  if (pivotAxisKind(h) === "dim") return { kind: "cols", dimKey: h, measureKey: v, v, h };
+  return { kind: "scatter", dimKey: null, measureKey: null, v, h };
+}
+// 縦(side "v")/ 横(side "h")の一覧。数値 → 項目の順。
+// 押せない(disabled): もう一方で選ばれているもの / もう一方が項目なら項目は全部。
+function pivotAxisOptions(axes, side) {
+  const mine = side === "v" ? axes.v : axes.h;
+  const other = side === "v" ? axes.h : axes.v;
+  const otherIsDim = pivotAxisKind(other) === "dim";
+  return [
+    ...PIVOT_MEASURES.map((m) => ({ group: "measure", key: m.key, label: m.label, selected: m.key === mine, disabled: m.key === other })),
+    ...PIVOT_DIMENSIONS.map((d) => ({ group: "dim", key: d.key, label: d.label, selected: d.key === mine, disabled: otherIsDim || d.key === other })),
+  ];
+}
+// 一覧で押したとき。決まりを破る鍵は受け取らない(押せない行は描画でも押せないが、ここでも拒む)。
+function pivotPickAxis(axes, side, key) {
+  const next = side === "v" ? { v: key, h: axes.h } : { v: axes.v, h: key };
+  return pivotAxesValid(next.v, next.h) ? next : axes;
+}
+// ⇄ 。縦と横の選択をそのまま入れ替える。
+function swapPivotAxes(axes) {
+  return { v: axes.h, h: axes.v };
+}
+
+// 【便CL】「問い」の行。押すと縦軸・横軸・分析軸を一度に書く(抽出条件は触らない)。
+// 文言と中身はここ1か所だけ(あとで差し替えやすくする)。col は分析軸("none" = なし)。
+const PIVOT_QUESTIONS = [
+  { label: "音ごとの音程のクセは?", v: "note", h: "pitchCents", col: "none" },
+  { label: "音量で音程は変わる?", v: "pitchCents", h: "volume", col: "none" },
+  { label: "音量で音色は変わる?", v: "hnr", h: "volume", col: "none" },
+  { label: "リードで音色は違う?", v: "note", h: "hnr", col: "reed" },
+  { label: "リードは使うほど変わる?", v: "reedDays", h: "hnr", col: "none" },
+  { label: "日によって変わる?", v: "date", h: "pitchCents", col: "none" },
+];
+// 今の軸の組が問いと一致しているか(強調はこれだけで決める。別の状態を持たない)。
+function pivotQuestionActive(q, axes, col) {
+  return !!q && !!axes && q.v === axes.v && q.h === axes.h && q.col === col;
+}
+
+// 【便CL】件数は秒で出す。フレーム1つ = 0.1秒(録音は SAMPLE_INTERVAL_MS = 100ms ごとに1フレーム)。
+// 秒は整数に丸め、3桁で区切る(「2,066秒」)。20秒未満の点は薄くする(その系列のその項目の秒で、表示と同じ丸めた秒で判定)。
+const PIVOT_FRAME_SEC = 0.1;
+const PIVOT_FEW_SEC = 20;
+const PIVOT_FEW_OPACITY = 0.4;
+function pivotSec(count) {
+  return Math.round((count || 0) * PIVOT_FRAME_SEC);
+}
+function pivotSecText(count) {
+  // 3桁の区切りは My Data の累計と同じ groupDigits(端末のロケールに依存させない)。
+  return `${groupDigits(pivotSec(count))}秒`;
+}
+function pivotIsFew(count) {
+  return pivotSec(count) < PIVOT_FEW_SEC;
+}
+// buildPivot の cells の合計フレーム数(グラフの下の合計の秒)。
+function pivotCellsTotal(cells) {
+  let n = 0;
+  for (const row of Object.values(cells || {})) for (const c of Object.values(row)) n += c.count || 0;
+  return n;
+}
+
+// 【便CL】散布図の平均の線: 横軸の値をこの幅ごとに区切り、縦軸の値を平均する(指標ごとの固定表)。
+//   volume   1dB   … 本人裁定(2026-10-11)
+//   pitchCents 2¢  … 承認済みのモック
+//   hnr      1dB   … 承認済みのモック(音量と同じ dB)
+//   centroid 50Hz  … 承認済みのモック
+//   pitchHz  5Hz   … 半音の幅は いちばん低い音域(約140Hz)で約8Hz・A5(880Hz)で約52Hz。5Hz なら最も低い音域でも
+//                    隣の半音と同じ幅に混ざらない(1つの音の平均が隣の音に引っぱられない)
+//   lowHarm / highHarm 0.02 … 値は 0〜1(画面では ×100 の整数で出す)。0.02 = 画面の 2 で、承認済みのモックの「倍音 2」。
+//                    画面の目盛は整数なので、1刻みでは幅ごとの点が半分になり 2秒に届かない幅が増える
+const PIVOT_SCATTER_BIN_W = { volume: 1, pitchCents: 2, hnr: 1, centroid: 50, pitchHz: 5, lowHarm: 0.02, highHarm: 0.02 };
+// 平均の線は 2秒(20点)以上ある幅だけを結ぶ。足りない幅で線を切る。
+const PIVOT_SCATTER_MIN_BIN_SEC = 2;
+// 縦横の範囲は 0.5〜99.5 パーセンタイル(外れ値 1点で全体が潰れない)。
+const PIVOT_SCATTER_RANGE_PCT = [0.005, 0.995];
+// 点は 1.8px の正方形。濃さは点の数で決める(4千点で .14・2万点で .06。上限 .25)。
+const PIVOT_SCATTER_DOT = 1.8;
+function pivotScatterAlpha(n) {
+  return n > 0 ? Math.min(0.25, 9 / Math.sqrt(n)) : 0.25;
+}
+// 値の列の lo〜hi パーセンタイル。[下端, 上端] か、値が無ければ null。
+function pivotPercentileRange(values, lo = PIVOT_SCATTER_RANGE_PCT[0], hi = PIVOT_SCATTER_RANGE_PCT[1]) {
+  const n = values?.length || 0;
+  if (!n) return null;
+  const s = Float64Array.from(values).sort();
+  return [s[Math.min(n - 1, Math.floor(n * lo))], s[Math.min(n - 1, Math.floor(n * hi))]];
+}
+// 幅ごとの平均。平均は今の折れ線(buildPivot)と同じ clarity 重み付き(ws = frameWeight)。
+// bins: 点のある幅すべて { b, x, center, mean, count } / segments: minCount 以上の幅が**隣り合って**続く区間。
+// 平均の点の位置は**その幅の点の平均**(横 x も縦 mean も同じ重み付き平均)。幅の中央(center)に置くと、値が幅の端に
+// 偏ったデータ(例: 音量が -28.0 ちょうどばかり)で点が実際の点の範囲の外(作図域の外)へ出るため。
+function pivotScatterBins(xs, ys, ws, binW, minCount) {
+  const map = new Map();
+  for (let i = 0; i < xs.length; i++) {
+    const b = Math.floor(xs[i] / binW + 1e-9);
+    let e = map.get(b);
+    if (!e) { e = { b, count: 0, wsum: 0, wxsum: 0, wtotal: 0 }; map.set(b, e); }
+    const w = ws ? ws[i] : 1;
+    e.count += 1; e.wsum += w * ys[i]; e.wxsum += w * xs[i]; e.wtotal += w;
+  }
+  const bins = [...map.values()].sort((a, c) => a.b - c.b)
+    .map((e) => ({
+      b: e.b, center: (e.b + 0.5) * binW, count: e.count,
+      x: e.wtotal > 0 ? e.wxsum / e.wtotal : (e.b + 0.5) * binW,
+      mean: e.wtotal > 0 ? e.wsum / e.wtotal : null,
+    }));
+  const segments = [];
+  let cur = null, prev = null;
+  for (const bn of bins) {
+    if (bn.count < minCount || bn.mean === null) { cur = null; prev = null; continue; }
+    if (!cur || bn.b !== prev + 1) { cur = []; segments.push(cur); }
+    cur.push(bn); prev = bn.b;
+  }
+  return { bins, segments };
+}
+// 数値 × 数値の集計。点は**今の集計と同じゲート**を通す: ゲートは測度の getValue が持っている
+// (音程(¢)は selectPitchAggregationFrames の _pitchGateOk・倍音/HNR/重心は timbreSustained)ので、
+// 縦と横の**両方が値を返したフレームだけ** = 縦と横で違うゲートなら両方を通ったフレームだけ。
+// 抽出条件は buildPivot と同じ式(pivotActiveFilters / pivotFrameRejected)。系列は分析軸の値ごと。
+function buildPivotScatter(frames, ctx, hKey, vKey, colKey, filters) {
+  const hDef = PIVOT_MEASURES.find((m) => m.key === hKey) || null;
+  const vDef = PIVOT_MEASURES.find((m) => m.key === vKey) || null;
+  const colDim = colKey === "none" ? null : PIVOT_DIMENSIONS.find((d) => d.key === colKey);
+  if (!hDef || !vDef || hKey === vKey) return { series: [], total: 0, hDef, vDef };
+  const activeFilters = pivotActiveFilters(filters);
+  const byKey = new Map();
+  const sortOf = new Map();
+  let total = 0;
+  for (const f of frames || []) {
+    if (pivotFrameRejected(f, ctx, activeFilters)) continue;
+    const x = hDef.getValue(f);
+    if (x === null || x === undefined || isNaN(x)) continue;
+    const y = vDef.getValue(f);
+    if (y === null || y === undefined || isNaN(y)) continue;
+    const ck = colDim ? colDim.getValue(f, ctx) : "全体";
+    if (ck === null || ck === undefined) continue;
+    let s = byKey.get(ck);
+    if (!s) {
+      s = { key: ck, xs: [], ys: [], ws: [] };
+      byKey.set(ck, s);
+      sortOf.set(ck, colDim?.getSort ? colDim.getSort(f, ctx) : ck);
+    }
+    s.xs.push(x); s.ys.push(y); s.ws.push(frameWeight(f));
+    total += 1;
+  }
+  const binW = PIVOT_SCATTER_BIN_W[hKey];
+  const minCount = Math.round(PIVOT_SCATTER_MIN_BIN_SEC / PIVOT_FRAME_SEC);
+  const series = [...byKey.keys()]
+    .sort((a, b) => { const sa = sortOf.get(a), sb = sortOf.get(b); return sa < sb ? -1 : sa > sb ? 1 : 0; })
+    .map((k) => {
+      const s = byKey.get(k);
+      return { ...s, count: s.xs.length, ...pivotScatterBins(s.xs, s.ys, s.ws, binW, minCount) };
+    });
+  return { series, total, hDef, vDef };
+}
+
 // ================= 【D-2 2026/08/22 本人指示・凍結仕様 design/D2-SPEC.md】=================
 // 分析(PIVOT)タブを Design canon(design/dc-mydata-redesign.html)の **#13a** へ。
-// 折れ線の**向き**(縦軸=音名・上から下へ / 横軸=選んだ数値)は N-9 から不変で、
+// 折れ線の**向き**(縦軸=音名・上から下へ / 横軸=選んだ数値)は N-9 から D-2 まで不変だった
+// (【便CL 2026-10-11 本人裁定】で凍結を解除。縦横は同じ一覧から選べ、⇄ で入れ替えられる。D2-SPEC §6)。
 // 正典が足したのは「行の縞」「縦の目盛り線(0だけ濃い)」「凡例をグラフの上へ」の3つ。
 // 操作部は「条件のチップ行」と「3カラムのセレクタカード(並べる軸 / 数値 / 分け方)」になった。
 
@@ -15372,8 +15578,8 @@ const DATE_INPUT_FIT = { minWidth: 0, maxWidth: "100%" };
 
 
 // 【D-2 2026/08/22 本人指示・凍結仕様 design/D2-SPEC.md】正典 = design/dc-mydata-redesign.html
-// の **#13a**。縦軸=音名(上から下へ)／横軸=選んだ数値、という**向きは N-9 から不変**で、
-// 正典が足したのは次の3つ:
+// の **#13a**。縦軸=音名(上から下へ)／横軸=選んだ数値、という向きは N-9 から D-2 まで不変だった
+// (【便CL 2026-10-11 本人裁定】で解除。横=項目の向きは下の catAxis="h"。D2-SPEC §6)。正典が足したのは次の3つ:
 //   ・**行の縞**(オクターブ単位で交互に極薄い面)— どの行がどのオクターブか掴めるようにする
 //   ・**縦の目盛り線**(5本)と、その下の目盛ラベル。**0線だけ濃い**
 //   ・**凡例をグラフの上**へ(左に系列、右端に単位)。下の指標名は凡例の単位が引き継ぐ
@@ -15385,7 +15591,10 @@ const DATE_INPUT_FIT = { minWidth: 0, maxWidth: "100%" };
 // 【便BK 2026-10-02 本人の実機報告】memo で包んだ。子タブ(My Data / 分析)を替えるだけの描き直しで、字の幅を
 // 測り直していた(measureSvgTextPx は配置を強制する。CPU 6倍遅の実測で 約40ms、子タブの切り替えで最も重い1部品)。
 // 渡すものは AnalysisLabView が useMemo / useCallback で同じ物を渡すので、集計か軸が変わったときだけ描き直す。
-const PivotLineChart = memo(function PivotLineChart({ rowKeys, colKeys, cells, metricDef, rowIsNote = false, rowLabelOf = (v) => v, colLabelOf = (v) => v }) {
+// 【便CL 2026-10-11 本人裁定】catAxis: 項目をどちらの軸に置くか。"v"(既定)= 縦=項目・横=値(上の向き)、
+// "h" = 横=項目・縦=値(⇄ のあと。My Data の音名グラフと同じ向き)。どちらも項目ごとの秒数(フレーム数 × 0.1秒)を
+// 添え("v" は行の右、"h" は項目名の下)、その系列のその項目が20秒未満の点は薄くする(PIVOT_FEW_OPACITY)。
+const PivotLineChart = memo(function PivotLineChart({ rowKeys, colKeys, cells, metricDef, rowIsNote = false, rowLabelOf = (v) => v, colLabelOf = (v) => v, catAxis = "v" }) {
   // グラフ幅は固定値ではなくコンテナの実測幅。375pxでも横に溢れない条件がここで決まる。
   const [boxRef, W] = useMeasuredWidth();
 
@@ -15408,6 +15617,9 @@ const PivotLineChart = memo(function PivotLineChart({ rowKeys, colKeys, cells, m
   // 幅の4割強までをラベルに割き、残りをプロットに回す(375pxで両方が成立する配分)。
   const LABEL_MAX = Math.round(W * 0.42);
 
+  // 【便CL】項目ごとのフレーム数(系列 = 分析軸をまたいで足す)。秒は pivotSecText、薄くするかは pivotIsFew。
+  const catCount = (rk) => colKeys.reduce((s, ck) => s + (cells[rk]?.[ck]?.count || 0), 0);
+
   // 実測前(W=0)は箱だけ描いて幅を測る。useLayoutEffect で測るので描画のちらつきは出ない。
   const body = (() => {
     if (allVals.length === 0 || W <= 0) return null;
@@ -15425,6 +15637,92 @@ const PivotLineChart = memo(function PivotLineChart({ rowKeys, colKeys, cells, m
     const RPAD = SP1;               // 右端の内側寄せ。最大値の目盛と点(r=2.8)が枠外に出ないため
     const BASE = Math.round(FS * 0.8);  // 文字の上端からベースラインまで(組版上の目安。トークンではない)
     const padTop = 6;
+    const secTexts = rowKeys.map((rk) => pivotSecText(catCount(rk)));
+    // 20秒未満で薄くする判定は**その点の系列のその項目の秒**(行の合計ではない。系列ごとに点が違うので)。
+    const fewAt = (rk, ck) => pivotIsFew(cells[rk]?.[ck]?.count || 0);
+
+    // 【便CL 2026-10-11】横=項目・縦=値。目盛5・点 r2.8 + 白フチ・縞・系列の色と線種は縦の版と同じ値。
+    // 作図域の高さは My Data の音名グラフ(同じ向き)の CHART_PLOT_H_MY_DATA。項目名と秒数は下に2行。
+    // 詰まるときは名前と秒数を**同じ列で**間引く(1つおき・2つおき…。幅の求め方は日付の目盛と同じ reedScoreLabelStep)。
+    if (catAxis === "h") {
+      const PLOTH = CHART_PLOT_H_MY_DATA;
+      const vTicks = pivotTickValues(lo, hi, PIVOT_TICK_COUNT);
+      // 縦の目盛は数字だけなので左右の余白は --sp-1(DESIGN-SYSTEM §1.9 R11)。
+      const tickW = Math.ceil(Math.max(...[...vTicks, 0].map((t) => measureSvgTextPx(metricDef.fmt(t), FS))));
+      const AXW = SP1 + tickW + SP1;
+      const n = rowKeys.length;
+      const names = rowKeys.map((rk) => fitLabel(rowLabelOf(rk), LABEL_MAX, FS));
+      const maxLblW = Math.ceil(Math.max(0, ...names.map((s) => measureSvgTextPx(s, FS)), ...secTexts.map((s) => measureSvgTextPx(s, FS))));
+      // 項目名は中央揃えなので両端で半分ぶん外へ出る(NoteAxisLineChart と同じ逃げ)。
+      const halfLbl = Math.ceil(maxLblW / 2) + SP1;
+      const x0 = AXW + halfLbl;
+      const x1 = Math.max(x0 + 1, W - RPAD - halfLbl);
+      const colStep = n > 1 ? (x1 - x0) / (n - 1) : 0;
+      const xAtC = (ci) => (n > 1 ? x0 + ci * colStep : (x0 + x1) / 2);
+      const yAtV = (v) => padTop + PLOTH - ((v - lo) / rng) * PLOTH;
+      const labelStep = reedScoreLabelStep(colStep, maxLblW + SP2, n);
+      const nameY = padTop + PLOTH + SP1 + BASE;
+      const secY = padTop + PLOTH + SP1 + FS + SP1 + BASE;
+      const HH = padTop + PLOTH + SP1 + FS + SP1 + FS + SP1;
+      const zeroY = lo < 0 && hi > 0 ? yAtV(0) : null;
+      const crowdedY = pivotCrowdedTickIndex(vTicks.map(yAtV), zeroY, PIVOT_TICK_MIN_GAP_PX);
+      const colStripes = rowIsNote ? pivotOctaveStripes(rowKeys) : [];
+      const half = colStep / 2;
+      const segsOf = (ck) => {
+        const segs = []; let cur = [];
+        rowKeys.forEach((rk, ci) => {
+          const v = cellValue(rk, ck);
+          if (v !== null) cur.push(`${xAtC(ci)},${yAtV(v)}`);
+          else { if (cur.length) segs.push(cur); cur = []; }
+        });
+        if (cur.length) segs.push(cur);
+        return segs;
+      };
+      return (
+        <svg width={W} height={HH} viewBox={`0 0 ${W} ${HH}`} style={{ display: "block" }}>
+          {colStripes.map((s) => {
+            const xa = Math.max(AXW, xAtC(s.from) - half), xb = Math.min(W - RPAD, xAtC(s.to - 1) + half);
+            return <rect key={s.from} x={xa} y={padTop} width={Math.max(0, xb - xa)} height={PLOTH} fill="var(--c-sunk)" />;
+          })}
+          {vTicks.map((t) => (
+            <line key={t} x1={AXW} y1={yAtV(t)} x2={W - RPAD} y2={yAtV(t)} strokeWidth="1" stroke="var(--c-line)" />
+          ))}
+          {zeroY !== null && (
+            <line x1={AXW} y1={zeroY} x2={W - RPAD} y2={zeroY} strokeWidth="1" stroke="var(--c-line-strong)" />
+          )}
+          {vTicks.map((t, ti) => (ti === crowdedY ? null : (
+            <text key={t} x={AXW - SP1} y={yAtV(t) + Math.round(FS * 0.35)} fontSize={FS} fill="var(--c-ink-4)"
+              textAnchor="end" fontFamily="var(--font-num)">{metricDef.fmt(t)}</text>
+          )))}
+          {zeroY !== null && (
+            <text x={AXW - SP1} y={zeroY + Math.round(FS * 0.35)} fontSize={FS} fill="var(--c-ink-3)"
+              textAnchor="end" fontFamily="var(--font-num)">{metricDef.fmt(0)}</text>
+          )}
+          {rowKeys.map((rk, ci) => (ci % labelStep !== 0 ? null : (
+            <g key={rk}>
+              <text x={xAtC(ci)} y={nameY} fontSize={FS} fill="var(--c-ink-2)" textAnchor="middle" fontFamily="var(--font-num)">{names[ci]}</text>
+              <text x={xAtC(ci)} y={secY} fontSize={FS} fill="var(--c-ink-3)" textAnchor="middle" fontFamily="var(--font-num)">{secTexts[ci]}</text>
+            </g>
+          )))}
+          {shownKeys.map((ck, si) => {
+            const st = styleAt(si);
+            return (
+              <g key={ck} style={{ stroke: st.color, fill: st.color }}>
+                {segsOf(ck).map((seg, k) => (
+                  <polyline key={k} fill="none" strokeWidth={st.width} strokeDasharray={st.dash || undefined} points={seg.join(" ")} />
+                ))}
+                {rowKeys.map((rk, ci) => {
+                  const v = cellValue(rk, ck);
+                  if (v === null) return null;
+                  return <circle key={ci} cx={xAtC(ci)} cy={yAtV(v)} r={PIVOT_DOT_R} stroke="var(--c-surface)" strokeWidth={PIVOT_DOT_RING}
+                    opacity={fewAt(rk, ck) ? PIVOT_FEW_OPACITY : undefined} />;
+                })}
+              </g>
+            );
+          })}
+        </svg>
+      );
+    }
     // 【D-2】下は目盛ラベル1行だけ。グラフの下に置いていた指標名は**凡例の右端の単位**が引き継いだ。
     const padBottom = SP1 * 2 + FS;
     const H = padTop + rowKeys.length * ROW + padBottom;
@@ -15433,7 +15731,9 @@ const PivotLineChart = memo(function PivotLineChart({ rowKeys, colKeys, cells, m
     // 実インクは 1px 前後それを超えることがあるため、この余白が無いと左端で欠ける。
     const longest = rowKeys.reduce((m, rk) => Math.max(m, measureSvgTextPx(rowLabelOf(rk), FS)), 0);
     const LABELW = RPAD + Math.min(Math.ceil(longest), LABEL_MAX) + GAPL;
-    const PLOTW = Math.max(1, W - LABELW - RPAD);
+    // 【便CL】行の右に秒数(--c-ink-3。読ませる字なので ink-4 は使わない。DESIGN-SYSTEM §1.1)。列の幅は実測(いちばん長い秒数 + --sp-2 の隙間)。
+    const SECW = SP2 + Math.ceil(Math.max(0, ...secTexts.map((s) => measureSvgTextPx(s, FS))));
+    const PLOTW = Math.max(1, W - LABELW - RPAD - SECW);
 
     const xAt = (v) => LABELW + ((v - lo) / rng) * PLOTW;
     const yAt = (ri) => padTop + ri * ROW + ROW / 2;
@@ -15478,6 +15778,11 @@ const PivotLineChart = memo(function PivotLineChart({ rowKeys, colKeys, cells, m
           <text key={rk} x={LABELW - GAPL} y={yAt(ri) + Math.round(FS * 0.35)} fontSize={FS}
             fill="var(--c-ink-2)" textAnchor="end" fontFamily="var(--font-num)">{fitLabel(rowLabelOf(rk), LABEL_MAX, FS)}</text>
         ))}
+        {/* 【便CL】行ごとの秒数(右端に寄せる)。 */}
+        {rowKeys.map((rk, ri) => (
+          <text key={rk} x={W - RPAD} y={yAt(ri) + Math.round(FS * 0.35)} fontSize={FS}
+            fill="var(--c-ink-3)" textAnchor="end" fontFamily="var(--font-num)">{secTexts[ri]}</text>
+        ))}
         {/* 目盛ラベル。両端だけは枠の内側へ寄せる(中央合わせだと半分が枠外に出る)。
             0 のラベルと重なる1本だけは譲る(crowded)。 */}
         {ticks.map((t, ti) => (ti === crowded ? null : (
@@ -15501,7 +15806,8 @@ const PivotLineChart = memo(function PivotLineChart({ rowKeys, colKeys, cells, m
                 const v = cellValue(rk, ck);
                 if (v === null) return null;
                 /* 正典 #13a の点: r 2.8 + 白フチ 1.1px。線が重なっても点だけは読める。 */
-                return <circle key={ri} cx={xAt(v)} cy={yAt(ri)} r={PIVOT_DOT_R} stroke="var(--c-surface)" strokeWidth={PIVOT_DOT_RING} />;
+                return <circle key={ri} cx={xAt(v)} cy={yAt(ri)} r={PIVOT_DOT_R} stroke="var(--c-surface)" strokeWidth={PIVOT_DOT_RING}
+                  opacity={fewAt(rk, ck) ? PIVOT_FEW_OPACITY : undefined} />;
               })}
             </g>
           );
@@ -15543,6 +15849,302 @@ const PivotLineChart = memo(function PivotLineChart({ rowKeys, colKeys, cells, m
     </div>
   );
 });
+
+// 【便CL 2026-10-11】canvas は var() を読めないので、系列の色(SERIES_STYLES の "var(--c-accent)" など)を
+// **その場で** :root の計算値から引く。色を手で写さない(写しはズレる。canvas-tokens の事故)。引けなければ null。
+function pivotResolveCssColor(color, rootStyle) {
+  const m = /var\((--[\w-]+)\)/.exec(color || "");
+  if (!m) return color || null;
+  const v = rootStyle?.getPropertyValue(m[1])?.trim();
+  return v || null;
+}
+// 【便CL 2026-10-11 本人裁定】数値 × 数値の散布図(0.1秒ごとの点を**間引かず全部**)+ 幅ごとの平均の線。
+// 目盛・0 の線・ラベルは SVG、点は canvas(devicePixelRatio 対応)、平均の線と点はその上に重ねた SVG。
+// 寸法の値は今の折れ線と共通: 目盛 5本(PIVOT_TICK_COUNT)・0 の線だけ濃い・平均の点 r2.8 + 白フチ 1.1・
+// 系列の色と線種 SERIES_STYLES・作図域の高さは CHART_PLOT_H_MY_DATA。範囲は 0.5〜99.5 パーセンタイル
+// (音程(¢)の軸は今の折れ線と同じく 0 を必ず含める)に、今の折れ線と同じ 12% の余白を足す。
+const PivotScatterChart = memo(function PivotScatterChart({ data, colLabelOf = (v) => v }) {
+  const [boxRef, W] = useMeasuredWidth();
+  const canvasRef = useRef(null);
+  const { hDef, vDef } = data;
+  const shown = data.series.slice(0, SERIES_STYLES.length);
+  const hiddenCount = data.series.length - shown.length;
+  const LABEL_MAX = Math.round(W * 0.42);
+
+  // 範囲は幅に依らないので、集計が変わったときだけ求める。
+  const dom = useMemo(() => {
+    const n = shown.reduce((s, x) => s + x.count, 0);
+    if (!n || !hDef || !vDef) return null;
+    const xs = new Float64Array(n), ys = new Float64Array(n);
+    let k = 0;
+    for (const s of shown) for (let i = 0; i < s.count; i++) { xs[k] = s.xs[i]; ys[k] = s.ys[i]; k++; }
+    const padded = (r, key) => {
+      let a = r[0], b = r[1];
+      if (key === "pitchCents") { a = Math.min(a, 0); b = Math.max(b, 0); }
+      const pad = (b - a) * 0.12 || Math.abs(b) * 0.1 || 1;
+      return [a - pad, b + pad];
+    };
+    return { x: padded(pivotPercentileRange(xs), hDef.key), y: padded(pivotPercentileRange(ys), vDef.key), n };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
+  const FS = SVG_FS_XS;
+  const SP1 = SVG_SP1;
+  const RPAD = SP1;
+  const BASE = Math.round(FS * 0.8);
+  const padTop = 6;
+  const PLOTH = CHART_PLOT_H_MY_DATA;
+  const geom = (() => {
+    if (!dom || W <= 0) return null;
+    const [xlo, xhi] = dom.x, [ylo, yhi] = dom.y;
+    const xTicks = pivotTickValues(xlo, xhi, PIVOT_TICK_COUNT);
+    const yTicks = pivotTickValues(ylo, yhi, PIVOT_TICK_COUNT);
+    // 縦の目盛は数字だけなので左右の余白は --sp-1(DESIGN-SYSTEM §1.9 R11)。
+    const tickW = Math.ceil(Math.max(...[...yTicks, 0].map((t) => measureSvgTextPx(vDef.fmt(t), FS))));
+    const AXW = SP1 + tickW + SP1;
+    const PLOTW = Math.max(1, W - AXW - RPAD);
+    const H = padTop + PLOTH + SP1 * 2 + FS;
+    const px = (v) => ((v - xlo) / (xhi - xlo)) * PLOTW;          // 作図域の中の x
+    const py = (v) => PLOTH - ((v - ylo) / (yhi - ylo)) * PLOTH;  // 作図域の中の y
+    const zeroX = xlo < 0 && xhi > 0 ? AXW + px(0) : null;
+    const zeroY = ylo < 0 && yhi > 0 ? padTop + py(0) : null;
+    return {
+      xlo, xhi, ylo, yhi, xTicks, yTicks, AXW, PLOTW, H, px, py, zeroX, zeroY,
+      crowdedX: pivotCrowdedTickIndex(xTicks.map((t) => AXW + px(t)), zeroX, PIVOT_TICK_MIN_GAP_PX),
+      crowdedY: pivotCrowdedTickIndex(yTicks.map((t) => padTop + py(t)), zeroY, PIVOT_TICK_MIN_GAP_PX),
+    };
+  })();
+
+  // 点を canvas へ。範囲の外の点は描かない(0.5〜99.5 パーセンタイルの外)。
+  useEffect(() => {
+    const cv = canvasRef.current;
+    if (!cv || !geom) return;
+    const dpr = (typeof window !== "undefined" && window.devicePixelRatio) || 1;
+    cv.width = Math.round(geom.PLOTW * dpr);
+    cv.height = Math.round(PLOTH * dpr);
+    const g = cv.getContext?.("2d");
+    if (!g) return;
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, geom.PLOTW, PLOTH);
+    g.globalAlpha = pivotScatterAlpha(dom.n);
+    const rootStyle = getComputedStyle(document.documentElement);
+    const d = PIVOT_SCATTER_DOT, h = d / 2;
+    shown.forEach((s, si) => {
+      const c = pivotResolveCssColor(SERIES_STYLES[si].color, rootStyle);
+      if (!c) return;
+      g.fillStyle = c;
+      for (let i = 0; i < s.count; i++) {
+        const x = s.xs[i], y = s.ys[i];
+        if (x < geom.xlo || x > geom.xhi || y < geom.ylo || y > geom.yhi) continue;
+        g.fillRect(geom.px(x) - h, geom.py(y) - h, d, d);
+      }
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, dom, W]);
+
+  const unit = `縦 ${pivotUnitOf(vDef)} · 横 ${pivotUnitOf(hDef)}`;
+  return (
+    <div>
+      {geom && (
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, padding: "0 2px 12px" }}>
+          <div className="sans" style={{ display: "flex", flexWrap: "wrap", gap: "8px 13px", maxHeight: 96, overflowY: "auto" }}>
+            {shown.map((s, si) => (
+              <span key={s.key} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "var(--fs-xs)", color: "var(--c-ink-2)" }}>
+                <SeriesSwatch style={SERIES_STYLES[si]} width={12} />
+                {fitLabel(colLabelOf(s.key), LABEL_MAX, SVG_FS_XS)}
+                {/* 系列ごとの秒数(点の数 × 0.1秒)。 */}
+                <span style={{ color: "var(--c-ink-3)" }}>{pivotSecText(s.count)}</span>
+              </span>
+            ))}
+          </div>
+          <span className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", flexShrink: 0 }}>{unit}</span>
+        </div>
+      )}
+      <div ref={boxRef}>
+        {geom && (
+          <div style={{ position: "relative", width: W, height: geom.H }}>
+            {/* 土台: 目盛線・0 の線・ラベル */}
+            <svg width={W} height={geom.H} viewBox={`0 0 ${W} ${geom.H}`} style={{ display: "block" }}>
+              {geom.yTicks.map((t) => (
+                <line key={`y${t}`} x1={geom.AXW} y1={padTop + geom.py(t)} x2={W - RPAD} y2={padTop + geom.py(t)} strokeWidth="1" stroke="var(--c-line)" />
+              ))}
+              {geom.xTicks.map((t) => (
+                <line key={`x${t}`} x1={geom.AXW + geom.px(t)} y1={padTop} x2={geom.AXW + geom.px(t)} y2={padTop + PLOTH} strokeWidth="1" stroke="var(--c-line)" />
+              ))}
+              {geom.zeroY !== null && (
+                <line x1={geom.AXW} y1={geom.zeroY} x2={W - RPAD} y2={geom.zeroY} strokeWidth="1" stroke="var(--c-line-strong)" />
+              )}
+              {geom.zeroX !== null && (
+                <line x1={geom.zeroX} y1={padTop} x2={geom.zeroX} y2={padTop + PLOTH} strokeWidth="1" stroke="var(--c-line-strong)" />
+              )}
+              {geom.yTicks.map((t, ti) => (ti === geom.crowdedY ? null : (
+                <text key={`yl${t}`} x={geom.AXW - SP1} y={padTop + geom.py(t) + Math.round(FS * 0.35)} fontSize={FS} fill="var(--c-ink-4)"
+                  textAnchor="end" fontFamily="var(--font-num)">{vDef.fmt(t)}</text>
+              )))}
+              {geom.zeroY !== null && (
+                <text x={geom.AXW - SP1} y={geom.zeroY + Math.round(FS * 0.35)} fontSize={FS} fill="var(--c-ink-3)"
+                  textAnchor="end" fontFamily="var(--font-num)">{vDef.fmt(0)}</text>
+              )}
+              {geom.xTicks.map((t, ti) => (ti === geom.crowdedX ? null : (
+                <text key={`xl${t}`} x={geom.AXW + geom.px(t)} y={padTop + PLOTH + SP1 + BASE} fontSize={FS} fill="var(--c-ink-4)"
+                  textAnchor={ti === 0 ? "start" : ti === geom.xTicks.length - 1 ? "end" : "middle"}
+                  fontFamily="var(--font-num)">{hDef.fmt(t)}</text>
+              )))}
+              {geom.zeroX !== null && (
+                <text x={geom.zeroX} y={padTop + PLOTH + SP1 + BASE} fontSize={FS} fill="var(--c-ink-3)"
+                  textAnchor="middle" fontFamily="var(--font-num)">{hDef.fmt(0)}</text>
+              )}
+            </svg>
+            {/* 点(canvas)。作図域にだけ重ねる。 */}
+            <canvas ref={canvasRef} aria-hidden="true"
+              style={{ position: "absolute", left: geom.AXW, top: padTop, width: geom.PLOTW, height: PLOTH, display: "block", pointerEvents: "none" }} />
+            {/* 平均の線(上に重ねた SVG)。2秒(20点)以上ある幅だけを結び、各幅の平均の位置に点。 */}
+            <svg width={geom.PLOTW} height={PLOTH} viewBox={`0 0 ${geom.PLOTW} ${PLOTH}`} aria-hidden="true"
+              style={{ position: "absolute", left: geom.AXW, top: padTop, display: "block", overflow: "hidden", pointerEvents: "none" }}>
+              {shown.map((s, si) => {
+                const st = SERIES_STYLES[si];
+                const inX = (bn) => bn.x >= geom.xlo && bn.x <= geom.xhi;
+                return (
+                  <g key={s.key} style={{ stroke: st.color, fill: st.color }}>
+                    {s.segments.map((seg, k) => (seg.length < 2 ? null : (
+                      <polyline key={k} fill="none" strokeWidth={st.width} strokeDasharray={st.dash || undefined}
+                        points={seg.filter(inX).map((bn) => `${geom.px(bn.x)},${geom.py(bn.mean)}`).join(" ")} />
+                    )))}
+                    {s.segments.flat().filter(inX).map((bn) => (
+                      <circle key={bn.b} cx={geom.px(bn.x)} cy={geom.py(bn.mean)} r={PIVOT_DOT_R} stroke="var(--c-surface)" strokeWidth={PIVOT_DOT_RING} />
+                    ))}
+                  </g>
+                );
+              })}
+            </svg>
+          </div>
+        )}
+      </div>
+      {geom && hiddenCount > 0 && (
+        <div className="sans" style={{ marginTop: 6, fontSize: 12, color: "var(--c-ink-3)" }}>
+          残り{hiddenCount}本は表示していません(見分けのつく系列は6本まで)。フィルターで絞ると全部見えます。
+        </div>
+      )}
+    </div>
+  );
+});
+
+// 【便CL 2026-10-11 本人裁定】縦軸・横軸を選ぶシート。一覧は縦横で同じ(数値7 → 項目12)。
+// 押せない行(pivotAxisOptions の disabled)は薄く(.35)・押せない。説明文は出さない(見ればわかる。本人裁定)。
+// 器は BottomSheet、行は OptionRow(作法を写さない)。項目は12あるので2列(承認済みのモック)。
+function PivotAxisSheet({ ariaLabel, options, onPick, onClose }) {
+  const measures = options.filter((o) => o.group === "measure");
+  const dims = options.filter((o) => o.group === "dim");
+  const head = { fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", padding: "var(--sp-3) 2px 2px" };
+  const row = (o, last) => (
+    <OptionRow key={o.key} label={o.label} selected={o.selected} disabled={o.disabled} last={last}
+      onClick={() => { if (o.disabled) return; onPick(o.key); onClose(); }} />
+  );
+  return (
+    <BottomSheet ariaLabel={ariaLabel} onClose={onClose}>
+      <div className="sans" style={{ fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", marginBottom: 10 }}>{ariaLabel}</div>
+      {/* まとまりごとに role="group"(読み上げは aria-label。見出しの字は目で見る用なので読み上げから外す)。 */}
+      <div role="listbox" aria-label={ariaLabel}>
+        <div role="group" aria-label="数値">
+          <div className="sans" aria-hidden="true" style={{ ...head, paddingTop: 0 }}>数値</div>
+          {measures.map((o, i) => row(o, i === measures.length - 1))}
+        </div>
+        <div role="group" aria-label="項目">
+          <div className="sans" aria-hidden="true" style={head}>項目</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", columnGap: "var(--sp-3)" }}>
+            {dims.map((o, i) => row(o, i >= dims.length - 2))}
+          </div>
+        </div>
+      </div>
+    </BottomSheet>
+  );
+}
+
+// 【便CL 2026-10-11 本人裁定 / 統括の決定(再審査)】⇄(縦軸と横軸を入れ替える)。軸の行の**専用の細い列**
+// (縦軸 | ⇄ | 横軸 | 分析軸 の4列。列の幅 28px は統括の決定)に置く。見た目は 24px の丸(承認済みのモックの .swap)。
+// 【差し戻しの経緯】初版は縦軸のラベル行の右端に重ね、当たり判定が真上の「＋」と値の行・▾ を取った。2版は縦軸の値の右を
+// 36px 空けたが、縦軸の値が19のうち13で「…」に切れ、D-10c(値に列の幅をまるごと使わせる)に反した。
+// 列を足すと削る幅は3つのセルで等しく分け合う(1つあたり約12px)ので、どのセルの値もほぼ今の幅のまま。
+// 当たり判定は ⇄ の列+左右の溝(軸の行の gap = --sp-2)で、幅 28 + 8 + 8 = 44 = --tap-min、高さは行の高さ(セルの 44pt)。
+// 溝の端までなので、縦軸・横軸のどちらのセルの値や ▾ にも掛からない。
+// 丸の縦の位置は**値の行**に合わせる(モックの「縦軸と横軸の間」)。値の行の高さは書体で端末ごとに違うので、
+// 描いたあとに隣(縦軸)のセルの値の行を測る(このセルの前の兄弟 = 縦軸のセル → その最初の子 = PlainSelect → 2つ目の子 = 値の行)。
+const PIVOT_SWAP_D = 24;
+function PivotSwapButton({ onClick }) {
+  const ref = useRef(null);
+  const [valueMid, setValueMid] = useState(null);
+  const place = () => {
+    const cell = ref.current;
+    const val = cell?.previousElementSibling?.firstElementChild?.children?.[1];
+    if (!cell || !val) return;
+    const v = val.getBoundingClientRect(), p = cell.getBoundingClientRect();
+    setValueMid(v.top - p.top + v.height / 2);
+  };
+  useLayoutEffect(() => {
+    place();
+    if (typeof ResizeObserver === "undefined") return undefined;
+    const sel = ref.current?.previousElementSibling?.firstElementChild;
+    if (!sel) return undefined;
+    // 縦軸のボタンの中身(ラベル行・値の行)の大きさが変わったら(書体の読み込みなど)測り直す。
+    const ro = new ResizeObserver(place);
+    for (const el of sel.children) ro.observe(el);
+    return () => ro.disconnect();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return (
+    <div ref={ref} style={{ position: "relative", minWidth: 0 }}>
+      <button
+        type="button" onClick={onClick} aria-label="縦軸と横軸を入れ替える"
+        style={{
+          position: "absolute", top: 0, bottom: 0, left: "calc(var(--sp-2) * -1)", right: "calc(var(--sp-2) * -1)",
+          minWidth: "var(--tap-min)", minHeight: "var(--tap-min)", padding: 0, background: "none", border: "none",
+          display: "flex", alignItems: "flex-start", justifyContent: "center", cursor: "pointer",
+        }}
+      >
+        <span aria-hidden="true" style={{
+          width: PIVOT_SWAP_D, height: PIVOT_SWAP_D, boxSizing: "border-box", borderRadius: "var(--r-full)",
+          border: "1px solid var(--c-line-strong)", background: "var(--c-surface)", color: "var(--c-ink-2)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          marginTop: Math.max(0, (valueMid ?? PIVOT_SWAP_D) - PIVOT_SWAP_D / 2),
+        }}>
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M2 5h11M10 2l3 3-3 3" />
+            <path d="M14 11H3M6 8l-3 3 3 3" />
+          </svg>
+        </span>
+      </button>
+    </div>
+  );
+}
+
+// 【便CL 2026-10-11 本人裁定】「問い」の行。横にスクロールする1行のピル。押すと縦軸・横軸・分析軸を一度に書く。
+// 強調は今の軸の組から毎回導く(pivotQuestionActive。別の状態を持たない)。
+// 見た目: 地 --c-surface・枠 --c-line-strong / 選択中は地 --c-accent・字 --c-on-accent。
+// 文字・余白・角丸は条件のチップ行と同じ値(12px / 4px 11px / --r-pill)、当たり判定は --tap-min。
+// 横スクロールなので data-noswipe(子タブの横スワイプに掴ませない)。
+function PivotQuestionRow({ axes, col, onPick }) {
+  return (
+    <div data-noswipe className="sans" style={{ display: "flex", gap: 6, overflowX: "auto", WebkitOverflowScrolling: "touch", overscrollBehaviorX: "contain" }}>
+      {PIVOT_QUESTIONS.map((q) => {
+        const on = pivotQuestionActive(q, axes, col);
+        return (
+          <button key={q.label} type="button" aria-pressed={on} onClick={() => onPick(q)}
+            style={{ ...TAP_BUTTON_RESET, flexShrink: 0 }}>
+            <span style={{
+              display: "inline-flex", alignItems: "center", whiteSpace: "nowrap",
+              /* 【芯1】選択中は地だけ(枠は透明で場所だけ残す)/ 選んでいないときは枠だけ(地は白のまま)。 */
+              background: on ? "var(--c-accent)" : "var(--c-surface)",
+              border: on ? "1px solid transparent" : "1px solid var(--c-line-strong)",
+              borderRadius: "var(--r-pill)", padding: "4px 11px",
+              fontSize: "var(--fs-xs)", fontWeight: 600, lineHeight: 1.4,
+              color: on ? "var(--c-on-accent)" : "var(--c-ink-2)",
+            }}>{q.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 // 奏者が「自分」のセッションだけを集めた経時変化グラフ。分析タブの一番上に表示し、
 // 自分の演奏がどう変化しているかを他のリード・セッションのデータから独立して確認できるようにする。
@@ -17806,7 +18408,8 @@ function AnalysisLabView(props) {
     // 【B-0 / B-1】操作の合図の帯。出し先は App の根に1つだけで、ここは呼ぶだけ。
     showNotice, openSessionRequest, onOpenSessionRequestDone,
     // 【F-59】選択軸・集計条件は親が持つ(タブ移動・下部ナビの再マウントをまたいで保持する)。
-    pivotRow, setPivotRow, pivotCol, setPivotCol, pivotMetric, setPivotMetric,
+    // 【便CL 2026-10-11】縦軸・横軸は鍵の組1つ(pivotAxes = { v, h })。
+    pivotAxes, setPivotAxes, pivotCol, setPivotCol,
     pivotFilters: pivotFiltersRaw, setPivotFilters: setPivotFiltersRaw,
     // 【C-1/C-2 で移設】録音のアップロード。解析処理そのもの(handleUploadFile)は親のまま。
     handleUploadFile, isAnalyzingUpload, uploadProgress,
@@ -17909,11 +18512,29 @@ function AnalysisLabView(props) {
   // --- ピボット集計 ---
   // tuningHz は音名次元が実音ラベルを運指から導くのに使う(F-54)。
   const pivotCtx = useMemo(() => ({ reeds, tuningHz }), [reeds, tuningHz]);
+  // 【便CL 2026-10-11】縦軸・横軸の組から、どのグラフを描くか(rows / cols / scatter)と、
+  // 項目 × 数値の集計に渡す鍵を導く。pivotRow = 項目の側・pivotMetric = 数値の側(散布図ではどちらも null)。
+  // buildPivot とその鍵は以前のまま(項目が横に来ても、集計は同じ cells を描く向きが変わるだけ)。
+  const pivotShape = useMemo(() => pivotAxesShape(pivotAxes), [pivotAxes]);
+  const pivotRow = pivotShape.dimKey;
+  const pivotMetric = pivotShape.measureKey;
   const pivot = useMemo(
     () => buildPivot(framesWithContext, pivotCtx, pivotRow, pivotCol, pivotMetric, pivotFilters),
     [framesWithContext, pivotCtx, pivotRow, pivotCol, pivotMetric, pivotFilters],
   );
   const metricDef = PIVOT_MEASURES.find((m) => m.key === pivotMetric);
+  // 【便CL】数値 × 数値のときだけ散布図を集計する(項目 × 数値のときは作らない)。
+  const pivotScatter = useMemo(
+    () => (pivotShape.kind === "scatter"
+      ? buildPivotScatter(framesWithContext, pivotCtx, pivotShape.h, pivotShape.v, pivotCol, pivotFilters)
+      : null),
+    [pivotShape, framesWithContext, pivotCtx, pivotCol, pivotFilters],
+  );
+  // グラフの下の合計の秒(散布図は点の数、折れ線は cells のフレーム数)。
+  const pivotTotalCount = useMemo(
+    () => (pivotScatter ? pivotScatter.total : pivotCellsTotal(pivot.cells)),
+    [pivotScatter, pivot],
+  );
   // 【便BK 2026-10-02】折れ線(memo の PivotLineChart)へ渡す表示の関数。毎回作り直すと memo が効かないので
   // useCallback で同じ関数を渡す。中身は以前のインラインの式と同じ。早期 return より前に置くこと。
   const pivotRowLabelOf = useCallback((v) => pivotValueLabel(PIVOT_DIMENSIONS.find((d) => d.key === pivotRow), v, pivotCtx), [pivotRow, pivotCtx]);
@@ -18164,6 +18785,12 @@ function AnalysisLabView(props) {
         <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)", lineHeight: 1.6, padding: "0 4px 8px" }}>
           抽出条件・縦軸・横軸・分析軸を選ぶと、蓄積データをマトリクスで集計します
         </div>
+        {/* 【便CL 2026-10-11 本人裁定】「問い」の行(セレクタのカードの上)。押すと縦軸・横軸・分析軸を一度に書く
+            (抽出条件は触らない)。強調は今の軸の組から導く。 */}
+        <PivotQuestionRow
+          axes={pivotAxes} col={pivotCol}
+          onPick={(q) => { setPivotAxes({ v: q.v, h: q.h }); setPivotCol(q.col); }}
+        />
         {/* 【D-10 §7】操作は**カード1枚**にまとめる(条件チップの行 + 軸の行)。
             罫は引かない ── カードの縁が群の境界を担う。 */}
         <div className="card">
@@ -18391,7 +19018,8 @@ function AnalysisLabView(props) {
 
         {/* 【D-2】「並べる軸 / 数値 / 分け方」を横1列に並べ、3つの関係が一目で分かるようにする。
             **中の3つは N-9 の縦軸 / 横軸 / 指標と同じ状態**で、名前だけが違う
-            (親が持つ pivotRow / pivotMetric / pivotCol は不変。機能は1つも変えていない)。
+            (D-2 当時は親が pivotRow / pivotMetric / pivotCol を持っていた。【便CL 2026-10-11】で縦軸・横軸は
+            鍵の組 pivotAxes = { v, h } になり、pivotRow / pivotMetric はそこから導く値になった。分析軸 pivotCol はそのまま)。
             【D-10 §7 本人指示】器は**チップの行と同じカードの中の2行目**になった。
             【D-10c 2026/08/26 本人裁定】ラベルは**値の上に積む**(縦積み = caption の枝)。
             狙いは、値に列の幅をまるごと使わせて長い選択肢を見分けられるようにすること。
@@ -18399,22 +19027,24 @@ function AnalysisLabView(props) {
             (flex + 下限では解けない。下限は無条件の床なので**幅が余っていた組にまで不足を作る**)。
             各セルの minWidth: 0 は、grid の `1fr` = `minmax(auto, 1fr)` の自動最小を外して
             列を本当に等幅にするためのもの(これが無いと長い綴りの列だけが広がる)。
-            列の境界の罫は**引かない**(本人「むやみに線をひくのやめて」)。 */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "var(--sp-2)" }}>
+            列の境界の罫は**引かない**(本人「むやみに線をひくのやめて」)。
+            【便CL 2026-10-11 統括の決定(再審査)】縦軸と横軸の間に ⇄ の専用の細い列(28px)を足して4列
+            (縦軸 | ⇄ | 横軸 | 分析軸)。3つのセルは等幅のまま、削る幅を等しく分け合う(値に列の幅をまるごと使わせる D-10c を保つ)。 */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 28px 1fr 1fr", gap: "var(--sp-2)" }}>
           {[
-            { key: "row", label: "縦軸", aria: "縦軸を選ぶ",
-              text: PIVOT_DIMENSIONS.find((d) => d.key === pivotRow)?.label ?? pivotRow,
-              value: pivotRow, onChange: (v) => setPivotRow(v),
-              options: PIVOT_DIMENSIONS.map((d) => ({ value: d.key, label: d.label })) },
-            { key: "metric", label: "横軸", aria: "横軸(集計する数値)を選ぶ",
-              text: PIVOT_MEASURES.find((m) => m.key === pivotMetric)?.label ?? pivotMetric,
-              value: pivotMetric, onChange: (v) => setPivotMetric(v),
-              options: PIVOT_MEASURES.map((m) => ({ value: m.key, label: m.label })) },
+            /* 【便CL 2026-10-11 本人裁定】縦軸と横軸は**同じ一覧**(数値 → 項目)。押せない行は
+               pivotAxisOptions がもう一方の鍵から決める。選んだ鍵は pivotPickAxis が決まりを確かめて書く。 */
+            { key: "row", label: "縦軸", aria: "縦軸を選ぶ", side: "v",
+              text: pivotAxisLabel(pivotAxes.v),
+              value: pivotAxes.v, onChange: (v) => setPivotAxes((a) => pivotPickAxis(a, "v", v)) },
+            { key: "metric", label: "横軸", aria: "横軸を選ぶ", side: "h",
+              text: pivotAxisLabel(pivotAxes.h),
+              value: pivotAxes.h, onChange: (v) => setPivotAxes((a) => pivotPickAxis(a, "h", v)) },
             { key: "col", label: "分析軸", aria: "分析軸(色で分ける単位)を選ぶ",
               text: pivotCol === "none" ? "なし(全体)" : (PIVOT_DIMENSIONS.find((d) => d.key === pivotCol)?.label ?? pivotCol),
               value: pivotCol, onChange: (v) => setPivotCol(v),
               options: [{ value: "none", label: "なし(全体)" }, ...PIVOT_DIMENSIONS.map((d) => ({ value: d.key, label: d.label }))] },
-          ].map((z) => (
+          ].flatMap((z) => [
             /* 【D-5 2026/08/23 本人指示】「並べる軸、数値、分け方の縦幅が無駄に大きい」。
                小さいラベルを**セレクタと同じ <label> の中**へ入れると、ラベルも押せて
                セル全体が1つの 44pt の当たり判定になる。 */
@@ -18423,9 +19053,14 @@ function AnalysisLabView(props) {
                 strong caption={z.label} ariaLabel={z.aria}
                 text={z.text} value={z.value} onChange={z.onChange}
                 options={z.options}
+                sheet={z.side ? (close) => (
+                  <PivotAxisSheet ariaLabel={z.aria} options={pivotAxisOptions(pivotAxes, z.side)} onPick={z.onChange} onClose={close} />
+                ) : null}
               />
-            </div>
-          ))}
+            </div>,
+            /* 【便CL】縦軸のセルの次(横軸のセルの前)に ⇄ の列。 */
+            ...(z.side === "v" ? [<PivotSwapButton key="swap" onClick={() => setPivotAxes(swapPivotAxes)} />] : []),
+          ])}
         </div>
         </div>
         {/* 【D-10 §7】操作のカードとグラフのカードの間は 12px。罫は引かない。 */}
@@ -18434,11 +19069,16 @@ function AnalysisLabView(props) {
         {/* 折れ線グラフ: 縦=縦軸の項目、横=指標値、指標で選んだ次元の値ごとに色分けした線を重ねる。
             【N-9】グラフ下の軸の説明文(「縦に「…」、横に「…」。…」)は削除した(本人指示)。
             【D-10 §7】器は**カード1枚**。上辺の罫は消えた(群の境界はカードの縁が担う)。 */}
+        {/* 【便CL 2026-10-11 本人裁定】グラフは組み合わせで決まる(pivotShape.kind):
+            縦=項目 → 今の折れ線 / 横=項目 → 横=項目・縦=値の折れ線 / 数値 × 数値 → 散布図。 */}
         <div className="card">
-          {pivot.rowKeys.length === 0 ? (
+          {(pivotScatter ? pivotScatter.total === 0 : pivot.rowKeys.length === 0) ? (
             <div className="sans" style={{ fontSize: 12, color: "var(--c-ink-3)" }}>
-              この軸の組み合わせに該当するデータがまだありません。運指判定・リード紐付けつきで録音するとここに折れ線が育ちます
+              {/* 【便CL】散布図(数値 × 数値)のときは折れ線ではなく点が育つ。 */}
+              この軸の組み合わせに該当するデータがまだありません。運指判定・リード紐付けつきで録音するとここに{pivotScatter ? "点" : "折れ線"}が育ちます
             </div>
+          ) : pivotScatter ? (
+            <PivotScatterChart data={pivotScatter} colLabelOf={pivotColLabelOf} />
           ) : (
             <PivotLineChart
               rowKeys={pivot.rowKeys} colKeys={pivot.colKeys} cells={pivot.cells}
@@ -18448,9 +19088,17 @@ function AnalysisLabView(props) {
               colLabelOf={pivotColLabelOf}
               /* 行の縞(オクターブ単位)は**行が音名のときだけ**。正典に無い規則を発明しない。 */
               rowIsNote={pivotRow === "note"}
+              /* 【便CL】項目が横軸に来たら 横=項目・縦=値 の向き。 */
+              catAxis={pivotShape.kind === "cols" ? "h" : "v"}
             />
           )}
         </div>
+        {/* 【便CL 2026-10-11 本人裁定】グラフの下に合計の秒(フレーム数 × 0.1秒・3桁区切り)。データが無いときは出さない。 */}
+        {pivotTotalCount > 0 && (
+          <div className="sans" data-pivot-total style={{ textAlign: "right", fontSize: "var(--fs-xs)", color: "var(--c-ink-3)", padding: "var(--sp-1) var(--sp-1) 0" }}>
+            {pivotSecText(pivotTotalCount)}
+          </div>
+        )}
         {/* (【D-10 2026/08/26 本人指示で削除】脚注の蓄積量「4,938 音 · 49 セッション · n 時間」は
              ここにあった。D-10 で**蓄積量は My Data の先頭の「累計」カードへ移った**ので、
              この画面から消えた(数字が画面から消えたのではなく、置き場所が1つになった)。
