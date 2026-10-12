@@ -204,6 +204,9 @@ export function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onE
   // アカウント引継のシート。**人物紹介と同じ理由で SwipePager の外に置く**ので、
   // 開いているかどうかもここが持つ(ProfileView からは開く合図だけ受ける)。
   const [backup, setBackup] = useState(false);
+  // 【便CP 2026-10-12 本人指示】利用者の呼び名(「○○さん」)に使う自分のニックネーム。この画面が持っている profile を渡すだけで、新しく読まない。
+  // 無ければ null(呼び名は「あなた」のまま ── screens.jsx の callNameOf)。
+  const myNickname = profile?.nickname ?? null;
   // 【公開ユーザーは1度だけ読む】タブを切り替えるたびに読み直さない。
   // 読み取り回数は費用そのもので、利用者数の2乗で増える(設計書の決定1-b)。
   // 【便BG 2026-10-01 本人指示】通報された人を一覧から落とすのをやめた(usePublicUsers は flags を読まない)。
@@ -421,7 +424,7 @@ export function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onE
     const clearPane = () => setPerson(null);
     const paneRight = (k) => (tab === k && person ? (
       <PersonBody key={person.uid} person={person} ideals={shownIdeals ?? []} myIdeals={myIdeals} tuningHz={tuningHz}
-                  onAdopt={onAdoptIdeal} myUid={uid} onBlock={block} inPane />
+                  onAdopt={onAdoptIdeal} myUid={uid} onBlock={block} inPane myNickname={myNickname} />
     ) : (
       <PaneEmpty>奏者を選ぶと、ここに詳しいデータが表示されます</PaneEmpty>
     ));
@@ -439,7 +442,7 @@ export function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onE
         <SwipePager index={index} onIndexChange={(i) => go(SUB_TABS[i].key)} fill={paneActive}>
           {/* 左ペインの中身・読み込み中の告知は下の狭い木と同じ(渡す値も同じ。足したのは selectedUid の口だけ)。 */}
           {twoPane("data", dirGate ?? (ideals === null ? <LoadingRing /> : (
-            <DataScreen users={users} ideals={shownIdeals} myIdeals={myIdeals} myUid={uid} saxTypes={profile?.saxTypes ?? []} onOpenPerson={setPerson} tuningHz={tuningHz} onAdopt={onAdoptIdeal} active={index === 0} selectedUid={paneUidOf("data")} onFilterChange={clearPane} />
+            <DataScreen users={users} ideals={shownIdeals} myIdeals={myIdeals} myUid={uid} saxTypes={profile?.saxTypes ?? []} onOpenPerson={setPerson} tuningHz={tuningHz} onAdopt={onAdoptIdeal} active={index === 0} selectedUid={paneUidOf("data")} onFilterChange={clearPane} myNickname={myNickname} />
           )))}
           {twoPane("rank", dirGate ?? <RankScreen users={users} myUid={uid} onOpenPerson={setPerson} selectedUid={paneUidOf("rank")} onFilterChange={clearPane} />)}
           {column(dirGate ?? <ShareScreen users={users} saxTypes={profile?.saxTypes ?? []} />)}
@@ -465,7 +468,7 @@ export function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onE
         {dirGate ?? (ideals === null ? <LoadingRing /> : (
           /* 【便BC 審査】active: 横スワイプで裏へ回ったら用語の説明を閉じる(ページャは裏のページも描いたまま)。
              【便BO 2026-10-02 本人指示】onAdopt: みんなの平均カードを押して目安に設定する。人物のページと同じ受け口。 */
-          <DataScreen users={users} ideals={shownIdeals} myIdeals={myIdeals} myUid={uid} saxTypes={profile?.saxTypes ?? []} onOpenPerson={setPerson} tuningHz={tuningHz} onAdopt={onAdoptIdeal} active={index === 0} />
+          <DataScreen users={users} ideals={shownIdeals} myIdeals={myIdeals} myUid={uid} saxTypes={profile?.saxTypes ?? []} onOpenPerson={setPerson} tuningHz={tuningHz} onAdopt={onAdoptIdeal} active={index === 0} myNickname={myNickname} />
         ))}
         {dirGate ?? <RankScreen users={users} myUid={uid} onOpenPerson={setPerson} />}
         {dirGate ?? <ShareScreen users={users} saxTypes={profile?.saxTypes ?? []} />}
@@ -491,6 +494,7 @@ export function JoinedView({ profile, uid, sessions, tuningHz, onAdoptIdeal, onE
           onClose={() => setPerson(null)}
           myUid={uid}
           onBlock={block}
+          myNickname={myNickname}
         />
       ) : null}
       {/* 【アカウント引継も SwipePager の外】上の人物紹介と同じ理由。

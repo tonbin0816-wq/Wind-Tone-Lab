@@ -113,7 +113,9 @@ beforeEach(dropRoot);
 afterEach(dropRoot);
 
 const imgSrcs = () => [...document.querySelectorAll("img")].map((i) => i.getAttribute("src"));
-const myRankRow = () => [...document.querySelectorAll('[role="button"]')].find((el) => el.textContent.includes(MY_PROFILE.nickname));
+// 【便CP 2026-10-12】みんなの平均カードの台紙(role="button")も「じぶんさんの計測データもお待ちしています」で
+// ニックネームを含むようになったので、文字ではなく行の名乗り(aria-label「○○ の詳細を見る」)で自分の行を探す。
+const myRankRow = () => [...document.querySelectorAll('[role="button"]')].find((el) => el.getAttribute("aria-label") === `${MY_PROFILE.nickname} の詳細を見る`);
 const publicSwitch = () => document.querySelector('[role="switch"][aria-label="公開"]');
 const sheet = () => document.querySelector('[role="dialog"][aria-label="アイコンを変更"]');
 

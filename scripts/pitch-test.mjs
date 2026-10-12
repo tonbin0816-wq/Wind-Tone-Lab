@@ -27593,7 +27593,8 @@ console.log("========== 検証69: 注記は凡例の直下(案2は取り消し) 
   const NOTE69 = "計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています。";
   // 【便BC 2026-09-25 本人指示】揃えの注記(NOTE69)は用語の説明(MetricTabs)へ移った。凡例の直下に残るのは
   // 「あなたの計測データもお待ちしています」(MINE_WAITING_NOTE)の1行だけなので、並びの主張はその1行で見る。
-  const iNote = person69.indexOf("{MINE_WAITING_NOTE}");
+  // 【便CP 2026-10-12】1行は呼び名入り(mineWaitingNoteOf)になり、JSX は {mineWaitingNote} を描く。
+  const iNote = person69.indexOf("{mineWaitingNote}");
   const iSticky = person69.indexOf('position: "sticky", bottom: 0');
   const iSpacer = person69.indexOf("height: ADOPT_STICKY_SPACER_H");
   const iLegend = person69.indexOf("<Legend series={chart.series} />");
@@ -27606,7 +27607,7 @@ console.log("========== 検証69: 注記は凡例の直下(案2は取り消し) 
     iLegend > 0 && iLegend < iNote && iNote < iSticky
     // 【便BA】注記の div の中は「自分の線があれば揃えの注記、無ければ『あなたの計測データもお待ちしています』」の出し分け。
     // 【便BC】揃えの注記は用語の説明へ移ったので、凡例の直下は「自分の線が無いときだけ お待ちしています」の1行。
-    && /<Legend series=\{chart\.series\} \/>\s*\r?\n\s*(?:\{\}\s*)?\{chart\.withMine \? null : \(\s*\r?\n\s*<div className="sans" style=\{noteStyle\}>\{MINE_WAITING_NOTE\}<\/div>/.test(person69),
+    && /<Legend series=\{chart\.series\} \/>\s*\r?\n\s*(?:\{\}\s*)?\{chart\.withMine \? null : \(\s*\r?\n\s*<div className="sans" style=\{noteStyle\}>\{mineWaitingNote\}<\/div>/.test(person69),
     `凡例=${iLegend} / 注記=${iNote}`);
   // 【便BC 2026-09-25 本人指示】揃えの注記はグラフの下から消え、重心・HNR の用語の説明(MetricTabs)の
   // 一番下へ移った。人物シートとみんなの平均カード(以前ここで「目安の個別ページ」と呼んでいた2件目)の
@@ -27774,14 +27775,15 @@ console.log("\n========== 検証71: 便P 日付の寄せ / 貼り付くボタン
     const NOTE71 = "計測環境により値全体が一律にずれるため、揃えた状態で線の形で比較しています。";
     const iLegend = person71.indexOf("<Legend series={chart.series} />");
     // 【便BC 2026-09-25 本人指示】揃えの注記(NOTE71)は用語の説明へ移った。凡例の直下に残る1行で見る。
-    const iNote = person71.indexOf("{MINE_WAITING_NOTE}");
+    // 【便CP 2026-10-12】1行は呼び名入り(mineWaitingNoteOf)。JSX は {mineWaitingNote}。
+    const iNote = person71.indexOf("{mineWaitingNote}");
     const iSpacer = person71.indexOf("height: ADOPT_STICKY_SPACER_H");
     const iSticky = person71.indexOf('position: "sticky", bottom: 0');
     check("71.3 注記は凡例の**直後**(間に他の要素が挟まっていない)",
       iLegend > 0 && iNote > iLegend
       // 【便BA】注記の div の中は揃えの注記と「あなたの計測データもお待ちしています」の出し分け。
       // 【便BC】揃えの注記は用語の説明へ移り、凡例の直下は「自分の線が無いときだけ お待ちしています」の1行。
-      && /<Legend series=\{chart\.series\} \/>\s*\r?\n\s*(?:\{\}\s*)?\{chart\.withMine \? null : \(\s*\r?\n\s*<div className="sans" style=\{noteStyle\}>\{MINE_WAITING_NOTE\}<\/div>/.test(person71)
+      && /<Legend series=\{chart\.series\} \/>\s*\r?\n\s*(?:\{\}\s*)?\{chart\.withMine \? null : \(\s*\r?\n\s*<div className="sans" style=\{noteStyle\}>\{mineWaitingNote\}<\/div>/.test(person71)
       && !person71.includes(NOTE71),
       `凡例=${iLegend} / 注記=${iNote}`);
     check("71.3 注記は貼り付く器より**前**に在る(案2 は取り消した)",
@@ -31231,7 +31233,7 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     /<MetricTabs value=\{metric\} onChange=\{setMetric\} onAccent active=\{active\} \/>/.test(data89));
   // 【便BC 審査】横スワイプで裏へ回ったら閉じる。平均カードはページャの 0 番目(データ)なので active は index === 0。
   check("89.1 平均カードはページャの 0 番目で、active={index === 0} を受け取る",
-    /<SwipePager index=\{index\}[^>]*>[\s\S]{0,700}?<DataScreen [^>]*active=\{index === 0\} \/>[\s\S]{0,200}?<RankScreen /.test(codeOf(commRaw89))
+    /<SwipePager index=\{index\}[^>]*>[\s\S]{0,700}?<DataScreen [^>]*active=\{index === 0\} myNickname=\{myNickname\} \/>[\s\S]{0,200}?<RankScreen /.test(codeOf(commRaw89))
     && /const SUB_TABS = \[\s*\r?\n\s*\{ key: "data",/.test(commRaw89));
   // 濃紺の指定を渡さない呼び手(シェアの「見る項目」・人物のページ)の見た目は変わらない。
   check("89.1 UnderlineTabs: onAccent でないときの字・下線・並びは便BC の前と同じ綴り",
@@ -31264,7 +31266,7 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     && codeOf(srcOfFn(scrRaw89, "JoinPreviewDataScreen")).includes("<MetricTabs")
     && !data89.includes(SHARED89) && !person89.includes(SHARED89)
     // 【便BO2 2026-10-02】1行は台紙の読み上げの説明(aria-describedby)から指すので id を持つ。見た目の綴りは同じ。
-    && /\{chart && !chart\.withMine \? \(\s*\r?\n\s*<div id=\{avgWaitId\} className="sans" style=\{bodyNoteStyle\}>\{MINE_WAITING_NOTE\}<\/div>/.test(data89));
+    && /\{chart && !chart\.withMine \? \(\s*\r?\n\s*<div id=\{avgWaitId\} className="sans" style=\{bodyNoteStyle\}>\{mineWaitingNote\}<\/div>/.test(data89));
   // 【便BI 2026-10-02】「?」(TermMark)と読み上げの属性(termTabProps)は termTip.jsx の1つ。コミュニティの
   // UnderlineTabs と App.jsx の MetricUnderlineTabs が同じものを読む(写しを作らない)。
   {
@@ -32197,11 +32199,11 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
 
   // --- BV.3 右ペイン: 表の子タブだけ・人が替われば作り直す・空の1行 ------------------------------------------------
   check("BV.3 右ペインの人物のページは PersonBody(inPane)。表の子タブ(tab === k)のときだけ・人ごとに作り直す(key)",
-    /const paneRight = \(k\) => \(tab === k && person \? \(\s*\n\s*<PersonBody key=\{person\.uid\} person=\{person\} ideals=\{shownIdeals \?\? \[\]\} myIdeals=\{myIdeals\} tuningHz=\{tuningHz\}\s*\n\s*onAdopt=\{onAdoptIdeal\} myUid=\{uid\} onBlock=\{block\} inPane \/>/.test(wideBV));
+    /const paneRight = \(k\) => \(tab === k && person \? \(\s*\n\s*<PersonBody key=\{person\.uid\} person=\{person\} ideals=\{shownIdeals \?\? \[\]\} myIdeals=\{myIdeals\} tuningHz=\{tuningHz\}\s*\n\s*onAdopt=\{onAdoptIdeal\} myUid=\{uid\} onBlock=\{block\} inPane myNickname=\{myNickname\} \/>/.test(wideBV));
   check("BV.3 右が空なら1行(PaneEmpty)「奏者を選ぶと、ここに詳しいデータが表示されます」",
     wideBV.includes(`) : (\n      ${EMPTY_BV}\n    ));`) && (codeOf(wideBV).split(EMPTY_BV).length - 1) === 1);
   check("BV.3 右ペインに渡す値は狭い木のシートと同じ(ideals / myIdeals / tuningHz / onAdopt / myUid / onBlock)",
-    /<PersonSheet\s*\n\s*person=\{person\}\s*\n\s*ideals=\{shownIdeals \?\? \[\]\}\s*\n\s*myIdeals=\{myIdeals\}\s*\n\s*tuningHz=\{tuningHz\}\s*\n\s*onAdopt=\{onAdoptIdeal\}\s*\n\s*onClose=\{\(\) => setPerson\(null\)\}\s*\n\s*myUid=\{uid\}\s*\n\s*onBlock=\{block\}\s*\n\s*\/>/.test(narrowBV));
+    /<PersonSheet\s*\n\s*person=\{person\}\s*\n\s*ideals=\{shownIdeals \?\? \[\]\}\s*\n\s*myIdeals=\{myIdeals\}\s*\n\s*tuningHz=\{tuningHz\}\s*\n\s*onAdopt=\{onAdoptIdeal\}\s*\n\s*onClose=\{\(\) => setPerson\(null\)\}\s*\n\s*myUid=\{uid\}\s*\n\s*onBlock=\{block\}\s*\n\s*myNickname=\{myNickname\}\s*\n\s*\/>/.test(narrowBV));
   {
     // 左ペインの中身は狭い木の呼び出しの写し(足したのは selectedUid と onFilterChange の口だけ)。綴りを別々に読んで突き合わせる。
     const callIn = (t, name) => { const m = new RegExp(`<${name} [^\\n]*?\\/>`).exec(codeOf(t)); return m ? m[0] : ""; };
@@ -32221,13 +32223,13 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
 
   // --- BV.4 PersonSheet = BottomSheet + PersonBody(写しを作らない)・ペインの「目安に設定」は浮かせるボタン ----------------
   check("BV.4 PersonSheet は器だけ: 人が無ければ何も描かず、BottomSheet の中に PersonBody を1つ(名乗りは今までどおり「○○ の詳細」)",
-    /^function PersonSheet\(\{ person, ideals, myIdeals, onClose, onAdopt, myUid = null, tuningHz, onBlock = null \}\) \{\s*if \(!person\) return null;\s*return \(\s*<BottomSheet ariaLabel=\{`\$\{person\.nickname\} の詳細`\} onClose=\{onClose\}>\s*<PersonBody person=\{person\} ideals=\{ideals\} myIdeals=\{myIdeals\} onAdopt=\{onAdopt\} myUid=\{myUid\} tuningHz=\{tuningHz\} onBlock=\{onBlock\} \/>\s*<\/BottomSheet>\s*\);\s*\}$/.test(codeOf(sheetBV)),
+    /^function PersonSheet\(\{ person, ideals, myIdeals, onClose, onAdopt, myUid = null, tuningHz, onBlock = null, myNickname = null \}\) \{\s*if \(!person\) return null;\s*return \(\s*<BottomSheet ariaLabel=\{`\$\{person\.nickname\} の詳細`\} onClose=\{onClose\}>\s*<PersonBody person=\{person\} ideals=\{ideals\} myIdeals=\{myIdeals\} onAdopt=\{onAdopt\} myUid=\{myUid\} tuningHz=\{tuningHz\} onBlock=\{onBlock\} myNickname=\{myNickname\} \/>\s*<\/BottomSheet>\s*\);\s*\}$/.test(codeOf(sheetBV)),
     flatBV(sheetBV).slice(0, 160));
   check("BV.4 本文の写しが残っていない(SegmentedTabs「表示する内容」・ブロックの確認・通報のシート・写真の拡大は screens.jsx に1回ずつ・PersonBody の中)",
     [/<SegmentedTabs ariaLabel="表示する内容"/g, /<BlockConfirmSheet\b/g, /<ReportSheet\b/g, /<PhotoZoom url=\{personPhoto\}/g]
       .every((re) => (codeOf(scrBV).match(re) || []).length === 1 && (codeOf(bodyBV).match(re) || []).length === 1));
   check("BV.4 PersonBody は inPane(既定 false)を受け、onClose は受けない。断片(<>…</>)で返す(シートの子の並びは切り出す前と同じ)",
-    /^function PersonBody\(\{ person, ideals, myIdeals, onAdopt, myUid = null, tuningHz, onBlock = null, inPane = false \}\)/.test(bodyBV)
+    /^function PersonBody\(\{ person, ideals, myIdeals, onAdopt, myUid = null, tuningHz, onBlock = null, inPane = false, myNickname = null \}\)/.test(bodyBV)
     && (codeOf(bodyBV).match(/\bonClose\b/g) || []).length === 3
     && (codeOf(bodyBV).match(/onClose=\{\(\) => set(Blocking|Reporting|PhotoZoom)\(false\)\}/g) || []).length === 3
     && /\n {2}return \(\s*\n\s*<>/.test(codeOf(bodyBV)) && /\n {4}<\/>\s*\n {2}\);\s*\n\}$/.test(codeOf(bodyBV))
@@ -32268,7 +32270,7 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
       ring === "inset 0 0 0 1.5px var(--c-accent)" && (appBV.match(/"inset 0 0 0 1\.5px var\(--c-accent\)"/g) || []).length === 1
       && (codeOf(scrBV).match(/inset 0 0 0 1\.5px var\(--c-accent\)/g) || []).length === 1, ring);
     check("BV.6 DataScreen の行: 右に出している人(selectedUid)だけ aria-current=\"true\" と選択中の枠。selectedUid が無ければ何も足さない",
-      /export function DataScreen\(\{[^}]*, selectedUid = null, onFilterChange = null \}\)/.test(scrBV)
+      /export function DataScreen\(\{[^}]*, selectedUid = null, onFilterChange = null, myNickname = null \}\)/.test(scrBV)
       && /aria-current=\{selectedUid != null && owner\.uid === selectedUid \? "true" : undefined\}/.test(data)
       && /\.\.\.\(selectedUid != null && owner\.uid === selectedUid \? \{ \.\.\.PANE_CURRENT_ROW, borderBottomColor: "transparent" \} : null\),/.test(data));
     check("BV.6 RankRow: current のときだけ aria-current と選択中の枠(小さい行は枠だけ・上位3件のカードは影に重ねる)。RankScreen が2つの呼び出しとも selectedUid と比べて渡す",

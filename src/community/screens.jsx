@@ -516,6 +516,7 @@ function WhoLine({ u }) {
 // 名前とは別の項目にして削られないようにする。
 // **紺を使わない**(§1.4「押せる／選ばれている物にだけ」)。本人が差し戻した
 // 「青いバー」と同じ轍を踏まない。
+// 【便CP 2026-10-12】札は「あなた」のまま。同じ行にニックネームが出ているので、呼び名(○○さん)にすると名前が2回並ぶ。
 function NameLine({ nickname, mine, size }) {
   return (
     <span style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
@@ -1070,7 +1071,15 @@ const COMPARE_SERIES = { color: "var(--c-ink-3)", dash: "4 3", hollow: true };
 // 【便BA 2026-09-25 本人指示】自分と共通の音が 3 音に足りない(自分の計測がその楽器に無いときも)とき、
 // 自分の線は出さず、相手(みんなの平均 / その人)の線だけを出して、グラフの下にこの1行。
 // 以前はグラフごと出さずに「重なっている音が 3 音に足りません」「自分の計測がまだありません」を出していた。
-const MINE_WAITING_NOTE = "あなたの計測データもお待ちしています";
+// 【便CP 2026-10-12 本人指示】利用者の呼び方は「自分のニックネーム + さん」(例「たろうさん」)。
+// ニックネームが無いとき(参加前・プロフィール作成前・読み込み中・削除後)は「あなた」のまま。
+// ニックネームは画面がすでに持っている自分のプロフィール(JoinedView の profile.nickname)を渡すだけで、新しく読まない。
+// 綴りはプロフィールの表示(マイページの「ニックネーム」の行・一覧の名前)と同じく、保存された値をそのまま出す
+// (保存の時点で前後の空白は落としてある ── profile.js の validateNickname)。空白だけ・文字列でない値は「無い」と扱う。
+export function callNameOf(nickname) {
+  return typeof nickname === "string" && nickname.trim() !== "" ? `${nickname}さん` : "あなた";
+}
+export const mineWaitingNoteOf = (nickname) => `${callNameOf(nickname)}の計測データもお待ちしています`;
 const MINE_SERIES = { color: "var(--c-accent)", dash: null, hollow: false };
 
 // chart = { series: [{ label, color, dash?, values, byMetric }] } を NoteAxisLineChart の形にして描く。
@@ -1184,7 +1193,9 @@ export function JoinPreviewDataScreen() {
 // 【便BV3 2026-10-04 本人裁定】selectedUid = 2ペインで右に出している人の uid。その行に選択中の枠(PANE_CURRENT_RING)と aria-current。
 // 【便BV3 統括の裁定 D】onFilterChange = 一覧の条件(楽器・ジャンル・属性)が変わったと知らせる口(2ペインだけが渡し、右を空に戻す)。
 // どちらも既定 null(iPhone)では何も変わらない。
-export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPerson, tuningHz, active = true, onAdopt = null, selectedUid = null, onFilterChange = null }) {
+// 【便CP 2026-10-12】myNickname = 自分のニックネーム(呼び名 callNameOf に使う。無ければ「あなた」)。
+export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPerson, tuningHz, active = true, onAdopt = null, selectedUid = null, onFilterChange = null, myNickname = null }) {
+  const mineWaitingNote = mineWaitingNoteOf(myNickname);
   // 【楽器種別は条件行の楽器ピルで選ぶ】2026/09/06 本人指示で専用のボタン行は消した。
   // アルトとテナーの重心を混ぜた平均は誰の目安にもならないので、この画面の
   // 楽器ピルには「すべて」が無い(争点B)。既定は自分が登録している最初の種別。
@@ -1263,7 +1274,7 @@ export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPer
   const tipOpenAtDownRef = useRef(false);
   const adoptable = Boolean(onAdopt && !avg.error && avgPlain);
   // 【便BO2 2026-10-02 統括の裁定】台紙(role="button")の読み上げ。以前は aria-label で名前を付けていたが、
-  // aria-label は中身の読み上げを置き換えるので、凡例と「あなたの計測データもお待ちしています」が読まれなくなっていた。
+  // aria-label は中身の読み上げを置き換えるので、凡例と「○○さんの計測データもお待ちしています」(便CP の呼び名)が読まれなくなっていた。
   //   名前 … 見えない要素(hidden)の「みんなの平均を目安に設定」を aria-labelledby で指す(名前は変えていない)
   //   説明 … 凡例と下の1行(グラフが無いときは「この指標のデータがありません」)を aria-describedby で添える
   const adoptNameId = useId();
@@ -1356,10 +1367,10 @@ export function DataScreen({ users, ideals, myIdeals, myUid, saxTypes, onOpenPer
                   平行移動を知らずに見ると差を絶対値の差と読んでしまう、という理由の注意書きなので、
                   消したのではなく置き場所を替えた。
                   【便BA】自分の線を出せないとき(共通の音が 3 音未満・自分の計測が無い)は、今までどおり
-                  「あなたの計測データもお待ちしています」の1行を出す。
+                  「○○さんの計測データもお待ちしています」の1行を出す(【便CP】呼び名は mineWaitingNoteOf。ニックネームが無ければ「あなたの…」)。
                   【便BA 再審査】グラフが無い(この指標のデータがありません)ときは出さない。 */}
               {chart && !chart.withMine ? (
-                <div id={avgWaitId} className="sans" style={bodyNoteStyle}>{MINE_WAITING_NOTE}</div>
+                <div id={avgWaitId} className="sans" style={bodyNoteStyle}>{mineWaitingNote}</div>
               ) : null}
             </div>
           )}
@@ -1543,7 +1554,7 @@ const PERSON_TABS = [
 // 【便BV 2026-10-04 本人裁定(案B)】中身は PersonBody に出した(写しを作らない)。ここはシートの器に入れるだけ。
 // iPhone(狭い木)はこのシートで開き、iPad の2ペイン(広い木)は同じ PersonBody を右ペインに直に描く(inPane)。
 // 器の中の DOM は切り出す前と同じ(PersonBody は断片 <> を返すので、BottomSheet の子の並びは1つも変わらない)。
-export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid = null, tuningHz, onBlock = null }) {
+export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid = null, tuningHz, onBlock = null, myNickname = null }) {
   if (!person) return null;
   return (
     // 【C-16 / D-6 2026/09/09 本人裁定「シートは①(下寄せ + つまみ)に統一する」】
@@ -1555,7 +1566,7 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
     // 中身は縦に長い。上限(画面高 − ナビ)と overflowY: auto は BottomSheet が持つので、
     // 溢れたぶんはシートの中でスクロールする(自前の overflowY はもう持たない)。
     <BottomSheet ariaLabel={`${person.nickname} の詳細`} onClose={onClose}>
-      <PersonBody person={person} ideals={ideals} myIdeals={myIdeals} onAdopt={onAdopt} myUid={myUid} tuningHz={tuningHz} onBlock={onBlock} />
+      <PersonBody person={person} ideals={ideals} myIdeals={myIdeals} onAdopt={onAdopt} myUid={myUid} tuningHz={tuningHz} onBlock={onBlock} myNickname={myNickname} />
     </BottomSheet>
   );
 }
@@ -1569,7 +1580,9 @@ export function PersonSheet({ person, ideals, myIdeals, onClose, onAdopt, myUid 
 //   3. 閉じる操作を持たない(onClose を受けない。ペインに閉じる操作は無い)
 // 人が替わったら呼び手が作り直す(key)── 開いていたタブ・楽器・取り込んだ結果を次の人へ持ち越さない。
 // onClose はもともとここでは読んでいない(閉じ方は BottomSheet が持つ)。
-export function PersonBody({ person, ideals, myIdeals, onAdopt, myUid = null, tuningHz, onBlock = null, inPane = false }) {
+// 【便CP 2026-10-12】myNickname = 自分のニックネーム(呼び名 callNameOf に使う。無ければ「あなた」)。
+export function PersonBody({ person, ideals, myIdeals, onAdopt, myUid = null, tuningHz, onBlock = null, inPane = false, myNickname = null }) {
+  const mineWaitingNote = mineWaitingNoteOf(myNickname);
   const [adopted, setAdopted] = useState(null);
   // 【便BE 2026-09-30 本人裁定「B」】ブロックの確認のシートを開いているか。
   // 「ブロックする」を押したら onBlock(person) を呼ぶだけ ── 一覧に足す・このページを閉じるのは
@@ -1620,7 +1633,7 @@ export function PersonBody({ person, ideals, myIdeals, onAdopt, myUid = null, tu
   // 【便BA 2026-09-25 本人指示】その人の線は**自分の計測に関係なくいつも出す**。
   //   ・自分と共通の音が 3 音以上 → その人の線を自分の高さへ揃え、自分の線と重ねる(以前と同じ)
   //   ・足りない(自分の計測が無いときも) → 自分の線は出さず、その人の線は揃えない値のまま
-  //     + 「あなたの計測データもお待ちしています」の1行
+  //     + 「○○さんの計測データもお待ちしています」の1行(【便CP】呼び名。ニックネームが無ければ「あなたの…」)
   // 以前は足りないとき線ごと出さずに文言(「重なっている音が…」)だけを出していた。
   // 【合わせた結果を1度だけ作る】グラフにも取り込みにも同じものを使う。
   // 別々に計算すると、画面に出ている線と取り込まれる値が食い違いうる。
@@ -1798,12 +1811,12 @@ export function PersonBody({ person, ideals, myIdeals, onAdopt, myUid = null, tu
                     <div style={{ display: "grid", gap: "var(--sp-2)" }}>
                       <Legend series={chart.series} />
                       {/* 【便BA】自分の線を出せないとき(揃えていない)は「揃えた状態で」は嘘になるので、
-                          同じ体裁で「あなたの計測データもお待ちしています」の1行に置き換える。
+                          同じ体裁で「○○さんの計測データもお待ちしています」(【便CP】呼び名)の1行に置き換える。
                           【便BC 2026-09-25 本人指示】揃えているときの「計測環境により値全体が一律にずれるため、…」は
                           重心・HNR の用語の説明の一番下へ移した(MetricTabs。みんなの平均カードと同じ)。
                           ここに残るのは「お待ちしています」の1行だけ。 */}
                       {chart.withMine ? null : (
-                        <div className="sans" style={noteStyle}>{MINE_WAITING_NOTE}</div>
+                        <div className="sans" style={noteStyle}>{mineWaitingNote}</div>
                       )}
                     </div>
                     {adopted?.ok ? (
@@ -1919,6 +1932,7 @@ export function PersonBody({ person, ideals, myIdeals, onAdopt, myUid = null, tu
       {blocking ? (
         <BlockConfirmSheet
           nickname={person?.nickname}
+          myNickname={myNickname}
           onClose={() => setBlocking(false)}
           onConfirm={() => { setBlocking(false); onBlock?.(person); }}
         />
@@ -1976,7 +1990,9 @@ export function PersonBody({ person, ideals, myIdeals, onAdopt, myUid = null, tu
 // (縦に積む・間 --sp-2)。最後の一手は【便BG】塗りなしの赤枠(DANGER_OUTLINE_STYLE)、「やめる」は B型の素のボタン。
 // ------------------------------------------------------------------
 // 【便BG 2026-10-01 本人指示】本文の1段落目を書き換えた(2段落目はそのまま)。
-export const BLOCK_NOTE_EFFECT = "ブロックすると、この奏者のデータはあなたのコミュニティから非表示になります。相手には通知されません。";
+// 【便CP 2026-10-12 本人指示】「あなたの」は呼び名(callNameOf。ニックネーム + さん / 無ければ「あなた」)に替わった。
+export const blockNoteEffectOf = (myNickname) =>
+  `ブロックすると、この奏者のデータは${callNameOf(myNickname)}のコミュニティから非表示になります。相手には通知されません。`;
 export const BLOCK_NOTE_UNDO = "マイページの「ブロック中の人」から、いつでも解除できます。";
 // 本文の段落。モックの 13px / --c-ink-2 / 行送り 1.8 を既存の値で引く(--fs-sm = 13px。1.8 は bodyNoteStyle の行送り)。
 const blockNoteStyle = { ...bodyNoteStyle, fontSize: "var(--fs-sm)" };
@@ -1989,12 +2005,13 @@ const SHEET_QUIET_BUTTON_STYLE = {
 };
 // 縦に2つ積む器(44px 以上のボタン・間 8px = --sp-2)。
 const sheetButtonStackStyle = { display: "grid", gap: "var(--sp-2)", marginTop: "var(--sp-4)" };
-export function BlockConfirmSheet({ nickname, onClose, onConfirm }) {
+// myNickname = 自分のニックネーム(本文の呼び名に使う)。nickname = ブロックする相手のニックネーム(見出し)。
+export function BlockConfirmSheet({ nickname, onClose, onConfirm, myNickname = null }) {
   const title = `${nickname ?? "この人"} をブロックしますか`;
   return (
     <BottomSheet ariaLabel={title} onClose={onClose}>
       <div className="sans" style={sheetTitleStyle}>{title}</div>
-      <div className="sans" style={{ ...blockNoteStyle, marginTop: "var(--sp-2)" }}>{BLOCK_NOTE_EFFECT}</div>
+      <div className="sans" style={{ ...blockNoteStyle, marginTop: "var(--sp-2)" }}>{blockNoteEffectOf(myNickname)}</div>
       <div className="sans" style={{ ...blockNoteStyle, marginTop: "var(--sp-2)" }}>{BLOCK_NOTE_UNDO}</div>
       <div style={sheetButtonStackStyle}>
         <button type="button" onClick={onConfirm} className="sans" style={DANGER_OUTLINE_STYLE}>

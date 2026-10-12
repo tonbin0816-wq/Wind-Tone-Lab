@@ -16,7 +16,9 @@ import { createRoot } from "react-dom/client";
 // 【守っていないもの】一覧から実際に消えること・保存・引継(blockJoined.test.jsx が見る)。
 //   ブラウザでの実寸(jsdom は寸法を持たない ── style の綴りで見る)。
 // ------------------------------------------------------------------
-const { PersonSheet, BLOCK_NOTE_EFFECT, BLOCK_NOTE_UNDO } = await import("./screens.jsx");
+// 【便CP 2026-10-12】本文1段落目の呼び名は自分のニックネーム(blockNoteEffectOf)。ここは myNickname を渡さない描き方なので「あなた」。
+// ニックネームがあるときの「○○さん」は callName.test.jsx が見る。
+const { PersonSheet, blockNoteEffectOf, BLOCK_NOTE_UNDO } = await import("./screens.jsx");
 const { ProfileView } = await import("./CommunityTab.jsx");
 
 const PERSON = {
@@ -142,7 +144,7 @@ describe("人物のページの「ブロック」", () => {
       "ブロックすると、この奏者のデータはあなたのコミュニティから非表示になります。相手には通知されません。",
       "マイページの「ブロック中の人」から、いつでも解除できます。",
     ]);
-    expect(BLOCK_NOTE_EFFECT).toBe("ブロックすると、この奏者のデータはあなたのコミュニティから非表示になります。相手には通知されません。");
+    expect(blockNoteEffectOf(null)).toBe("ブロックすると、この奏者のデータはあなたのコミュニティから非表示になります。相手には通知されません。");
     expect(BLOCK_NOTE_UNDO).toBe("マイページの「ブロック中の人」から、いつでも解除できます。");
     const ok = [...d.querySelectorAll("button")].filter((b) => b.textContent.trim() === "ブロックする");
     const no = [...d.querySelectorAll("button")].filter((b) => b.textContent.trim() === "やめる");
