@@ -33980,18 +33980,17 @@ console.log("========== 検証CI: 便CI 参加のカードは見出しと1行だ
 
     // --- CL.7 問いの書き込みと強調判定 -------------------------------------------------------
     const QS = [
-      ["音ごとの音程のクセは?", "note", "pitchCents", "none"],
+      ["音程の癖は?", "note", "pitchCents", "none"],
       ["音量で音程は変わる?", "pitchCents", "volume", "none"],
       ["音量で音色は変わる?", "hnr", "volume", "none"],
+      ["リードで音程は変わる?", "note", "pitchCents", "reed"],
       ["リードで音色は違う?", "note", "hnr", "reed"],
-      ["リードは使うほど変わる?", "reedDays", "hnr", "none"],
-      ["日によって変わる?", "date", "pitchCents", "none"],
     ];
-    check("CL.7 問いは6つ・この順・この中身(定数1か所)",
+    check("CL.7 問いは5つ・この順・この中身(定数1か所)",
       JSON.stringify(cl.PIVOT_QUESTIONS.map((q) => [q.label, q.v, q.h, q.col])) === JSON.stringify(QS),
       JSON.stringify(cl.PIVOT_QUESTIONS.map((q) => q.label)));
     check("CL.7 どの問いの組も決まりを満たす", cl.PIVOT_QUESTIONS.every((q) => cl.pivotAxesValid(q.v, q.h)));
-    const q4 = cl.PIVOT_QUESTIONS[3];
+    const q4 = cl.PIVOT_QUESTIONS.find((q) => q.label === "リードで音色は違う?");
     check("CL.7 強調は今の組(縦・横・分析軸)と一致するときだけ。分析軸が違う・縦横が逆なら強調しない",
       cl.pivotQuestionActive(q4, { v: "note", h: "hnr" }, "reed")
       && !cl.pivotQuestionActive(q4, { v: "note", h: "hnr" }, "none")

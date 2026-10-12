@@ -209,7 +209,7 @@ describe("⇄ と問い(便CL)", () => {
   it("問いは縦軸・横軸・分析軸を一度に書き、抽出条件は触らない。一致するピルだけが押された状態", async () => {
     await openAnalysis();
     const qs = [...document.querySelectorAll("[data-noswipe] button[aria-pressed]")].map((b) => b.textContent);
-    expect(qs).toEqual(["音ごとの音程のクセは?", "音量で音程は変わる?", "音量で音色は変わる?", "リードで音色は違う?", "リードは使うほど変わる?", "日によって変わる?"]);
+    expect(qs).toEqual(["音程の癖は?", "音量で音程は変わる?", "音量で音色は変わる?", "リードで音程は変わる?", "リードで音色は違う?"]);
     // 既定(分析軸=リードメーカー)はどの問いとも一致しない
     expect(pressedQuestions()).toEqual([]);
     const chipsBefore = document.querySelector('button[aria-label="集計の条件を追加"]').parentElement.textContent;

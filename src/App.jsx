@@ -15347,12 +15347,11 @@ function swapPivotAxes(axes) {
 // 【便CL】「問い」の行。押すと縦軸・横軸・分析軸を一度に書く(抽出条件は触らない)。
 // 文言と中身はここ1か所だけ(あとで差し替えやすくする)。col は分析軸("none" = なし)。
 const PIVOT_QUESTIONS = [
-  { label: "音ごとの音程のクセは?", v: "note", h: "pitchCents", col: "none" },
+  { label: "音程の癖は?", v: "note", h: "pitchCents", col: "none" },
   { label: "音量で音程は変わる?", v: "pitchCents", h: "volume", col: "none" },
   { label: "音量で音色は変わる?", v: "hnr", h: "volume", col: "none" },
+  { label: "リードで音程は変わる?", v: "note", h: "pitchCents", col: "reed" },
   { label: "リードで音色は違う?", v: "note", h: "hnr", col: "reed" },
-  { label: "リードは使うほど変わる?", v: "reedDays", h: "hnr", col: "none" },
-  { label: "日によって変わる?", v: "date", h: "pitchCents", col: "none" },
 ];
 // 今の軸の組が問いと一致しているか(強調はこれだけで決める。別の状態を持たない)。
 function pivotQuestionActive(q, axes, col) {
