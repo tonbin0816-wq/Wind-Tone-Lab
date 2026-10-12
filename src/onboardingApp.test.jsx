@@ -481,7 +481,9 @@ describe("配線の綴り(App.jsx)", () => {
     const blk = (/const coachWithNotice = coachDuringNotice\(\{([\s\S]*?)\n  \}\);/.exec(app) || [])[1] || "";
     expect(call).toMatch(/candidates=\{coachWithNotice\.candidates\}/);
     expect(blk).toMatch(/candidates: coachReady && !isRecording/);
-    expect(blk).toMatch(/micReady: isListening && !errorMsg/);
+    // 【便CO】引数は const coachArgs の1か所(広告の帯の止め方の (b)(c) も同じものを読む)
+    expect(app).toMatch(/const coachArgs = \{[^\n]*micReady: isListening && !errorMsg[^\n]*\};/);
+    expect(blk).toMatch(/coachCandidates\(coachArgs\)/);
     expect(blk).toMatch(/\n\s*notice, topTab,$/);
     // 【便BP2】BottomSheet 以外の z60 の暗幕(エラー・保存の確認)が出ている間も出さない
     // 【便BP3】録音ファイルの取り込みを解析している間も出さない。見本では読み込みを待たない(coachReady)
@@ -1286,7 +1288,9 @@ describe("【便BS 審査】【便BW】配線の綴り(App.jsx)", () => {
     // 【便BX】→【便BZ】帯の間の決まりは coachDuringNotice へ(帯が名乗るタブにいる間だけ・コミュニティは goCompare だけ)
     expect(call).toMatch(/hidden=\{coachHidden\}/);
     expect(app).toMatch(/const coachHidden = [^;]*\|\| coachWithNotice\.hidden;/);
-    expect(blk).toMatch(/metroPanelOpen, metronomeOn: metronomeOnForCoach, metroTempoQuiet, hasSelectedReed, idealRequested: coachRequest === "idealSeen" \}\)/);
+    // 【便CO】引数は const coachArgs の1か所(広告の帯の止め方の (b)(c) も同じものを読む)
+    expect(app).toMatch(/const coachArgs = \{ topTab, done: coachDone, [^\n]*metroPanelOpen, metronomeOn: metronomeOnForCoach, metroTempoQuiet, hasSelectedReed, idealRequested: coachRequest === "idealSeen" \};/);
+    expect(blk).toMatch(/coachCandidates\(coachArgs\)/);
     // 保存の帯は計測タブ・目安の帯はコミュニティタブを名乗る(帯の中身は文字列か null)
     expect(app).toMatch(/coach: typeof next\.coach === "string" \? next\.coach : null,/);
     expect(app).toMatch(/\/\/ 【便BZ】帯が名乗るのはタブの名前\(計測タブにいる間だけ\)\n\s*coach: "measure",/);

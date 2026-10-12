@@ -7,7 +7,10 @@ import { Square, Trash2, ChevronDown, ChevronUp, Upload, FileAudio, Grid3x3, Act
 
 // コミュニティタブ(Firebase を引き連れてくる)。他の3タブしか使わない人に
 // firebase のバンドルを読ませないため、このタブだけ遅延読み込みにする。
-const CommunityTab = lazy(() => import("./community/CommunityTab.jsx"));
+// 【便CO 2026-10-12】読み込みに失敗したあとの「もう一度試す」は、ページを読み直さずにこの読み込みだけをやり直す(下の CommunityErrorBoundary)。
+// React の lazy は失敗を覚えたままなので、やり直すときは同じ読み込み(loadCommunityTab)で lazy を作り直す(App の communityTry)。
+const loadCommunityTab = () => import("./community/CommunityTab.jsx");
+const CommunityTab = lazy(loadCommunityTab);
 // 取り込みの変換だけは同期で要る(押した瞬間に目安を作るので)。
 // 画面本体は lazy のままにして、初回の読み込みを重くしない。
 import { buildAdoptedProfile, ADOPTED_DONE_NOTE } from "./community/idealDoc.js";
@@ -26,6 +29,8 @@ import { sessionSoundingSec } from "./soundingSec.js";
 // 読み込んでしまっては遅延読み込みの意味が消える)。中身は React と
 // community/loadProgress.js(純粋な計算)だけ。
 import LoadingRing from "./community/LoadingRing.jsx";
+// 【便CO】読み込みの失敗の画面(CommunityErrorBoundary)にも引っ張って更新を出す(コミュニティタブの失敗の画面と同じ包み。§6.3a)
+import PullToRefresh, { PULL_REFRESH_ATTR } from "./community/PullToRefresh.jsx";
 // 【便BI 2026-10-02 本人指示】重心・HNR の用語の吹き出し。コミュニティと共有する1つ(写しを作らない)。
 import { TermTip, TermMark, termTabHinted, termTabProps } from "./termTip.jsx";
 // 【便BL 2026-10-02 本人指示】見本の広告の帯の合図。読むのは <html> の印だけ(付けるのは main.jsx)。
@@ -63,6 +68,9 @@ import { AD_HEIGHT_EVENT } from "./shell/ads.js";
 import { adsAllowed, ONBOARDING_SHOWN_KEY } from "./onboarding.jsx";
 // 【便CJ 2026-10-10 本人の実機の指摘「チュートリアルをいくつか飛ばしてると…一生広告でない」・統括の裁定】裏に回って 30 分以上たってから前に戻ったら2回目の起動として扱う
 import { resumeCountsAsRelaunch } from "./onboarding.jsx";
+// 【便CO 2026-10-12 本人の実機指示「案内が出ているときは、いつでも広告を出さない」】案内のカードが出ている間は帯を止める(onboarding.jsx の useCoachAdHold)。殻の帯を隠す呼び口は ads.js
+import { useCoachAdHold, coachWaiting } from "./onboarding.jsx";
+import { shellSetAdsHeld } from "./shell/ads.js";
 import { setAdHold, isAdHeld } from "./adPreview.js";
 
 // コミュニティタブの**読み込み失敗**の見た目。CommunityTab 内部の Centered と
@@ -78,6 +86,13 @@ const communityFallbackStyle = {
 // import() が reject する。React の既定の挙動は「ルートまで巻き戻す」なので、境界が無いと
 // **開いてすらいないタブのせいで、計測タブで録音中の人がアプリごと画面を失う**。
 // 設計書 §10 の「既存タブには手を触れない」を守るには、ここで必ず受け止める必要がある。
+// 【便CO 2026-10-12 本人の実機指示「コミュニティタブで通信が失敗し、もう一度試すを押すと、勝手に計測タブへ移って ⑱ が出る」】
+// 原因: ここの「もう一度試す」が window.location.reload() でアプリごと読み込み直していた。読み込み直したアプリは起動のタブ(計測)から始まり、
+// 4つのタブを開いた印(goReeds・goData・goCommunity など)と ① が済んでいる人には、計測タブの先頭の ⑱(finishReady)がすぐ出る。
+// 直し: ページを読み直さない。onRetry(App の communityTry を1つ進める)で、この境界(key)と遅延読み込み(lazy)を作り直し、
+// コミュニティタブのまま読み込みだけをやり直す。成功すればコミュニティの画面と、その案内(到着カードなど)がそのまま続く。
+// 失敗の画面は引っ張って更新でも同じやり直しをする(PullToRefresh。§6.3a)── この画面は CommunityTab が描かれていないので <html data-pull-refresh>
+// が付かず、iPhone の Safari では引くとページごと再読み込み(= 同じく計測タブへ)になっていた。印はこの画面の間だけ付ける(CommunityLoadFailed)。
 class CommunityErrorBoundary extends Component {
   constructor(props) {
     super(props);
@@ -88,14 +103,25 @@ class CommunityErrorBoundary extends Component {
   }
   render() {
     if (!this.state.failed) return this.props.children;
-    return (
+    return <CommunityLoadFailed onRetry={this.props.onRetry} />;
+  }
+}
+function CommunityLoadFailed({ onRetry }) {
+  useEffect(() => {
+    const el = document.documentElement;
+    el.setAttribute(PULL_REFRESH_ATTR, "");
+    return () => el.removeAttribute(PULL_REFRESH_ATTR);
+  }, []);
+  return (
+    <PullToRefresh onRefresh={onRetry}>
       <div className="sans" style={communityFallbackStyle}>
         {/* 【便BB 2026-09-25】アプリでも Web でも通じる語にした(旧「アプリを更新すると直ることがあります」/ ボタン「再読み込み」)。
-            ボタンの語はコミュニティの失敗画面の「もう一度試す」と揃える。押したときの動き(読み込み直し)は変えていない。 */}
+            ボタンの語はコミュニティの失敗画面の「もう一度試す」と揃える。押したときの動き(読み込み直し)は変えていない。
+            【便CO】押したときの動きをページの読み込み直しから、コミュニティの読み込みだけのやり直し(onRetry)に替えた(上の注記)。文言は変えていない。 */}
         <div>コミュニティを読み込めませんでした。アプリを開き直すと直ることがあります。</div>
         <button
           type="button"
-          onClick={() => window.location.reload()}
+          onClick={onRetry}
           className="sans"
           style={{
             marginTop: "var(--sp-4)", minHeight: "var(--tap-min)", padding: "0 var(--sp-5)",
@@ -107,8 +133,8 @@ class CommunityErrorBoundary extends Component {
           もう一度試す
         </button>
       </div>
-    );
-  }
+    </PullToRefresh>
+  );
 }
 
 // 指定要素から祖先(container手前まで)に横スクロール可能な要素があるか判定する。
@@ -3850,6 +3876,11 @@ export default function WindToneLabPhaseMode() {
   // (横向きでも列 640 は CSS で効く。DESIGN-SYSTEM §3「iPad の器」)。
   const wide = useWideLayout();
   const [topTab, setTopTab] = useState("measure"); // "measure" | "reeds" | "analysis"
+  // 【便CO 2026-10-12】コミュニティの読み込みのやり直しの回(CommunityErrorBoundary の「もう一度試す」・引っ張って更新)。
+  // 回が進むと境界(key)と遅延読み込み(lazy)を作り直す。最初の回は上の CommunityTab をそのまま使う(今までと同じ1つの読み込み)。
+  const [communityTry, setCommunityTry] = useState(0);
+  const CommunityTabView = useMemo(() => (communityTry === 0 ? CommunityTab : lazy(loadCommunityTab)), [communityTry]);
+  const retryCommunity = useCallback(() => setCommunityTry((n) => n + 1), []);
   const [reedsSubTab, setReedsSubTab] = useState("register"); // 「リード」タブ内の子タブ: register | compare | ranking
   // 下部ナビのタップ毎にインクリメントする通し番号。リード/データタブの中身のkeyに使い、
   // タブをタップすると(既にそのタブにいても)子ビューが再マウントされ、開いていた
@@ -4105,10 +4136,8 @@ export default function WindToneLabPhaseMode() {
   // 広告を始めるまでは --ad-h を 0 に(<html data-ad-hold="1">。index.css)。最初の描画では**子より先に**付ける ──
   // 計測タブの環の縮み(ringFitLayoutKey)は子の最初の描画で読むので、後から付けると最初の1回が帯ありの高さで測られる。
   // 変わったとき(⑱ が済んだ・移行で finish が立った)は描く前に付け外しし、測り直しの知らせ(AD_HEIGHT_EVENT。殻が --ad-h を置いたときと同じ)を出す。
+  // 【便CO 2026-10-12】始めてよい(adsOk)あとも、案内の流れの途中は止める ── 付け外しは下の coachAdHold の所(案内の候補を引いたあと)。
   useState(() => setAdHold(!adsOk));
-  useLayoutEffect(() => {
-    if (setAdHold(!adsOk)) window.dispatchEvent(new Event(AD_HEIGHT_EVENT));
-  }, [adsOk]);
   useLayoutEffect(() => () => { setAdHold(false); }, []);
   // 【殻 S3 → 便CG】広告の帯(殻の本物の帯と ATT)は、最初のマイクの試みが終わった(成功でも失敗でも。startListening が立てる)**うえで**
   // adsAllowed が立ったときに1回だけ始める。マイクの試みを待つのは今までどおり(OS のマイクの許可の画面と ATT の画面を重ねない)。
@@ -5305,10 +5334,10 @@ export default function WindToneLabPhaseMode() {
     setCoachSeenTabs((prev) => (prev.includes(topTab) ? prev : Object.freeze([...prev, topTab])));
   }, [coachReady, coachDone.finish, topTab]);
   // はじめの一手の候補(印が読めていて録音中でなければ)と、帯が出ている間の決まり(【便BZ】coachDuringNotice)。描くのは根の OnboardingCoach の1か所。
+  // 【便CO】引数は1か所(案内の候補と、広告の帯の止め方の (b)(c) が同じものを読む)
+  const coachArgs = { topTab, done: coachDone, dismissed: coachDismissed, seenTabs: coachSeenTabs, micReady: isListening && !errorMsg, hasSessions: sessions.length > 0, sessionsKnown: sessionsStatus !== "loading", metroPanelOpen, metronomeOn: metronomeOnForCoach, metroTempoQuiet, hasSelectedReed, idealRequested: coachRequest === "idealSeen" };
   const coachWithNotice = coachDuringNotice({
-    candidates: coachReady && !isRecording
-      ? coachCandidates({ topTab, done: coachDone, dismissed: coachDismissed, seenTabs: coachSeenTabs, micReady: isListening && !errorMsg, hasSessions: sessions.length > 0, sessionsKnown: sessionsStatus !== "loading", metroPanelOpen, metronomeOn: metronomeOnForCoach, metroTempoQuiet, hasSelectedReed, idealRequested: coachRequest === "idealSeen" })
-      : NO_COACH,
+    candidates: coachReady && !isRecording ? coachCandidates(coachArgs) : NO_COACH,
     notice, topTab,
   });
 
@@ -5328,6 +5357,25 @@ export default function WindToneLabPhaseMode() {
   const saveConfirmShown = topTab === "measure" && Boolean(!isRecording && pendingSession);
   // 案内を出してはいけない間(録音中・シート・z60 の暗幕・解析中・帯)
   const coachHidden = !coachReady || isRecording || anySheetOpen || errorScrimShown || saveConfirmShown || isAnalyzingUpload || coachWithNotice.hidden;
+  // 【便CO 2026-10-12 本人の実機指示「案内が出ているときは、いつでも広告を出さない」・審査のあとの統括の決定】始めてよい(adsOk)あとも、
+  // 案内の流れの途中は帯を止める(onboarding.jsx の useCoachAdHold の注記。境目もそこ)。
+  //   engage(止めを始める) … (a) 案内のカードが画面にある(OnboardingCoach の onPresence)・(d) 参加の画面のカード(CommunityTab の onJoinCard)
+  //   keep(止めを続ける)   … (b) 候補はあるのに一時的に出していない(coachHidden の間。エラーの暗幕は除く) ・(c) 次の段が操作を待っているだけ(coachWaiting)・
+  //                           シートが開いている(便BL: シートの間は --ad-h を動かさない)
+  // 止める = <html data-ad-hold>(--ad-h を 0・見本の帯を描かない)+ 殻の本物の帯を隠す(shellSetAdsHeld)。戻すのは始めてよいときだけ。
+  // 広告を始める時機(adsOk かつ micTried)と ATT の尋ね方は変えない(止めている間に始まったら、隠した状態で始める)。
+  const [coachPresent, setCoachPresent] = useState(false);
+  const [joinCardShown, setJoinCardShown] = useState(false);
+  const coachAllNow = coachReady ? coachCandidates(coachArgs) : NO_COACH;
+  // 【便CO 再審査】エラーの暗幕(マイクの拒否・取り直しの失敗)は一時的ではないので (b) に数えない
+  const coachAdKeep = (coachHidden && !errorScrimShown && coachAllNow.length > 0) || (coachReady && coachWaiting(coachArgs)) || anySheetOpen;
+  const coachAdHold = useCoachAdHold({ engage: coachPresent || joinCardShown, keep: coachAdKeep });
+  const adHeld = !adsOk || coachAdHold;
+  useLayoutEffect(() => {
+    if (setAdHold(adHeld)) window.dispatchEvent(new Event(AD_HEIGHT_EVENT));
+  }, [adHeld]);
+  // 殻の帯も同じ描画のうちに(描く前に)隠す・--ad-h を 0px に(ads.js。inline の --ad-h は data-ad-hold の規則より強いので、こちらで置き直す)
+  useLayoutEffect(() => { shellSetAdsHeld(coachAdHold); }, [coachAdHold]);
   return (
     <div className="app-root" style={{ background: "var(--c-bg)", color: "var(--c-ink)", fontFamily: "var(--font-jp)", padding: `${PAGE_TOP_PAD} var(--page-pad-right) var(--page-bottom-gap) var(--page-pad-left)`, boxSizing: "border-box" }}>
       <style>{`
@@ -5568,7 +5616,7 @@ export default function WindToneLabPhaseMode() {
            SwipePager / SwipeBackArea はリード/データタブの**中**で使われており、
            このタブはどちらの子孫でもない。 */
         <div className="surf-card">
-        <CommunityErrorBoundary>
+        <CommunityErrorBoundary key={communityTry} onRetry={retryCommunity}>
           {/* 【読み込み中は輪が埋まる 2026/09/10 → 09/13 本人指示】数秒の待ちが
               「飽きない」ようにする。step="chunk" はこの待ちが**この画面の
               コードを取ってくる段階**だと進捗の帳簿に伝えるためのもので、
@@ -5584,7 +5632,7 @@ export default function WindToneLabPhaseMode() {
             {/* 【取り込みは App.jsx が受ける】目安の一覧は App.jsx の state なので、
                 コミュニティ側から直接は触らせない。あちらは「合わせた結果」を渡すだけで、
                 保存と選択はここが行う。 */}
-            <CommunityTab
+            <CommunityTabView
               sessions={sessions} tuningHz={tuningHz}
               /* 【D3】My Data の「みんなのデータをみる」から来たときに開く子タブ("rank")。
                  受け取ったらあちらが onLanded で null に戻す。普段は null。 */
@@ -5616,6 +5664,8 @@ export default function WindToneLabPhaseMode() {
               }}
               /* 【便BP】はじめの一手の印(参加した・人物のページを開いた)を立てる口。 */
               onOnboarding={markOnboarding}
+              /* 【便CO】参加の画面のカードが出ているか(広告の帯を止める (d))。 */
+              onJoinCard={setJoinCardShown}
               /* 【便BV 2026-10-04 本人裁定(案B)】広い(iPad)なら、データ・順位は2ペイン(左 = 一覧・右 = 人物のページ)・
                  シェア・マイページは列(--page-max-w)。参加前の見本も2ペインの形。 */
               wide={wide}
@@ -5636,8 +5686,8 @@ export default function WindToneLabPhaseMode() {
       <BottomNav topTab={topTab} onNavTap={handleNavTap} isRecording={isRecording} />
       {/* 【便BL 2026-10-02 本人指示】見本の広告の帯。下部タブと同じ重なり順 30 で、**下部タブより後ろに置く**
           (同じ 30 の中では後ろの要素が上に描かれる)。合図が無い端末では何も描かない。 */}
-      <AdPreviewStrip held={!adsOk} />
-      {/* 【殻 S3】殻の本物の帯(AdMob。ネイティブのビュー)を、シートが開いている間だけ隠す。何も描かない。Web では何もしない。 */}
+      <AdPreviewStrip held={adHeld} />
+      {/* 【殻 S3】殻の本物の帯(AdMob。ネイティブのビュー)を、シートが開いている間は隠す(【便CO】案内の流れの途中も隠す ── 上の shellSetAdsHeld)。何も描かない。Web では何もしない。 */}
       <ShellAdBannerSync />
       {/* 【便BP 2026-10-03 本人裁定】はじめの一手。**描くのはこの1箇所だけ**(body へ出す)。
           出してよいのは、印が読めて移行が済み(見本ではいつでも)、録音中でなく、BottomSheet も z60 の暗幕(エラー・保存の確認)も出ておらず、
@@ -5664,6 +5714,7 @@ export default function WindToneLabPhaseMode() {
         onMark={markOnboarding}
         onShown={markCoachShown}
         onDismiss={markCoachDismissed}
+        onPresence={setCoachPresent}
       />
     </div>
   );
@@ -5821,6 +5872,7 @@ function ShellAdBannerSync() {
 //   ・当たり判定は持ったまま(本物の帯も押せる面で、裏のページへは通さない)
 //   ・【便CG 2026-10-09 統括の裁定】はじめの案内が終わるまで(held。onboarding.jsx の adsAllowed が立つまで)は描かない。
 //     帯の高さも同じ間 0(<html data-ad-hold="1">)。殻の本物の帯と同じ時機に出る(本人が Web で確かめられるように)
+//   ・【便CO 2026-10-12】始めてよいあとも、案内の流れの途中(held = !adsOk || coachAdHold。onboarding.jsx の useCoachAdHold)は描かない
 function AdPreviewStrip({ held = false }) {
   const [on] = useState(() => isAdPreviewOn());
   const sheetOpen = useAnyBottomSheetOpen();

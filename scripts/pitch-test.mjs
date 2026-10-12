@@ -8662,7 +8662,8 @@ console.log("\n========== 16. 面の作法(地は白 / 罫の1作法) ==========
           // 【import した定数も「定義がある」に数える】綴りを2箇所に持たないため、
           // REED_STRENGTHS のように正を別ファイルへ移した定数がある。移した先を
           // 見に行かないと「参照はあるのに定義が無い」に見えてしまう。
-          for (const m of codeKeep.matchAll(/^import\s*\{([^}]*)\}\s*from/gm))
+          // 【便CO】`import 既定, { … } from` の形(既定の export と同じモジュールの名前付き export を1行で読む)も数える
+          for (const m of codeKeep.matchAll(/^import\s*(?:[\w$]+\s*,\s*)?\{([^}]*)\}\s*from/gm))
             for (const d of m[1].matchAll(/(?<![\w$])([A-Z][A-Z0-9_]{2,})(?![\w$])/g)) defs.add(d[1]);
           // 走査が空回りしていないことの下限(定数を全部消して「0件だから合格」を作らせない)
           check("App.jsx の SCREAMING_CASE 定数を走査できている", defs.size >= 150, `${defs.size}個`);
@@ -24552,12 +24553,14 @@ console.log("\n========== 検証51: 便G データタブ(D1〜D4) ==========");
       // 【便BP 2026-10-03】はじめの一手の印を立てる口 onOnboarding(既定 null)が末尾に加わった。landTab / onLanded の形は同じ。
       // 【便BV 2026-10-04】iPad の判定を配る口 wide(既定 false)が末尾に加わった。landTab / onLanded の形は同じ。
       // (【便CB】で足した termsAgreed / onTermsAgreed は【便CC 2026-10-08】参加のカードの同意のチェックと一緒に外した。元の形)
-      /export default function CommunityTab\(\{ sessions, tuningHz, onAdoptIdeal, landTab = null, onLanded = null, onOnboarding = null, wide = false \}\)/.test(comm51)
-      && /<CommunityTabBody [^>]*landTab=\{landTab\} onLanded=\{onLanded\} onOnboarding=\{onOnboarding\} wide=\{wide\} \/>/.test(comm51));
+      // 【便CO 2026-10-12】参加の画面のカードの知らせ onJoinCard(既定 null)が wide の前に加わった。landTab / onLanded の形は同じ。
+      /export default function CommunityTab\(\{ sessions, tuningHz, onAdoptIdeal, landTab = null, onLanded = null, onOnboarding = null, onJoinCard = null, wide = false \}\)/.test(comm51)
+      && /<CommunityTabBody [^>]*landTab=\{landTab\} onLanded=\{onLanded\} onOnboarding=\{onOnboarding\} onJoinCard=\{onJoinCard\} wide=\{wide\} \/>/.test(comm51));
     check("51.3 D3 CommunityTabBody: 来ていればそれで始め、来たら state を合わせて onLanded で返す",
       // 【便BP 2026-10-03】末尾に onOnboarding = null が加わった(参加済みと分かったら印を立てる)。
       // 【便BV 2026-10-04】末尾に wide = false が加わった(参加前の見本・参加後の画面へ配るだけ)。
-      /function CommunityTabBody\(\{ sessions, tuningHz, onAdoptIdeal, landTab: landTabRequest = null, onLanded = null, onOnboarding = null, wide = false \}\)/.test(comm51)
+      // 【便CO 2026-10-12】wide の前に onJoinCard = null が加わった(参加の画面のカードが出ているかを App へ知らせる)。
+      /function CommunityTabBody\(\{ sessions, tuningHz, onAdoptIdeal, landTab: landTabRequest = null, onLanded = null, onOnboarding = null, onJoinCard = null, wide = false \}\)/.test(comm51)
       && /const \[landTab, setLandTab\] = useState\(landTabRequest \|\| "data"\);/.test(comm51)
       && /if \(!landTabRequest\) return;\s*setLandTab\(landTabRequest\);\s*if \(onLanded\) onLanded\(\);/.test(comm51));
     check("51.3 D3 CommunityTabBody: 開く子タブは今までどおり initialTab で JoinedView へ渡す",
@@ -32161,7 +32164,8 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     /<PersonSheet\b/.test(codeOf(narrowBV))
     && !/pane-2|pane-frame|PaneEmpty|PersonBody|selectedUid|onFilterChange|data-noswipe|--pane-max-w|\bfill\b/.test(codeOf(narrowBV)));
   check("BV.1 wide は App → CommunityTab → CommunityTabBody → JoinedView / JoinIntro の1本の道(どれも既定 false)",
-    /<CommunityTab\b[\s\S]{0,6000}?\n\s*wide=\{wide\}\n\s*\/>/.test(codeOf(srcOfFn(appBV, "WindToneLabPhaseMode")))
+    // 【便CO】読み込みのやり直しで lazy を作り直すので、描くのは CommunityTabView(最初の回は CommunityTab そのもの)
+    /<CommunityTabView\b[\s\S]{0,6000}?\n\s*wide=\{wide\}\n\s*\/>/.test(codeOf(srcOfFn(appBV, "WindToneLabPhaseMode")))
     && /export default function CommunityTab\(\{[^}]*, wide = false \}\)/.test(commBV)
     && /<CommunityTabBody [^>]*wide=\{wide\} \/>/.test(commBV)
     && /function CommunityTabBody\(\{[^}]*, wide = false \}\)/.test(commBV)
@@ -32947,9 +32951,12 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
       (ads.match(/^import /gm) || []).length === 2 && /^import \{ isNativeShell \} from "\.\/native\.js";$/m.test(ads) && /^import \{ AD_H_INITIAL_PX, AD_RELOAD_DEBOUNCE_MS, ATT_FOCUS_WAIT_MAX_MS \} from "\.\/policy\.js";$/m.test(ads)
       && /export function shellStartAdsOnce\(\) \{\n  if \(!isNativeShell\(\) \|\| started\) return;\n  started = true;\n  gapPx = readGapPx\(\);\n  setAdHeight\(AD_H_INITIAL_PX\);/.test(ads)
       && /export function shellSetAdsHidden\(hidden\) \{\n  if \(!isNativeShell\(\)\) return;/.test(ads)
-      && (ads.match(/import\("\.\/ads\.native\.js"\)/g) || []).length === 4
+      // 【便CO】案内のカードの間の呼び口 shellSetAdsHeld で1つ増えた(4 → 5)
+      && (ads.match(/import\("\.\/ads\.native\.js"\)/g) || []).length === 5
       // 帯を出す前に失敗したら(プラグインの無い古い殻など)仮の高さを 0 に戻す
-      && /\.then\(\(m\) => m\.startAds\(\{ \.\.\.geo, gap: gapPx, hidden: hiddenWanted, onHeight: setAdHeight \}\)\)\n\s*\.catch\(\(\) => setAdHeight\(0\)\);/.test(ads)
+      // 【便CO】隠したいか = シート か 案内のカード(wantHidden)
+      && /\.then\(\(m\) => m\.startAds\(\{ \.\.\.geo, gap: gapPx, hidden: wantHidden\(\), onHeight: setAdHeight \}\)\)\n\s*\.catch\(\(\) => setAdHeight\(0\)\);/.test(ads)
+      && /const wantHidden = \(\) => hiddenWanted \|\| heldWanted;/.test(ads)
       && /const v = h > 0 \? Math\.round\(h\) \+ Math\.round\(gapPx\) : 0;\n\s*try \{ document\.documentElement\.style\.setProperty\("--ad-h", `\$\{Math\.max\(0, v\)\}px`\); \}/.test(ads)
       && /getComputedStyle\(document\.documentElement\)\.getPropertyValue\("--sp-2"\)/.test(ads)
       && /document\.querySelector\("\[data-bottom-nav\]"\)/.test(ads));
@@ -32989,15 +32996,21 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     check("K.21 ShellAdBannerSync: BottomSheet が開いているかを読み、変わるたびに shellSetAdsHidden。何も描かない",
       /\nfunction ShellAdBannerSync\(\) \{\n  const sheetOpen = useAnyBottomSheetOpen\(\);\n  useEffect\(\(\) => \{ shellSetAdsHidden\(sheetOpen\); \}, \[sheetOpen\]\);\n  return null;\n\}\n/.test(app)
       && (app.match(/shellSetAdsHidden\(/g) || []).length === 1);
-    check("K.21 ShellAdBannerSync は根で見本の帯(AdPreviewStrip)のすぐ後に1つだけ描く(【便CG】見本の帯は held={!adsOk} を受ける)",
-      /\n      <AdPreviewStrip held=\{!adsOk\} \/>\n(?:\s*\{\}\n)?\s*<ShellAdBannerSync \/>\n/.test(app) && (app.match(/<ShellAdBannerSync \/>/g) || []).length === 1
+    check("K.21 ShellAdBannerSync は根で見本の帯(AdPreviewStrip)のすぐ後に1つだけ描く(【便CG】見本の帯は held を受ける。【便CO】held = !adsOk || 案内のカード)",
+      /\n      <AdPreviewStrip held=\{adHeld\} \/>\n(?:\s*\{\}\n)?\s*<ShellAdBannerSync \/>\n/.test(app) && (app.match(/<ShellAdBannerSync \/>/g) || []).length === 1
       && (app.match(/<AdPreviewStrip /g) || []).length === 1);
     check("K.21 AdPreviewStrip: 殻では描かない(hooks の後・今までの return null の行の前に1行)。【便CG】案内の間(held)も描かない",
       /function AdPreviewStrip\(\{ held = false \}\) \{\n  const \[on\] = useState\(\(\) => isAdPreviewOn\(\)\);\n  const sheetOpen = useAnyBottomSheetOpen\(\);\n  if \(isNativeShell\(\)\) return null;\s*\n  if \(!on \|\| held \|\| sheetOpen\) return null;\n/.test(app));
     // 【便CG 2026-10-09 統括の裁定】案内の間の印(data-ad-hold)。最初の描画では子より先に(useState の初期化で)付け、変わったら描く前に付け外しして
     // 測り直しの知らせ(AD_HEIGHT_EVENT)を出す。部品が外れたら外す。--ad-h は index.css の :root[data-ad-hold="1"] が 0px に戻す
-    check("K.21 【便CG】data-ad-hold の付け外し: 初期化で1回・変わったら AD_HEIGHT_EVENT・外れたら外す。index.css の規則は見本の規則より後ろで --ad-h: 0px",
-      /\n  useState\(\(\) => setAdHold\(!adsOk\)\);\n  useLayoutEffect\(\(\) => \{\n    if \(setAdHold\(!adsOk\)\) window\.dispatchEvent\(new Event\(AD_HEIGHT_EVENT\)\);\n  \}, \[adsOk\]\);\n  useLayoutEffect\(\(\) => \(\) => \{ setAdHold\(false\); \}, \[\]\);\n/.test(app)
+    // 【便CO 2026-10-12】始めてよい(adsOk)あとも、案内のカードの間(coachAdHold = useCoachAdHold(カードがある, シートが開いている))は付ける。
+    // 殻の帯は同じ描画のうちに shellSetAdsHeld(隠す・inline の --ad-h を 0px に)
+    check("K.21 【便CG】data-ad-hold の付け外し: 初期化で1回・変わったら AD_HEIGHT_EVENT・外れたら外す。index.css の規則は見本の規則より後ろで --ad-h: 0px。【便CO】案内の流れの途中も付け、殻の帯も隠す",
+      /\n  useState\(\(\) => setAdHold\(!adsOk\)\);\n  useLayoutEffect\(\(\) => \(\) => \{ setAdHold\(false\); \}, \[\]\);\n/.test(app)
+      // 【便CO 審査のあとの統括の決定】始める = (a) カード・(d) 参加の画面のカード / 続ける = (b) 候補はあるのに隠している・(c) 操作待ち・シート
+      && /\n  const coachHidden = [^\n]*\n(?:[ \t]*(?:\/\/[^\n]*)?\n)*  const \[coachPresent, setCoachPresent\] = useState\(false\);\n  const \[joinCardShown, setJoinCardShown\] = useState\(false\);\n  const coachAllNow = coachReady \? coachCandidates\(coachArgs\) : NO_COACH;\n(?:[ \t]*(?:\/\/[^\n]*)?\n)*  const coachAdKeep = \(coachHidden && !errorScrimShown && coachAllNow\.length > 0\) \|\| \(coachReady && coachWaiting\(coachArgs\)\) \|\| anySheetOpen;\n  const coachAdHold = useCoachAdHold\(\{ engage: coachPresent \|\| joinCardShown, keep: coachAdKeep \}\);\n  const adHeld = !adsOk \|\| coachAdHold;\n  useLayoutEffect\(\(\) => \{\n    if \(setAdHold\(adHeld\)\) window\.dispatchEvent\(new Event\(AD_HEIGHT_EVENT\)\);\n  \}, \[adHeld\]\);\n(?:[ \t]*(?:\/\/[^\n]*)?\n)*  useLayoutEffect\(\(\) => \{ shellSetAdsHeld\(coachAdHold\); \}, \[coachAdHold\]\);\n/.test(app)
+      && /onJoinCard=\{setJoinCardShown\}/.test(app)
+      && (app.match(/shellSetAdsHeld\(/g) || []).length === 1
       && (app.match(/setAdHold\(/g) || []).length === 3
       && /const ad = document\.documentElement\.hasAttribute\("data-ad-preview"\) && !isAdHeld\(\) \? 1 : 0;/.test(app)
       && (() => { const c = codeOf(readA("src/index.css")); const i = c.indexOf(':root[data-ad-preview="1"] {'); const j = c.indexOf(':root[data-ad-hold="1"] {\n  --ad-h: 0px;\n}'); return i > 0 && j > i; })());
@@ -33009,7 +33022,8 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
       && /if \(shownAtLaunchRef\.current === null && onboardingShownLoaded\) shownAtLaunchRef\.current = onboardingShown === true;/.test(app)
       && /const markCoachShown = useCallback\(\(\) => \{\n    if \(tutorialPreview\) return;\n    setOnboardingShown\(true\);\n  \}, \[setOnboardingShown, tutorialPreview\]\);/.test(app)
       // 【便CJ】onShown の次に外押しの知らせ onDismiss
-      && /\n        onShown=\{markCoachShown\}\n        onDismiss=\{markCoachDismissed\}\n      \/>/.test(app));
+      // 【便CO】その次にカードがあるかの知らせ onPresence(広告の帯を止める)
+      && /\n        onShown=\{markCoachShown\}\n        onDismiss=\{markCoachDismissed\}\n        onPresence=\{setCoachPresent\}\n      \/>/.test(app));
     // 【殻 S3 統括の裁定】帯と下部タブの間に押せないすき間 --sp-2(地は塗らない)。見本の帯も殻と同じ置き方
     check("K.21 見本の帯: 下端 = 下部タブ + 安全域 + --sp-2・高さ = --ad-h − --sp-2。index.css の見本の --ad-h = 50px + --sp-2",
       /bottom: "calc\(var\(--nav-h\) \+ env\(safe-area-inset-bottom\) \+ var\(--sp-2\)\)",\n\s*height: "calc\(var\(--ad-h\) - var\(--sp-2\)\)",/.test(app)
@@ -33206,7 +33220,9 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
   // 【便BZ 2026-10-07 統括の裁定】候補と帯の間の決まりは、描く直前の const coachWithNotice = coachDuringNotice({ … }) が持つ
   const coachBlkBZ = (/const coachWithNotice = coachDuringNotice\(\{([\s\S]*?)\n  \}\);/.exec(app) || [])[1] || "";
   check("BW.5 <OnboardingCoach> の候補に hasSelectedReed と idealRequested: coachRequest === \"idealSeen\"。hidden の式は【便BZ】の形で一字一句",
-    /metroPanelOpen, metronomeOn: metronomeOnForCoach, metroTempoQuiet, hasSelectedReed, idealRequested: coachRequest === "idealSeen" \}\)/.test(coachBlkBZ)
+    // 【便CO】引数は const coachArgs の1か所(案内の候補と、広告の帯の止め方の (b)(c) が同じものを読む)
+    /\n  const coachArgs = \{ topTab, done: coachDone, [^\n]*metroPanelOpen, metronomeOn: metronomeOnForCoach, metroTempoQuiet, hasSelectedReed, idealRequested: coachRequest === "idealSeen" \};\n  const coachWithNotice = coachDuringNotice\(\{/.test(app)
+    && /candidates: coachReady && !isRecording \? coachCandidates\(coachArgs\) : NO_COACH,/.test(coachBlkBZ)
     && /\n\s*notice, topTab,$/.test(coachBlkBZ) && coachCall.includes("candidates={coachWithNotice.candidates}")
     // 【便CJ】hidden の式は const coachHidden の1か所(<OnboardingCoach> と (c) の時計 coachIdle が同じ式を読む)
     && coachCall.includes("hidden={coachHidden}")
@@ -33452,7 +33468,8 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     && !(listOf("ONBOARDING_FLAGS", ob) || ["onboardingShown"]).includes("onboardingShown"));
   check("BX.3 【便CG】OnboardingCoach の onShown: 測り終えて見えているカード(view.measured・溶けていない)で、部品の間に1回だけ",
     // 【便CJ】外押しで飛ばした段の知らせ onDismiss を足した
-    /export function OnboardingCoach\(\{ candidates, done, hidden, onMark = null, onShown = null, onDismiss = null \}\) \{/.test(ob)
+    // 【便CO】カードがあるかの知らせ onPresence を足した
+    /export function OnboardingCoach\(\{ candidates, done, hidden, onMark = null, onShown = null, onDismiss = null, onPresence = null \}\) \{/.test(ob)
     && /const visibleNow = Boolean\(view\?\.measured && !view\.leaving\);\n  useEffect\(\(\) => \{\n    if \(!visibleNow \|\| shownOnceRef\.current\) return;\n    shownOnceRef\.current = true;\n    onShownRef\.current\?\.\(\);\n  \}, \[visibleNow\]\);/.test(ob));
   // 【便BZ 審査 統括の裁定】覆いは1つ目の穴(下部タブなど)にかかるボタンだけ(帯の箱 = 2つ目の穴の上には置かない)・穴と重なる所だけに切る
   check("BZ.8 浮かせるボタンの覆い: floatingCovers に渡す穴は [hole] だけ・覆いは clipPath で穴と重なる所に切る",

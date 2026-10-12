@@ -369,3 +369,70 @@ describe("帯の位置の式・ID・プラグインとネイティブの名前�
     expect(BannerAdPosition.BOTTOM_CENTER).toBe("BOTTOM_CENTER");
   });
 });
+
+// ------------------------------------------------------------------
+// 【便CO 2026-10-12 本人の実機指示「案内(チュートリアルのカード)が出ているときは、いつでも広告を出さない」】殻の帯の止め方(shellSetAdsHeld)。
+// 統括の仕様から手で書いた期待値: 止めている間は帯を隠し(hideBanner)、--ad-h も 0px(帯の場所を空けない)。閉じたら resumeBanner・
+// --ad-h は覚えておいた実寸 + すき間に戻る。止めている間に実寸が変わっても 0px のまま・戻すとき新しい実寸。始める前から止めていれば
+// 始めた直後の仮の高さも 0px で、出したらすぐ隠す。シートが開いていれば、止めを外しても隠したまま(シートの規則。--ad-h は戻る)。
+// 【守っていないもの】実機で帯が本当に消えて戻ること・隠す/戻すの間に帯がちらつかないこと(プラグインの描画。実機待ち)。
+// ------------------------------------------------------------------
+describe("【便CO】殻: 案内のカードの間は帯を止める(shellSetAdsHeld)", () => {
+  it("帯を出したあとに止める → hideBanner・--ad-h 0px。止めている間の実寸の変化は入れない。外す → resumeBanner・新しい実寸 + すき間", async () => {
+    asShell(); placeNav();
+    ads.shellStartAdsOnce();
+    await untilShown();
+    fire("bannerAdSizeChanged", { width: 375, height: 56 });
+    expect(adH()).toBe("64px");
+    const seen = [];
+    window.addEventListener(ads.AD_HEIGHT_EVENT, () => seen.push(adH()));
+    ads.shellSetAdsHeld(true);
+    expect(adH()).toBe("0px");
+    await until(() => count("hideBanner") === 1, "hideBanner");
+    fire("bannerAdSizeChanged", { width: 375, height: 60 });   // 止めている間の自動の更新など
+    expect(adH()).toBe("0px");
+    ads.shellSetAdsHeld(false);
+    expect(adH()).toBe("68px");
+    await until(() => count("resumeBanner") === 1, "resumeBanner");
+    expect(seen).toEqual(["0px", "0px", "68px"]);   // 書き換えるたびに知らせる(計測タブの環・参加のカードが測り直す)
+  });
+
+  it("始める前から止めている → 仮の高さも 0px・出したらすぐ隠す(showBanner → hideBanner)。外すと仮の高さ 58px に戻り resumeBanner", async () => {
+    asShell(); placeNav();
+    ads.shellSetAdsHeld(true);
+    expect(ad.log).toEqual([]);   // 始める前はプラグインに何も渡さない
+    ads.shellStartAdsOnce();
+    expect(adH()).toBe("0px");
+    await until(() => count("hideBanner") === 1, "hideBanner");
+    expect(ad.log.indexOf("hideBanner")).toBeGreaterThan(ad.log.indexOf("showBanner"));
+    ads.shellSetAdsHeld(false);
+    expect(adH()).toBe("58px");
+    await until(() => count("resumeBanner") === 1, "resumeBanner");
+  });
+
+  it("シートが開いている間に止めを外しても隠したまま(resumeBanner を送らない)。--ad-h は実寸に戻す(シートの間は戻さない規則)。シートを閉じたら戻す", async () => {
+    asShell(); placeNav();
+    ads.shellStartAdsOnce();
+    await untilShown();
+    fire("bannerAdSizeChanged", { width: 375, height: 56 });
+    ads.shellSetAdsHeld(true);
+    ads.shellSetAdsHidden(true);
+    await flush(); await wait(30); await flush();
+    ads.shellSetAdsHeld(false);
+    expect(adH()).toBe("64px");
+    await flush(); await wait(30); await flush();
+    expect(count("resumeBanner")).toBe(0);
+    ads.shellSetAdsHidden(false);
+    await until(() => count("resumeBanner") === 1, "resumeBanner");
+  });
+
+  it("Web: shellSetAdsHeld はプラグインに何も渡さず、--ad-h も触らない", async () => {
+    placeNav();
+    ads.shellSetAdsHeld(true);
+    ads.shellStartAdsOnce();
+    ads.shellSetAdsHeld(false);
+    await wait(50);
+    expect(ad.log).toEqual([]);
+    expect(adH()).toBe("");
+  });
+});

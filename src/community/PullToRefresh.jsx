@@ -7,6 +7,8 @@ import { swipeAxisIsHorizontal, SWIPE_BACK_THRESHOLD_MIN } from "../App.jsx";
 // 【便CK 2026-10-10 本人「よくある下にスワイプでリロードの仕様も追加して」】コミュニティタブの「引っ張って更新」。
 // 規範は design/DESIGN-SYSTEM.md §6.3a。ここが持つのは**指の扱いと印の描き方だけ**で、
 // 何を読み直すかは呼び手(CommunityTab.jsx の CommunityTabBody)が「もう一度試す」と同じ読みで決める。
+// 【便CO 2026-10-12】呼び手はもう1つ: 画面のコードの読み込みの失敗の画面(App.jsx の CommunityLoadFailed)。そちらは「もう一度試す」と同じく、
+// ページを読み直さずにコミュニティの読み込みだけをやり直す(onRefresh = App の retryCommunity)。
 //
 //   ・画面の一番上で、縦の下向きと決まった指だけを掴む(軸判定は SwipePager / シートと同じ swipeAxisIsHorizontal)。
 //     横と決まった指・上向きの指は手放す(子タブの横スワイプとスクロールのもの)。
@@ -22,7 +24,8 @@ import { swipeAxisIsHorizontal, SWIPE_BACK_THRESHOLD_MIN } from "../App.jsx";
 // ------------------------------------------------------------------
 
 // 引っ張って更新が効いている間、<html> に立てる印。index.css がこれを見てページの overscroll-behavior-y を止める
-// (iPhone の Safari の「ページごと再読み込み」と二重にしない)。立てるのは CommunityTab の間だけ。
+// (iPhone の Safari の「ページごと再読み込み」と二重にしない)。立てるのは CommunityTab の間と、
+// 【便CO】画面のコードの読み込みの失敗の画面(App.jsx の CommunityLoadFailed。CommunityTab が描かれない)の間だけ。
 export const PULL_REFRESH_ATTR = "data-pull-refresh";
 
 // しきい値 = 印がまるごと出る距離 = 印(--tap-min)+ 上下の --sp-2 × 2(= 44 + 16 = 60px)。

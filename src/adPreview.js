@@ -85,6 +85,7 @@ export function isAdPreviewOn(doc = typeof document !== "undefined" ? document :
 // その間 <html> に付ける印。index.css の :root[data-ad-hold="1"] が --ad-h を 0px に戻し、見本の帯(App.jsx の AdPreviewStrip)も描かない。
 // 合図の印(data-ad-preview。端末が見本を望んでいるか)とは別に持つ ── 合図の印を外すと、部品を作り直したときに望みが消えるため。
 // 付け外しは App.jsx だけ(時機の判断は onboarding.jsx の adsAllowed)。
+// 【便CO 2026-10-12】始めたあとも、案内の流れの途中(カード・一時的に隠れている間・次の段の操作待ち・参加の画面のカード)は付ける(時機の判断は onboarding.jsx の useCoachAdHold)。
 export const AD_HOLD_ATTR = "data-ad-hold";
 // held に合わせて印を付け外しする。戻り値は「変わったか」(変わったときだけ呼び手が測り直しの知らせを出す)。
 export function setAdHold(held, doc = typeof document !== "undefined" ? document : null) {

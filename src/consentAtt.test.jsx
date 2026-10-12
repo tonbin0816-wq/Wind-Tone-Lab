@@ -391,7 +391,14 @@ describe("【便CJ】広告の帯を始める時機(根から)", () => {
       expect(document.documentElement.getAttribute("data-ad-hold")).toBe("1");
       await away(31);
       await waitFor(() => count("showBanner") === 1, "31 分で帯");
-      expect(document.documentElement.getAttribute("data-ad-hold")).toBe(null);
+      // 【便CO 2026-10-12 本人の実機指示】到着カードがまだ画面にあるので、始めた帯は隠し、印も付けたまま
+      expect(document.querySelector('[data-coach-layer="arriveReeds"]')).not.toBe(null);
+      await waitFor(() => count("hideBanner") === 1, "カードの間は帯を隠す");
+      expect(document.documentElement.getAttribute("data-ad-hold")).toBe("1");
+      // カードを押して閉じる(jsdom は ⑥ の的を測れないので次のカードは出ない)→ 少し置いて戻る
+      await click(document.querySelector('[data-coach-hit="all"]'));
+      await waitFor(() => document.documentElement.getAttribute("data-ad-hold") === null, "カードが閉じたら戻す");
+      await waitFor(() => count("resumeBanner") === 1, "resumeBanner");
       expect(kv("onboardingDone").finish).toBeUndefined();   // 案内は終わっていない
     } finally {
       delete document.hidden;

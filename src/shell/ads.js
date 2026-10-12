@@ -9,6 +9,9 @@ export const AD_HEIGHT_EVENT = "ficus-ad-height";
 
 let started = false;
 let hiddenWanted = false;   // シートが開いているか(帯を始める前に開いたシートの分も、始めるときに渡す)
+let heldWanted = false;     // 【便CO】案内の流れの途中か(App.jsx の useCoachAdHold。帯を始める前からの分も、始めるときに渡す)
+// 帯を隠したいか = シートが開いている か 案内のカードが出ている(App.jsx の useCoachAdHold)。ads.native.js へはこの1つを渡す
+const wantHidden = () => hiddenWanted || heldWanted;
 let gapPx = 0;              // 帯と下部タブの間のすき間(--sp-2 の px)。始めるときに1回読む
 
 // --sp-2 の px(index.css の :root。素の "8px" なので parseFloat で読める)。読めなければ 0。
@@ -18,7 +21,15 @@ function readGapPx() {
 
 // 帯の高さを --ad-h へ(index.css の --page-bottom-gap が足す)。<html> の inline style なので :root の既定 0px と見本の値に勝つ。
 // 【殻 S3 統括の裁定】--ad-h = 帯の高さ + すき間(--sp-2)。帯が無い(0)ときはすき間も取らない。
+// 【便CO】案内のカードが出ている間(heldWanted)は 0px を置く(帯を隠している間は場所も空けない)。実寸は覚えておき(lastHeight)、閉じたら戻す。
+// (シートの間(hiddenWanted)は今までどおり戻さない ── 便BL の規則)
+let lastHeight = 0;
 function setAdHeight(h) {
+  lastHeight = h;
+  applyAdHeight();
+}
+function applyAdHeight() {
+  const h = heldWanted ? 0 : lastHeight;
   const v = h > 0 ? Math.round(h) + Math.round(gapPx) : 0;
   try { document.documentElement.style.setProperty("--ad-h", `${Math.max(0, v)}px`); } catch { /* noop */ }
   try { window.dispatchEvent(new Event(AD_HEIGHT_EVENT)); } catch { /* noop */ }
@@ -63,7 +74,7 @@ export function shellStartAdsOnce() {
   // 帯を出す前に失敗したら(プラグインが無い古い殻のビルド・初期化の失敗など)、仮に取った高さを 0 に戻す
   // (開発版の殻は Web が先に新しくなり得る。帯の無い殻で下部タブの上に空きを残さない)。
   import("./ads.native.js")
-    .then((m) => m.startAds({ ...geo, gap: gapPx, hidden: hiddenWanted, onHeight: setAdHeight }))
+    .then((m) => m.startAds({ ...geo, gap: gapPx, hidden: wantHidden(), onHeight: setAdHeight }))
     .catch(() => setAdHeight(0));
 }
 
@@ -87,5 +98,19 @@ export function shellSetAdsHidden(hidden) {
   if (!isNativeShell()) return;
   hiddenWanted = !!hidden;
   if (!started) return;
-  import("./ads.native.js").then((m) => m.setAdsHidden(hiddenWanted)).catch(() => {});
+  import("./ads.native.js").then((m) => m.setAdsHidden(wantHidden())).catch(() => {});
+}
+
+// 【便CO 2026-10-12 本人の実機指示「案内が出ているときは、いつでも広告を出さない」】案内のカードが出ている間は帯を隠す(hideBanner)・
+// 閉じたら戻す(resumeBanner。シートも閉じていれば)。帯の高さ --ad-h も 0px にし、閉じたら覚えておいた実寸に戻す(applyAdHeight)
+// ── シートと違って戻す。殻の --ad-h は <html> の inline なので、App.jsx が付ける <html data-ad-hold>(index.css の規則)では 0 にならない(inline が勝つ)。
+// 帯を始める前は覚えておくだけ(始めるときに渡す。始めた直後の仮の高さもこの印を読む)。
+// 出す・隠すの間引き(段と段の間で帯を一瞬出さない)は呼び手(onboarding.jsx の useCoachAdHold)が持つ。
+export function shellSetAdsHeld(held) {
+  if (!isNativeShell()) return;
+  const was = heldWanted;
+  heldWanted = !!held;
+  if (!started) return;
+  if (was !== heldWanted) applyAdHeight();
+  import("./ads.native.js").then((m) => m.setAdsHidden(wantHidden())).catch(() => {});
 }

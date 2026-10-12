@@ -6,7 +6,7 @@ import { ADMOB_USE_TEST_ADS, ADMOB_BANNER_UNIT_ID_IOS } from "./adsConfig.js";
 import { adBannerMargin, ATT_RETRY_DELAY_MS, ATT_FOCUS_WAIT_MAX_MS } from "./policy.js";
 
 let started = false;
-let hidden = false;      // シートが開いている(帯を隠したい)か。帯が来る前に開いたシートにも効かせるために持つ
+let hidden = false;      // 帯を隠したいか(シートが開いている・【便CO】案内の流れの途中。ads.js の wantHidden)。帯が来る前の分にも効かせるために持つ
 let bannerUp = false;    // showBanner を呼び終えたか(それより前の hide / resume / 取り直しはプラグインに送らない)
 let lastShow = null;     // 最後に showBanner へ渡したもの(取り直しは同じ margin・同じ npa で呼ぶ)
 let reloading = null;    // 取り直しの最中(続けて頼まれたら、終わってからもう1回)
@@ -101,7 +101,8 @@ export async function startAds({ onHeight, navTop, inset = 0, gap = 0, innerHeig
   if (askAgain) askTrackingAgain().catch(() => {});
 }
 
-// シートが開いている間は隠す・閉じたら戻す(本人裁定)。高さ(--ad-h)は変えない。
+// 隠したい間(シートが開いている間・【便CO】案内の流れの途中)は隠す・どちらも終わったら戻す(本人裁定)。高さ(--ad-h)はここでは変えない
+// (シートの間は戻さない規則。案内の流れの途中の 0px は ads.js の applyAdHeight が置く)。
 export function setAdsHidden(next) {
   hidden = !!next;
   if (!bannerUp) return Promise.resolve();

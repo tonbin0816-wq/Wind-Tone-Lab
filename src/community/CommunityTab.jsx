@@ -163,7 +163,8 @@ const DELETE_PARTIAL_NOTICE =
 // 呼ぶのは「参加済みと分かった("join")」の1つだけ(【便BQ】奏者を開く段は本人の指示で外した)。渡さなければ何も起きない。
 // 【便BV 2026-10-04 本人裁定(案B)】wide = iPad の「広い」画面か(App の useWideLayout)。参加後の画面(JoinedView)と参加前の見本
 // (JoinIntro)へ配るだけ。渡されない(false)ときは今までの木のまま(iPhone は1文字も変わらない)。
-export default function CommunityTab({ sessions, tuningHz, onAdoptIdeal, landTab = null, onLanded = null, onOnboarding = null, wide = false }) {
+// 【便CO 2026-10-12】onJoinCard(shown) = 参加の画面のカード(JoinIntro)が出ているかの知らせ(App.jsx が広告の帯を止める。渡さなければ何も起きない)。
+export default function CommunityTab({ sessions, tuningHz, onAdoptIdeal, landTab = null, onLanded = null, onOnboarding = null, onJoinCard = null, wide = false }) {
   // 【便CK】このタブの間だけ <html> に印を立て、index.css がページの overscroll-behavior-y を止める
   // (iPhone の Safari の「ページごと再読み込み」と、こちらの引っ張って更新を二重にしない)。離れたら外す(ほかのタブは今までどおり)。
   useEffect(() => {
@@ -174,7 +175,7 @@ export default function CommunityTab({ sessions, tuningHz, onAdoptIdeal, landTab
   return (
     <>
       <AvatarSprite />
-      <CommunityTabBody sessions={sessions} tuningHz={tuningHz} onAdoptIdeal={onAdoptIdeal} landTab={landTab} onLanded={onLanded} onOnboarding={onOnboarding} wide={wide} />
+      <CommunityTabBody sessions={sessions} tuningHz={tuningHz} onAdoptIdeal={onAdoptIdeal} landTab={landTab} onLanded={onLanded} onOnboarding={onOnboarding} onJoinCard={onJoinCard} wide={wide} />
     </>
   );
 }
@@ -531,7 +532,7 @@ export function BackupSheet({ onClose }) {
 //  【便CE 2026-10-08】参加しない選択肢が無くなったので部品(DeviceTransferPanel.jsx)ごと消した)
 
 // 【便BV 2026-10-04】wide = iPad の「広い」画面(CommunityTab から)。参加前の見本(JoinIntro)と参加後の画面(JoinedView)へ配るだけ。
-function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRequest = null, onLanded = null, onOnboarding = null, wide = false }) {
+function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRequest = null, onLanded = null, onOnboarding = null, onJoinCard = null, wide = false }) {
   const [phase, setPhase] = useState("loading"); // loading | notJoined | form | profile | error
   const [uid, setUid] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -572,6 +573,13 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRe
   useEffect(() => {
     if (phase === "profile") onOnboarding?.("join");
   }, [phase, onOnboarding]);
+  // 【便CO 2026-10-12 審査のあとの統括の決定(A案)】参加の画面のカード(JoinIntro。phase が notJoined の間はいつも暗幕とカードを出す)が
+  // 出ているかを App へ知らせる(広告の帯を止める (d))。描く前(layout)に知らせ、タブを離れて部品が外れたら下ろす。
+  const onJoinCardRef = useRef(onJoinCard);
+  onJoinCardRef.current = onJoinCard;
+  const joinCardShown = phase === "notJoined";
+  useLayoutEffect(() => { onJoinCardRef.current?.(joinCardShown); }, [joinCardShown]);
+  useLayoutEffect(() => () => { onJoinCardRef.current?.(false); }, []);
   // 【便BX 2026-10-06 本人の実機指示】プロフィールを初めて作った(参加の完了)あと、データの子タブを**先頭から**見せる。
   // 原因: フォーム(ProfileForm)は縦に長く、文書(window)をいちばん下まで送って「プロフィールを作る」を押す。
   // 保存が済むと onSubmit の setPhase("profile") がフォームを JoinedView に差し替えるが、文書の送り位置(window.scrollY)は

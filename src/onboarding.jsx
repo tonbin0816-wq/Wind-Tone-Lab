@@ -615,6 +615,55 @@ export function useSustained(on, ms, onReached) {
   }, [on, ms]);
 }
 
+// 【便CO 2026-10-12 本人の実機指示「案内が出ているときは、いつでも広告を出さない」・審査のあとの統括の決定】案内の流れの途中は広告の帯を止める(hold)。
+// 広告を始めてよいか(adsAllowed)とは別の、もう1つの止め方。adsAllowed は「始めてよいか」をその起動の中で一度だけ決める(戻らない)ので、
+// (b) 2回目の起動・裏に30分以上で戻った起動では、案内の段がまだ続いていても帯が出ていた(データタブの到着カードの下にバナー)。
+// 止めるのは次の4つの間(App.jsx が読む。式はそれぞれ1か所):
+//   (a) 案内のカード(OnboardingCoach の view)が画面にある。測る前の隠れたカード・溶けている間も「ある」に数える
+//       (測る前に止めれば、カードは帯の無い見える範囲で初めて置かれる = 出た直後に置き直されて跳ねない)
+//   (b) 候補はあるのに一時的に出していない(録音中・保存の確認・取り込みの解析中・帯の間・シートが開いている間)。
+//       エラーの暗幕(マイクの拒否・取り直しの失敗)は一時的ではないので数えない(【便CO 再審査】)
+//   (c) 次の段が利用者の操作を待っているだけ(coachWaiting。③ のあと ④ がテンポ行の静けさを待つ・④ のあと鳴り止むのを待つ など)
+//   (d) 参加の画面のカード(CommunityTab.jsx の JoinIntro)が出ている
+// 【境目】止めを**始める**のは (a)(d)(カードが画面にある)だけ。(b)(c) は始まっている止めを**続ける**だけ(engage と keep に分ける)。
+//   ・(b)(c) は「この起動で出る見込みのある段」だけを数える: coachCandidates は済んだ段と、この起動で外押しで飛ばした段を返さない
+//   ・候補はあるが的が画面に無い(リードの一覧で個体詳細を開いていない・My Data で日のマスが無い など)は (b)(c) のどちらでもない = 止めない
+//     (利用者が案内の的から離れた)。案内を放置した人には、カードが出ている間しか止めない
+//   ・帯が一度戻ったあと、(b)(c) だけでは止め直さない。たとえば2回目の起動で ④ を済ませずに飛ばし、あとでメトロノームを鳴らし続けても、
+//     カードが出ていなければ止めない
+// 戻すのは (a)〜(d) のどれも当てはまらなくなってから COACH_AD_RELEASE_MS 続いたとき(段と段の間の空きで帯を一瞬出さない)。
+// COACH_AD_RELEASE_MS は新しい値を作らずに TUNER_SUSTAIN_MS(1秒)を読む。覆うのは (a)〜(d) のどれにも入らない短い空き:
+// 溶けたあと次の段を探す間(COACH_POLL_MS)・⑫ を押して日の枠が開き(--d-slow)⑬ の的が現れるまで・下部タブで移った先で到着カードが出るまで。
+// 動きの時間ではなく「待つ長さ」(§1.11 の段の外)。案内で「続いた」「手を止めた」を測る長さと同じ1秒にそろえた。
+// (初版の注記の「③ → ④ の空きはこの長さより短い」は誤り: ③ の印は最初に触れたときに立ち、④ は最後に触れてから1秒後に出るので、
+//  続けて押すとカードの無い時間はいくらでも延びる。それは (c) が受け持つ)
+//   engage … (a) か (d)。立った描画で止める(state が追いつくのを待たない)
+//   keep   … (b) か (c)。止めている間だけ効く(止めていなければ何もしない)
+export const COACH_AD_RELEASE_MS = TUNER_SUSTAIN_MS;
+export function useCoachAdHold({ engage = false, keep = false } = {}, ms = COACH_AD_RELEASE_MS) {
+  const [hold, setHold] = useState(Boolean(engage));
+  useEffect(() => {
+    if (engage) { if (!hold) setHold(true); return undefined; }
+    if (!hold || keep) return undefined;
+    const t = setTimeout(() => setHold(false), ms);
+    return () => clearTimeout(t);
+  }, [engage, keep, hold, ms]);
+  return Boolean(engage) || hold;
+}
+
+// 【便CO 審査のあとの統括の決定】(c) 次の段が利用者の操作を待っているだけか。
+// coachCandidates の引数のうち「利用者がいま続けている操作」を表すもの(待ちの条件)だけを満ちた側に置き換えて引き直し、
+// 今は出し得る段が無いのに、待ちが明ければ出る段があるなら真。条件を1つずつ並べず、この表だけで決める:
+//   metroTempoQuiet … ④ はテンポ行に最後に触れてから TUNER_SUSTAIN_MS 何も触れなかったら出る(触っている間は待ち)
+//   metronomeOn     … 面が開いて鳴っている間は ④ の次を出さない(鳴り止むのを待つ)
+//   sessionsKnown   … 計測の有無の読み込み中(読み終われば出る)
+// マイクの許可(micReady)は入れない ── 許可されなかったときは待っても出ない。済んだ段・外押しで飛ばした段は coachCandidates が返さないので数えない。
+export const COACH_WAIT_RELIEF = Object.freeze({ metroTempoQuiet: true, metronomeOn: false, sessionsKnown: true });
+export function coachWaiting(args) {
+  if (coachCandidates(args).length > 0) return false;
+  return coachCandidates({ ...args, ...COACH_WAIT_RELIEF }).length > 0;
+}
+
 // 的が画面の中に**まるごと**見えているか。大きさ 0(描かれていない)・画面の外(スクロール・ページャの隣のページ)は出さない。
 export function targetVisible(r, vw, vh) {
   if (!r || !(r.width > 0) || !(r.height > 0)) return false;
@@ -847,7 +896,7 @@ function hitRects(hole, vw, vh, band = null) {
 // 【便BX】also を持つ段(【便BY】⑩ goData だけ。保存の帯が出ているとき)は穴が2つ。画面を2つの穴の間の線(holesSplit)で上下に分け、穴ごとに自分の帯の中だけ
 //   影(暗幕)を落とし(clip-path)、受けも帯の中に4枚ずつ置く。穴の影が1つなので、穴を広げずに離れた2か所を照らせる。
 // ------------------------------------------------------------------
-export function OnboardingCoach({ candidates, done, hidden, onMark = null, onShown = null, onDismiss = null }) {
+export function OnboardingCoach({ candidates, done, hidden, onMark = null, onShown = null, onDismiss = null, onPresence = null }) {
   const [view, setView] = useState(null);
   const [announcedId, setAnnouncedId] = useState(null);
   const viewRef = useRef(null);
@@ -868,6 +917,9 @@ export function OnboardingCoach({ candidates, done, hidden, onMark = null, onSho
   // 【便CG】カードが初めて見えたことの知らせ(App.jsx が「初めて案内が出た起動」の印を立てる)。この部品の間に1回だけ
   const onShownRef = useRef(onShown);
   onShownRef.current = onShown;
+  // 【便CO】カードが画面にあるか(測る前・溶けている間も含む)の知らせ(App.jsx が広告の帯を止める。useCoachAdHold)
+  const onPresenceRef = useRef(onPresence);
+  onPresenceRef.current = onPresence;
   const shownOnceRef = useRef(false);
   candidatesRef.current = candidates;
   doneRef.current = done;
@@ -1058,6 +1110,9 @@ export function OnboardingCoach({ candidates, done, hidden, onMark = null, onSho
 
   const said = announcedId ? COACH_STEPS[announcedId] : null;
   const step = view ? COACH_STEPS[view.id] : null;
+  // 【便CO】カードがあるか。描く前(layout)に知らせる ── 呼び手は同じ描画のうちに <html data-ad-hold> を付けられる(帯の高さが 0 の画面でカードを置く)
+  const present = view !== null;
+  useLayoutEffect(() => { onPresenceRef.current?.(present); }, [present]);
   // 【便CG】「出た」は測り終えて見えているカード(view.measured)だけ。測る前の隠れたカード(タブを移った直後に一瞬だけ候補になった段)は数えない
   const visibleNow = Boolean(view?.measured && !view.leaving);
   useEffect(() => {

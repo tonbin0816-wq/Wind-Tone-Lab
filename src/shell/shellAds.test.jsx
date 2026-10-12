@@ -312,7 +312,12 @@ describe("【便CG】殻: 案内の間は initialize / showBanner を呼ばな�
     await waitFor(() => cap.log.includes("showBanner"), "⑱ のあとの showBanner");
     expect(adsCalls()).toEqual(["initialize", "trackingAuthorizationStatus", "requestTrackingAuthorization", "trackingAuthorizationStatus", "showBanner"]);
     expect(cap.log.indexOf("getUserMedia")).toBeLessThan(cap.log.indexOf("initialize"));
-    expect(hold()).toBe(null);
+    // 【便CO 2026-10-12】⑱ のカードが溶けて消えたあと、戻す待ち(useCoachAdHold)のあいだは止めたまま: 帯は隠した状態で始まり(hideBanner)、--ad-h は 0px
+    await waitFor(() => cap.log.includes("hideBanner"), "止めている間に始めた帯を隠す");
+    expect(cap.log.indexOf("hideBanner")).toBeGreaterThan(cap.log.indexOf("showBanner"));
+    // 待ちが過ぎたら印が外れ、帯を戻し(resumeBanner)、--ad-h は仮の 50px
+    await waitFor(() => hold() === null, "案内が閉じたら戻す");
+    await waitFor(() => cap.log.includes("resumeBanner"), "resumeBanner");
     expect(adH()).toBe("50px");
   }, 30000);
 
