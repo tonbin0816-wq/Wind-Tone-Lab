@@ -272,7 +272,7 @@ describe("リードの登録(成功の道で印が立つ)", () => {
     await passArrival("arriveReeds");   // 【便BX】到着を押してから
     await waitFor(() => layerId() === "reeds", "リードタブの案内");
     expect(layer().querySelector(".coach-title").textContent).toBe("使っているリードを登録しよう");   // 【便BY】本人の指示で便BW の見出しに戻した
-    expect(layer().querySelector(".coach-line").textContent).toBe("計測に登録したリードを紐づけることができます");   // 【便BQ】
+    expect(layer().querySelector(".coach-line").textContent).toBe("登録したリードは計測に紐づけることができます");   // 【便BQ】
     // 右下の ＋(案内の的)を押す → 追加のシート(BottomSheet)が開いている間は出ない
     await click(document.querySelector('button[aria-label="リードを追加"]'));
     await waitFor(() => document.querySelector('[role="dialog"].sheet-scrim'), "追加のシート");
@@ -1071,7 +1071,7 @@ describe("【便BW】計測タブ: ⑦ → ⑧ リードの枠 → ⑨ このリ
     expect(chip.querySelector('button[aria-label="リードの個体を選ぶ"]')).not.toBe(null);
     expect(holeOf()).toEqual(["8px", "40px", "202px", "42px", "var(--r-full)"]);
     expect(layer().querySelector(".coach-title").textContent).toBe("選んだリードが紐づいています");
-    expect(layer().querySelector(".coach-line").textContent).toBe("計測データに選択したリードが紐づきます");   // 【便BX】本人の指示
+    expect(layer().querySelector(".coach-line")).toBe(null);   // 【便CN】本人の指示で1行を削除
     await click(layer().querySelector(".coach-card"));
     await waitFor(() => kv("onboardingDone")?.reedLinked === true, "reedLinked の印");
     await waitFor(() => layerId() === "measureReed", "⑨");

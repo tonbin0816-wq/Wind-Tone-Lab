@@ -48,18 +48,18 @@ describe("文言(凍結仕様の表と本人の指示のとおり、一字一句
   // [見出し, 1行(無ければ null), アイコン]
   const SPEC = {
     measure: ["最初の計測を記録しよう", "ボタンタップで計測スタート", "mic"],
-    reeds: ["使っているリードを登録しよう", "計測に登録したリードを紐づけることができます", "reeds"],   // 【便BQ】本人の指示・【便BY】見出しを便BW に戻した
+    reeds: ["使っているリードを登録しよう", "登録したリードは計測に紐づけることができます", "reeds"],   // 【便BQ】本人の指示・【便BY】見出しを便BW に戻した
     reedsMeasure: ["このリードで計測してみよう", null, "measure"],                                    // 【便BQ】1行は無し
     data: ["計測を始めると、ここに貯まります", "計測タブから計測してみよう", "data"],
     adoptAverage: ["みんなの平均を目安にしてみよう", "目安に設定すると自分の音と比べられます", "target"],
     // 【便BS 2026-10-03 本人裁定(ficus-tutorial2.html の表)】計測タブの1段目・2段目
-    tuner: ["まずは吹いてみよう", "音程がリアルタイムで表示されます", "tuner"],
+    tuner: ["まずは吹いてみよう", "音程がリアルタイムで表示されます", "measure"],
     metronome: ["メトロノームも使えます", "テンポを決めて練習できます", "metro"],
     // 【便BW 2026-10-06 凍結仕様 §2.6】
     metroTempo: ["テンポを決めよう", "♩=n を押すと拍子も変えられます", "metro"],
     metroStart: ["タップでスタート", "もう一度押すと止まります", "metro"],
     goReeds: ["次はリードを登録しよう", null, "reeds"],
-    reedLinked: ["選んだリードが紐づいています", "計測データに選択したリードが紐づきます", "reeds"],   // 【便BX】1行を本人の指示で替えた
+    reedLinked: ["選んだリードが紐づいています", null, "reeds"],   // 【便BX】1行を本人の指示で替えた
     measureReed: ["このリードで計測してみよう", "ボタンタップで計測スタート", "mic"],
     goData: ["計測の記録を見てみよう", null, "data"],
     calendarDay: ["計測した日を押してみよう", null, "data"],
@@ -68,7 +68,7 @@ describe("文言(凍結仕様の表と本人の指示のとおり、一字一句
     // 【便BW 本人裁定 2026-10-06】⑮ はデータタブの音の傾向カード
     idealSeen: ["みんなの平均を目安にしました", "my平均と目安を重ねて見られます", "target"],
     // 【便BX 2026-10-06 凍結仕様 §2.3】到着4つ・⑭'・⑰(「！」は全角・「ここはコミュニティ」に「タブ」を付けない)
-    finish: ["チューナーとメトロノームを使って、あなたのデータを貯めよう！", "はじめの案内はこれで終わりです", "tuner"],
+    finish: ["チューナーとメトロノームを使って、あなたのデータを貯めよう！", "はじめの案内はこれで終わりです", "measure"],
     arriveReeds: ["ここはリードタブ", "使っているリードを登録して、計測に紐づけます", "reeds"],
     arriveData: ["ここはデータタブ", "計測の記録はここに貯まります", "data"],
     goCommunity: ["みんなのデータも見てみよう", null, "community"],
@@ -93,8 +93,8 @@ describe("文言(凍結仕様の表と本人の指示のとおり、一字一句
     expect(Object.values(COACH_STEPS).some((s) => s.title === "気になる奏者を開いてみよう")).toBe(false);
     expect(Object.values(COACH_STEPS).some((s) => s.title === "コミュニティに参加しよう")).toBe(false);
     expect(Object.values(COACH_STEPS).some((s) => s.title === "楽器を選択してリードを登録しよう")).toBe(false);   // 【便BY】便BX の見出しは残っていない
-    // アイコンは既存の8種から(新しい絵は足していない。【便BX】community は参加のカードと同じ絵を ⑭' と到着が使う)
-    expect(new Set(Object.values(COACH_STEPS).map((s) => s.icon))).toEqual(new Set(["tuner", "metro", "mic", "reeds", "measure", "data", "target", "community"]));
+    // アイコンは既存の7種から(【便CN】tuner は計測タブと同じ measure に寄せて外した)(新しい絵は足していない。【便BX】community は参加のカードと同じ絵を ⑭' と到着が使う)
+    expect(new Set(Object.values(COACH_STEPS).map((s) => s.icon))).toEqual(new Set(["metro", "mic", "reeds", "measure", "data", "target", "community"]));
   });
   // 【便BX 2026-10-06 本人の決定 B1】「どの段も的を持つ」は、到着カード4段(穴なし)だけ的を持たない形に改めた
   it("【便BX】的: 到着4段(arrival: true)だけ target を持たず、他の19段(【便BZ】20段)は target が文字列。① は環の箱を角丸の矩形・pad 0", () => {
@@ -916,8 +916,8 @@ describe("【便BW】環の箱・メトロノームの的", () => {
     expect(card.querySelector(".coach-title").textContent).toBe("まずは吹いてみよう");
     expect(card.querySelector(".coach-line").textContent).toBe("音程がリアルタイムで表示されます");
     expect(live().textContent).toBe("まずは吹いてみよう。音程がリアルタイムで表示されます");
-    // アイコンは版の tuner(半円の弧)
-    expect(card.querySelector(".coach-icon svg path").getAttribute("d")).toBe("M3 17 A9 9 0 0 1 21 17");
+    // アイコンは計測タブと同じ絵(measure の針)。【便CN】
+    expect(card.querySelector(".coach-icon svg path").getAttribute("d")).toBe("m12 14 4-4");
     // 環の箱が無ければ出さない(的なしの道は無い)
     await drawBS(["tuner"]);
     await frames(320);
@@ -1279,7 +1279,7 @@ describe("【便BY】⑥ リード登録: 穴は「リードを追加」の1つ(
     await frames();
     expect(layerId()).toBe("reeds");
     expect(layer().querySelector(".coach-title").textContent).toBe("使っているリードを登録しよう");
-    expect(layer().querySelector(".coach-line").textContent).toBe("計測に登録したリードを紐づけることができます");
+    expect(layer().querySelector(".coach-line").textContent).toBe("登録したリードは計測に紐づけることができます");
     expect(holeStyles()).toEqual([{ box: ["295px", "687px", "76px", "76px", "50%"], clip: null, also: null }]);
     expect(hitBoxes()).toEqual([["t", 0, 0, 375, 687], ["b", 0, 763, 375, 49], ["l", 0, 687, 295, 76], ["r", 371, 687, 4, 76]]);
     // 4つの楽器種別のボタンの中央は、上の受け(t)が覆う(暗幕の下)
@@ -1824,9 +1824,9 @@ describe("【便BX】到着カード(穴なし・どこを押しても次へ・�
     expect(getComputedStyle(layer().querySelector(".coach-hit")).pointerEvents).toBe("none");
     expect(getComputedStyle(layer().querySelector(".coach-card")).pointerEvents).toBe("none");
   });
-  it("4つの到着の文とアイコン(⑱ は tuner の絵・コミュニティは参加のカードと同じ絵)", async () => {
+  it("4つの到着の文とアイコン(⑱ は計測タブと同じ絵・コミュニティは参加のカードと同じ絵)", async () => {
     const W4 = {
-      finish: ["チューナーとメトロノームを使って、あなたのデータを貯めよう！", "はじめの案内はこれで終わりです", "M3 17 A9 9 0 0 1 21 17"],
+      finish: ["チューナーとメトロノームを使って、あなたのデータを貯めよう！", "はじめの案内はこれで終わりです", "m12 14 4-4"],
       arriveData: ["ここはデータタブ", "計測の記録はここに貯まります", "M16 16L16 8"],
       arriveCommunity: ["ここはコミュニティ", "参加した人の計測データと、みんなの平均が見られます", null],
     };

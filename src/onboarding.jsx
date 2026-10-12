@@ -162,7 +162,7 @@ export const COACH_STEPS = {
   // 【便BW 審査 統括の裁定】最初はチューナーの帯(環 + 折れ線)全体だったが、カードが帯の中央に重なって環を覆った(広告あり・iPad 横)ので環に絞った。
   // 便BS では「押す所が無い」ので的なし(画面いっぱいの暗幕)にしていたが、吹いて変わる所まで暗くなっていた。
   tuner: {
-    flag: "tuner", icon: "tuner",
+    flag: "tuner", icon: "measure",
     title: "まずは吹いてみよう", line: "音程がリアルタイムで表示されます",
     target: '[data-coach="tuner"]', pad: 0, shape: "rect",
   },
@@ -193,8 +193,8 @@ export const COACH_STEPS = {
   // 【便BW 本人の要望5】⑧ 左上のリードの枠(点 + メーカー + 厚さ + 開封日 + #n)。押す=済(外でもカードでも)。
   reedLinked: {
     flag: "reedLinked", icon: "reeds",
-    // 【便BX 2026-10-06 本人の実機指示】1行を「計測データに選択したリードが紐づきます」に。
-    title: "選んだリードが紐づいています", line: "計測データに選択したリードが紐づきます",
+    // 【便BX 2026-10-06 本人の実機指示】1行を「計測データに選択したリードが紐づきます」に。【便CN 2026-10-12 本人の指示】1行は削除(見出しだけ)。
+    title: "選んだリードが紐づいています", line: null,
     target: '[data-coach="reedChip"]', pad: 6, shape: "pill", markOnDismiss: true,
   },
   // 【便BW 本人の要望6】⑨ リードが選ばれているときの計測の段。印は measure(リードなしの段と同じ印で文が2つ)。
@@ -223,7 +223,7 @@ export const COACH_STEPS = {
   // target を持たない(的を探さない)。pad / shape / dismissWith / markOnDismiss / scrollIntoView / also も持たない。
   // ⑱ 終わり。⑮ を見て計測タブへ戻ったら(goMeasure)。穴なしなのでマイクも面の開閉も待たない
   finish: {
-    flag: "finish", icon: "tuner",
+    flag: "finish", icon: "measure",
     title: "チューナーとメトロノームを使って、あなたのデータを貯めよう！", line: "はじめの案内はこれで終わりです",
     arrival: true,
   },
@@ -269,10 +269,10 @@ export const COACH_STEPS = {
   },
   reeds: {
     flag: "reeds", icon: "reeds",
-    // 【便BQ 2026-10-03 本人指示】1行を「計測に登録したリードを紐づけることができます」に。
+    // 【便BQ 2026-10-03 本人指示】1行を「計測に登録したリードを紐づけることができます」に。【便CN 2026-10-12 本人の指示】「登録したリードは計測に紐づけることができます」に。
     // 【便BY 2026-10-07 本人の指示「リード登録の時の楽器を選択して〜の案内はやっぱり削除」】見出しを便BW の「使っているリードを登録しよう」に戻し、
     // 便BX の楽器種別の行の2つ目の穴(also)を外した(穴は「リードを追加」の1つ)。
-    title: "使っているリードを登録しよう", line: "計測に登録したリードを紐づけることができます",
+    title: "使っているリードを登録しよう", line: "登録したリードは計測に紐づけることができます",
     target: '[data-coach="reeds"]', pad: 10, shape: "circle",
   },
   // 【便BP2 2026-10-03 統括の裁定】2つの画面をまたいで同じ一手を案内する。一覧では先頭の箱の先頭のタイル(角丸 12 の四角)、
@@ -738,11 +738,11 @@ const prefersReducedMotion = () => {
 
 // アイコン(版4の SVG をそのまま)。計測=マイク / リード1=リード / リード2=計測(MeasureIcon と同じ針) /
 // データ=データ / 参加前=コミュニティ / 参加後=的。
-// 【便BS】チューナー=tuner(針のある半円)・メトロノーム=metro(線の太さ 1.6)を ficus-tutorial2.html の SVG のまま足した。
+// 【便BS】メトロノーム=metro(線の太さ 1.6)を ficus-tutorial2.html の SVG のまま足した。
+// 【便CN 2026-10-12 本人の指示】① と ⑱ は計測タブと同じ絵(measure)に。チューナーの半円(tuner)は使わなくなったので外した。
 // コミュニティ(community)は参加の画面のカード(CommunityTab.jsx の JoinIntro)が CoachIcon で読む。
 const SV = { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true", focusable: "false" };
 const ICONS = {
-  tuner: <svg {...SV}><path d="M3 17 A9 9 0 0 1 21 17" /><line x1="12" y1="8" x2="12" y2="10" /><line x1="12" y1="17" x2="14.2" y2="11.4" /><circle cx="12" cy="17" r="1.5" fill="currentColor" stroke="none" /></svg>,
   metro: <svg {...SV} strokeWidth={1.6}><path d="M8 20h8l-2-14h-4z" /><path d="M12 14l5-8" /></svg>,
   mic: <svg {...SV}><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5.5 11a6.5 6.5 0 0 0 13 0" /><line x1="12" y1="17.5" x2="12" y2="21" /></svg>,
   reeds: <svg {...SV}><g transform="translate(0.7 -1.9) rotate(35 12 13)" strokeWidth="1.8"><path d="M9.5 22 L9.5 10 Q9.5 4.5 12 4.5 Q14.5 4.5 14.5 10 L14.5 22 Z" /><path d="M9.5 15 Q12 11.8 14.5 15" /></g></svg>,

@@ -33331,7 +33331,7 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     // 【便BY 2026-10-07 本人の指示】⑥ の見出しを便BW に戻した。便BX の見出しは onboarding.jsx の段の表にも DESIGN-SYSTEM の段の表にも残っていない
     check("BW.7 【便BY】⑥ の見出しは「使っているリードを登録しよう」(便BX の「楽器を選択してリードを登録しよう」は段の表に無い)",
       !/楽器を選択してリードを登録しよう/.test(codeOf(rd("src/onboarding.jsx")))
-      && !/\| 楽器を選択してリードを登録しよう/.test(sec) && sec.includes("| 使っているリードを登録しよう / 計測に登録したリードを紐づけることができます"));
+      && !/\| 楽器を選択してリードを登録しよう/.test(sec) && sec.includes("| 使っているリードを登録しよう / 登録したリードは計測に紐づけることができます"));
   }
   console.log("  -> done");
 }
@@ -33381,7 +33381,7 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     stepIds.length === 24 && stepIds.every((id) => /\n\s*flag: "[A-Za-z]+", icon: "[a-z]+",\n/.test("\n" + stepOf(id) + "\n"))
     && !/\bchapter:/.test(stepsBlk), `${stepIds.length}段`);
   check("BX.1 ⑱ finish の文(一字一句)・アイコン tuner・章 measure",
-    /flag: "finish", icon: "tuner",\n\s*title: "チューナーとメトロノームを使って、あなたのデータを貯めよう！", line: "はじめの案内はこれで終わりです",/.test(stepOf("finish")));
+    /flag: "finish", icon: "measure",\n\s*title: "チューナーとメトロノームを使って、あなたのデータを貯めよう！", line: "はじめの案内はこれで終わりです",/.test(stepOf("finish")));
   check("BX.1 到着3つ・⑭'・⑰ の文(一字一句)",
     /title: "ここはリードタブ", line: "使っているリードを登録して、計測に紐づけます",/.test(stepOf("arriveReeds"))
     && /title: "ここはデータタブ", line: "計測の記録はここに貯まります",/.test(stepOf("arriveData"))
