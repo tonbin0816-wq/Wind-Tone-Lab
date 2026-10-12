@@ -32530,6 +32530,15 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
       && (swiftCode.match(/try session\.setCategory\(\.playAndRecord, mode: \.default, options: FicusAudioSessionPlugin\.sessionOptions\)/g) || []).length === 2
       && (swiftCode.match(/setCategory\(/g) || []).length === 2
       && !/\.allowBluetooth(?!A2DP)/.test(swiftCode) && !/allowBluetoothHFP/.test(swiftCode));
+    // 【便CQ】モードの条件は**念のための条件**で、いまの判定を1件も変えない(WebKit が立て直すときの選択肢は
+    // AllowBluetooth|A2DP|AirPlay(|DefaultToSpeaker)で sessionOptions と一致しないので、選択肢の違いだけで既に真になる)。
+    // 音量が小さい原因は仮説(WebKit の videoChat = 通話の音量。bug 271305)で、旧来の処理で直らなかった理由は未解明。
+    // ここが守るのは「3つを見る判断を2か所が使う」綴りだけ。Swift はここでは走らない(ビルドが通るか・効くかは実機待ち)。
+    check("K.6 AppDelegate.swift: 【便CQ】立て直しの判断 needsSessionReset は種別・モード(.default)・選択肢の3つを見て、routeToSpeaker と経路の変化の両方がそれを使う",
+      /func needsSessionReset\(_ session: AVAudioSession\) -> Bool \{\n\s*return session\.category != \.playAndRecord\n\s*\|\| session\.mode != \.default\n\s*\|\| session\.categoryOptions != FicusAudioSessionPlugin\.sessionOptions\n\s*\}/.test(swiftCode)
+      && /\n\s*if needsSessionReset\(session\) \{\n\s*try session\.setCategory\(/.test(swiftCode)
+      && /\n\s*if self\.needsSessionReset\(session\) \{\n\s*try session\.setCategory\(/.test(swiftCode)
+      && (swiftCode.match(/needsSessionReset\(/g) || []).length === 3);
     check("K.6 AppDelegate.swift: スピーカーへの上書き overrideOutputAudioPort(.speaker) は出口が受話口のときだけ(イヤホンがあるときにかけない)",
       /func applyOutputRule\(_ session: AVAudioSession\) throws \{\n\s*let outputs = session\.currentRoute\.outputs\.map \{ \$0\.portType \}\n\s*if outputs\.contains\(\.builtInReceiver\) \{\n\s*try session\.overrideOutputAudioPort\(\.speaker\)\n\s*\}\n\s*\}/.test(swiftCode)
       && (swiftCode.match(/overrideOutputAudioPort\(/g) || []).length === 1);
@@ -32668,7 +32677,10 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
       at >= 0 && after.includes("shellRouteToSpeaker();") && lines.filter((l) => l.trim() === "streamRef.current = stream;").length === 1, JSON.stringify(after));
     check("K.12 startMetronome: 先頭(古い状態の無効化の直後)で shellRouteToSpeaker();",
       /const startMetronome = useCallback\(\(\) => \{\n    metroGenRef\.current\+\+;\s*\n\s*shellRouteToSpeaker\(\);\n/.test(app));
-    check("K.12 shellRouteToSpeaker() の呼び手は2か所だけ(マイクの直後・メトロノームの開始)", (app.match(/shellRouteToSpeaker\(\);/g) || []).length === 2);
+    // 【便CQ】3か所目: メトロノームが鳴り始めた(resume が解決した)後。WebKit は取り込み中に音が鳴り始めるたび
+    // playAndRecord + videoChat(VC の音量)へ立て直すので、その後でもう一度寄せる。止めた・別の ctx に替わった後は呼ばない。
+    check("K.12 shellRouteToSpeaker() の呼び手は3か所(マイクの直後・メトロノームの開始・【便CQ】メトロノームが鳴り始めた後(いまの ctx で鳴らしている間だけ))", (app.match(/shellRouteToSpeaker\(\);/g) || []).length === 3
+      && /\n    ctx\.resume\(\)\.then\(\(\) => \{\n      if \(metroOnRef\.current && metroCtxRef\.current === ctx\) shellRouteToSpeaker\(\);\n    \}\)\.catch\(\(\) => \{\}\);\n/.test(app));
     check("K.12 requestWakeLock の先頭が if (isNativeShell()) で KeepAwake を動的 import(Web の navigator.wakeLock の枝は残る)",
       /const requestWakeLock = useCallback\(async \(\) => \{\n    if \(isNativeShell\(\)\) \{\n\s*try \{ const m = await import\("\.\/shell\/keepAwake\.native\.js"\); await m\.keepAwake\(\); \} catch \{\s*\}\n\s*return;\n    \}\n    try \{\n      if \("wakeLock" in navigator && !wakeLockRef\.current\) \{\n        wakeLockRef\.current = await navigator\.wakeLock\.request\("screen"\);/.test(app));
     check("K.12 releaseWakeLock の先頭が殻の枝(allowSleep)で、Web の release の行は残る",
@@ -32725,9 +32737,22 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     const jsName = (/registerPlugin\("([^"]+)"\)/.exec(as) || [])[1];
     const swiftJsName = (/public let jsName = "([^"]+)"/.exec(swift) || [])[1];
     const swiftMethods = [...swift.matchAll(/CAPPluginMethod\(name: "([^"]+)", returnType: CAPPluginReturnPromise\)/g)].map((m) => m[1]);
-    check("K.14 audioSession.native.js の registerPlugin の名前 = Swift の jsName(FicusAudioSession)・呼ぶメソッド routeToSpeaker が Swift の pluginMethods にある",
+    // 【便CQ】sessionInfo(診断の板の読み出し口。読むだけ)を足した。JS が呼ぶメソッドの集合と Swift の pluginMethods が過不足なく一致すること
+    // 【便CQ】診断の板: Swift の sessionInfo が返す名前と、板(src/audioDiag.jsx)が読む名前が一致すること(片方だけ綴りを変えると「—」が出るだけで誰も気づかない)
+    {
+      const si = (/@objc func sessionInfo\(_ call: CAPPluginCall\) \{[\s\S]*?\n    \}/.exec(swift) || [""])[0];
+      const swiftKeys = [...si.matchAll(/\n\s*"(\w+)": /g)].map((m) => m[1]).sort();
+      const diag = codeOf(readS("src/audioDiag.jsx"));
+      const jsKeys = [...new Set([...diag.matchAll(/session\.(\w+)/g)].map((m) => m[1]).filter((k) => k !== "error"))].sort();
+      check("K.14 【便CQ】sessionInfo の返す名前(Swift)と診断の板が読む名前(audioDiag.jsx)が過不足なく一致・読むだけ(setCategory などを呼ばない)",
+        swiftKeys.length === 8 && JSON.stringify(swiftKeys) === JSON.stringify(jsKeys) && !/setCategory|setActive|overrideOutputAudioPort|setMode/.test(si),
+        `${swiftKeys.join(",")} / ${jsKeys.join(",")}`);
+    }
+    check("K.14 audioSession.native.js の registerPlugin の名前 = Swift の jsName(FicusAudioSession)・呼ぶメソッド routeToSpeaker / sessionInfo が Swift の pluginMethods と一致",
       jsName === "FicusAudioSession" && swiftJsName === jsName
-      && /export const routeToSpeaker = \(\) => P\.routeToSpeaker\(\);/.test(as) && JSON.stringify(swiftMethods) === JSON.stringify(["routeToSpeaker"])
+      && /export const routeToSpeaker = \(\) => P\.routeToSpeaker\(\);/.test(as) && /export const sessionInfo = \(\) => P\.sessionInfo\(\);/.test(as)
+      && JSON.stringify([...as.matchAll(/P\.(\w+)\(\)/g)].map((m) => m[1]).sort()) === JSON.stringify([...swiftMethods].sort())
+      && JSON.stringify(swiftMethods) === JSON.stringify(["routeToSpeaker", "sessionInfo"])
       && /@objc func routeToSpeaker\(_ call: CAPPluginCall\)/.test(swift), `${jsName} / ${swiftJsName} / ${swiftMethods}`);
   }
 

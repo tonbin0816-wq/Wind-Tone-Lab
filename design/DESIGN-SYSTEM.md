@@ -1274,6 +1274,7 @@ iPad との分岐を2か所に持つより上限を1つにしておくほうが�
   - **計測タブを離れたらマイクを止める**: 殻だけ `stop`（橙の印が消える。Capacitor が WebKit の許可を自動で通すので、戻っても許可の画面は出ない）。
     実機で戻ったときに固まるなら `src/shell/policy.js` の `SHELL_STOP_MIC_ON_TAB_LEAVE = false` で Web と同じ `pause` に戻す（1か所）。
   - **メトロノームのマスターゲイン**: 殻 1.0（`policy.js` の `METRO_MASTER_GAIN_SHELL`）・Web 2.6（`getMetroMasterInput` の行が唯一の答え）。実機でまだ小さければ殻も 2.6 にして再ビルド。
+    【便CQ 実測】2.6 にすると、実際のクリックはフルスケールを越える（下の「モードは `.default`」の測り方。強拍で最大 1.548）。採るなら割れを承知の上で、統括の裁定が要る。
     仕様の綴り（`master.gain.value = metroMasterGain(isNativeShell());`）からは外した: Web の 2.6 の行を見る既存の検査と、`getMetroMasterInput` を単独で回す検査を壊さないため、
     殻の値は `startMetronome` が ctx に置き、`getMetroMasterInput` が読む。`policy.js` に Web の 2.6 の写しは持たない。
   - **Web 版の記録の移し方**: 殻だけ・記録が 0 件の間だけ、すべての計測（AllSessionsPage）の「まだ記録がありません」の下に1行。
@@ -1288,6 +1289,58 @@ iPad との分岐を2か所に持つより上限を1つにしておくほうが�
   WebKit が AudioContext を一度止めるので、こちらで再開する: メトロノームは殻の枝でだけ ctx の `onstatechange` で（鳴らしている間・画面が見えている間）、
   計測側は tick が毎フレーム `resume()` を試みる既存の道で戻る。途切れずに戻るかは実機で確かめる。
   Bluetooth の出力は機器によって 100ms 級の遅れがあり、メトロノームの音は拍より遅れて聞こえうる（承知の上の裁定）。
+  - **モードは `.default`（【便CQ 2026-10-12】本人の実機報告「マイクが入っているとメトロノームが明らかに小さい」）**。
+    - **原因は仮説**: WebKit は取り込み中、音の出来事のたびに（`MediaSessionManagerCocoa::updateSessionState`）セッションを `playAndRecord` + `videoChat`
+      （受話口が既定なら `voiceChat`）に立て直す。WebKit 自身が「マイクを取ると音量が VC（通話）の音量に替わる」と書いている（WebKit bug 271305。
+      直し 276988@main は「playAndRecord のときは常に videoChat」にそろえただけ）。
+      **ただし、旧来の処理（経路の変化で選択肢が違えば `.default` へ戻す）で直らなかった理由は未解明。** WebKit の立て直しの選択肢は
+      `AllowBluetooth|AllowBluetoothA2DP|AllowAirPlay(|DefaultToSpeaker)` で殻の `sessionOptions` と一致しないので、旧来の条件でも戻すはずだった。
+      経路の変化の知らせが来ていない・戻してもまた WebKit が立て直す（WebKit は種別・モード・選択肢に加えて `routeSharingPolicy` も比べるので、
+      こちらの `setCategory` の後にまた立て直しうる）・モードは関係ない、のどれかで、実機の値を見ないと決められない（下の「音の診断の板」）。
+    - 殻の `needsSessionReset`（種別・モード・選択肢の3つ）の**モードの条件は念のための条件**で、いまの判定を1件も変えない（WebKit が立て直した場合は
+      選択肢の違いだけで既に真になる）。routeToSpeaker と経路の変化の両方が使う。
+    - 呼ぶ時機に**メトロノームが鳴り始めた後**を足した: `startMetronome` の `ctx.resume()` が解決したとき、いまの ctx で鳴らしている間だけ `shellRouteToSpeaker()`。
+      呼び手は マイクの直後・メトロノームの開始・鳴り始めた後 の3か所。これも仮説の上の手当てで、効くかは実機待ち。
+    - getUserMedia の制約（`echoCancellation` / `noiseSuppression` / `autoGainControl` を3つとも `false`）は**変えていない**（計測の値の決まりに触れない）。
+    - **取り込みの部品（【便CQ 統括の決定C】WebKit のソースで確かめた）**: WebKit の `CoreAudioCaptureUnit` は `echoCancellation` が真のときだけ
+      Voice Processing IO を使い、偽なら iOS では RemoteIO を使う（`m_shouldUseVPIO = enableEchoCancellation();`・`unitSubType = kAudioUnitSubType_RemoteIO;`）。
+      iOS では制約の値をそのまま部品に渡す（`CoreAudioCaptureSource` の `unit->setEnableEchoCancellation(echoCancellation());`）。Ficus は false を渡し、
+      効かなかったときは「計測下限dB」の欄の下に警告を出す既存の仕組みがある（トラックの getSettings を読む。診断の板の `micSettings` にも出す）ので、**VPIO の「他の音を下げる」働き（ducking）が原因である見込みは低い**（VPIO のときは WebKit が
+      `kAUVoiceIOOtherAudioDuckingLevelMin` を設定する）。ducking の段階を変える口（`kAUVoiceIOProperty_OtherAudioDuckingConfiguration` /
+      `AVAudioInputNode.voiceProcessingOtherAudioDuckingConfiguration`）は**音を取る部品そのものの設定**で、WebKit の部品は WebKit の中にあり、
+      アプリ（殻）から触れる経路は無い。手当てはしていない。※ 確かめたのは WebKit の main のソースで、本人の iOS に入っている版と同じかは分からない。
+    - **マスターゲインは変えていない**（殻 1.0）。【便CQ 実測（Chrome 152 の OfflineAudioContext・48kHz。WebKit と同じ系統の DynamicsCompressor）】
+      リミッターには自動の持ち上げ（makeup）があり、0dBFS の正弦波を入れると出力は 0.891（−3dBFS の 0.708 ではない）。入力を上げると 2倍で 0.937・
+      4倍で 0.999・8倍で 1.045 と、1 を越える（煉瓦の壁ではない）。実際のクリック（App.jsx の `scheduleMetroClick` をそのまま切り出し、1種 20 回 × 乱数の
+      バッファ 20 通り）の出力のピークは、殻の 1.0 で強拍 0.248〜0.608・拍 0.176〜0.327・弱拍 0.073〜0.218、Web の 2.6 で強拍 0.543〜1.548・拍 0.415〜1.097・
+      弱拍 0.178〜0.529（**2.6 は強拍と拍でフルスケールを越える = 割れる**）。0dBFS までの余裕は、正弦波の定常で 1/0.891 ≒ 1.12 倍、実際のクリックの
+      最悪で約 1.3 倍（審査の測り直し: 強拍・乱数のバッファ 300 通りで最大 0.729〈余裕 ≒1.37 倍〉、別の 40 通りで最大 0.760。上の 20 通りの 0.608 は最悪ではない。保証ではない）。どの値にするかは統括の裁定待ち（BACKLOG）。実機の iOS の出力段は測っていない。
+- **裏から戻ったときのメトロノーム（【便CQ 2026-10-12】本人の実機報告「しばらく他のアプリを見てから戻ると動かない。リードタブへ移って戻ると使える」）**。
+  - 決まり: **戻ったら止まった状態**（隠れた時点で止めている。既存）で、**押せばすぐ鳴る**。勝手に鳴り出さない（他のアプリから戻ったら急に鳴るのは不可）。
+  - **Web と殻の両方**: 画面へ戻ったとき（隠れてから `visibilitychange` で見えるように戻った・`pageshow` の `persisted`）、止まっているメトロノームの ctx を
+    **閉じて捨てる**（`dropIdleMetroCtx`）。次の START が**そのタップの中で**新しい ctx を作り、`resume()` を蹴り、スケジューラ（25ms の setInterval）も張り直す。
+    鳴っている ctx には触れない（スケジューラの持ち物。罠18）。
+    ※ これだけでは**空振りの恐れがある**（審査の指摘）: 裏で時計が止まっていれば、F-52 が以前から押したタップの中で作り直していた。
+    捨てる手当てが新しく効くのは「running で時計も進むのに無音」の ctx（WebKit bug 240646 の形）を使い回していた場合だけ。
+  - **殻だけ（【便CQ 統括の決定A】本人の実機で直ると分かっている道へ寄せる）**: 隠れてから戻ったら、計測タブの中身（MeasureView）を**作り直す**
+    （`measureEpoch` を key にする）。タブを離れて戻ったときと同じく、アンマウントでメトロノームの ctx を閉じ、作り直した中身は何も鳴らしていない状態から始まる。
+    マイクは、隠れたとき `stopListening`・戻ったとき `startListening`（既存の `handleVisibilityChange`）で、タブを離れて戻るとき（殻は stop → 完全再取得）と
+    **既に同じ手順**なので、作り直しでは取り直さない（二重にしない。取り直しは戻ったときの1回だけ ── 検査で数えている）。
+    録音中に隠れたときの決まり（`stopListening` が録音を終わらせ、保存の確認は根の `pendingSession`）は変えていない。隠れていない「見える」の知らせでは作り直さない。
+    **残る違い**: タブで戻るときのマイクの取り直しは本人が押した後、裏から戻るときは見えるようになった瞬間。これが効いているかは実機の値（診断の板の
+    `lastReturn` / `micRecover` / `mic`）で見る。
+  - 戻った瞬間に `resume()` も ctx の作り直しもしない: タップの外で作った ctx は suspended で生まれ、iOS ではタップの中で `resume()` を蹴らないと鳴らない
+    （`startMetronome` の【iOS対策・重要】・BACKLOG D-24c）。戻った直後に鳴らし始める ctx が無音になる不具合も報告されている（WebKit bug 240646）。
+  - 殻の `appStateChange`（`@capacitor/app`）は使わない: プラグインが入っていない（足すと殻の再ビルドが要る）。WKWebView は裏へ回る・戻るで `visibilitychange` を出す。
+- **音の診断の板（【便CQ 統括の決定B】不具合の切り分け用。普段は見えない）**。
+  - 開き方: **計測タブにいるとき、下部タブの「計測」を長押し**（`data-coach="nav-measure"`。長さはリードの並び替えの長押し `REED_DRAG_LONGPRESS_MS` と同じ値）。
+    長押しが成立した直後の click（計測タブの再タップ）は飲み込む。新しいボタンは置かない。他のタブでは開かない。「閉じる」で閉じる。
+  - 出すもの（項目名は英語のまま）: `time` / 殻の音のセッション `category` `mode` `options`（生の値と名前）`policy`（routeSharingPolicy）`out` `in` `outputVolume`
+    `otherAudio` / `metro`（鳴っているか・ctx の state と currentTime）/ `lastStart`（直近の START の時刻・作り直したか・それまでの ctx の state・F-52 の時計の停止）/
+    `lastHidden` / `lastReturn`（戻った時刻・裏にいた秒数・戻った回数）/ `mic`（解析の ctx の state・トラックの readyState / muted / enabled・取り直し中か・
+    再試行待ちか）/ `micSettings`（トラックの getSettings の echoCancellation / noiseSuppression / autoGainControl）/ `micRecover`（直近のマイクの取り直しの時刻と理由）/ `web.audioSession`（`navigator.audioSession.type`）。
+  - 殻の値は自前の部品の読み出し口 `FicusAudioSession.sessionInfo`（`AppDelegate.swift`。読むだけ）。**ios-dev を建て直すまでは `n/a (要ビルド…)`** と出る。Web は `n/a (web)`。
+  - 1秒に1回読み直す。読むだけで、音・マイク・セッションには何もしない。置き場と部品は `src/audioDiag.jsx`（`position: fixed`・z 50・字は `--fs-xs` 以上）。
 - **PrivacyInfo.xcprivacy**: `@capacitor/filesystem` が使うファイルの時刻の API（`NSPrivacyAccessedAPICategoryFileTimestamp`・理由 `C617.1`）を
   `ios/App/App/PrivacyInfo.xcprivacy` で申告し、App ターゲットの Resources に入れてある（プラグインの README の求め）。プラグインを足したら、その README の申告を足す。
 - **Capacitor の部品だけのチャンクの名前**: `vite.config.js` の `chunkFileNames` で `capacitor-*.native-*.js` にする（@capacitor/core の共有分が
@@ -1593,7 +1646,7 @@ document.body へ portal される／上限（画面高 − ナビ）と `overfl
 | 30 | 見本の広告の帯（便BL。下部ナビより**後ろ**に置き、同じ 30 の中で上に描く。BottomSheet が開いているあいだは描かない） |
 | 40 | アップロードの解析の告知（データタブの上端に浮く） |
 | 45 | `FloatingAction`（`FLOAT_ACTION_Z`。画面の右下に浮かせる主要動作） |
-| 50 | 一時的な告知・メトロノームの診断の帯 |
+| 50 | 一時的な告知・メトロノームの診断の帯・音の診断の板（【便CQ】計測タブで下部タブ「計測」を長押し） |
 | 55 | **はじめの一手の暗幕とカード**（【便BP 2026-10-03】`OnboardingCoach`。`COACH_Z`。下部タブ・広告の見本の帯・浮かぶボタン・一時的な告知を含めて全体を覆う ── データタブの的が下部タブのため。BottomSheet・z60 の暗幕（エラー・「この録音を保存しますか？」）が出ている間・録音中・取り込みの解析中は描かない（【便BP2】【便BP3】）。【便BQ】穴の外側の受けとカードが押下を取り、押されたら案内を消す（下へは届かせない）。穴の上には何も置かない（的は押せる）） |
 | 60 | **シートの暗幕**（`BottomSheet` / エラー / 「この録音を保存しますか？」） |
 | 70 | **写真の拡大表示**（`PhotoZoom`。`PHOTO_ZOOM_Z`） |

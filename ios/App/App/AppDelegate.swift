@@ -75,7 +75,8 @@ public class FicusAudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "FicusAudioSessionPlugin"
     public let jsName = "FicusAudioSession"
     public let pluginMethods: [CAPPluginMethod] = [
-        CAPPluginMethod(name: "routeToSpeaker", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "routeToSpeaker", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "sessionInfo", returnType: CAPPluginReturnPromise)
     ]
 
     // 殻の音のセッションの選択肢(値の唯一の答え)。
@@ -95,8 +96,8 @@ public class FicusAudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func routeToSpeaker(_ call: CAPPluginCall) {
         let session = AVAudioSession.sharedInstance()
         do {
-            // 選択肢が既に同じなら立て直さない(取り込み中・再生中の経路を無駄に揺らさない)
-            if session.category != .playAndRecord || session.categoryOptions != FicusAudioSessionPlugin.sessionOptions {
+            // 種別・モード・選択肢が既に同じなら立て直さない(取り込み中・再生中の経路を無駄に揺らさない)
+            if needsSessionReset(session) {
                 try session.setCategory(.playAndRecord, mode: .default, options: FicusAudioSessionPlugin.sessionOptions)
             }
             try applyOutputRule(session)
@@ -109,6 +110,22 @@ public class FicusAudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
+    // 【便CQ】診断の板の読み出し口。音のセッションを読むだけで、何も変えない。
+    // options と routeSharingPolicy は生の値(整数)で返し、名前への読み替えは JS(src/audioDiag.jsx)が持つ。
+    @objc func sessionInfo(_ call: CAPPluginCall) {
+        let session = AVAudioSession.sharedInstance()
+        call.resolve([
+            "category": session.category.rawValue,
+            "mode": session.mode.rawValue,
+            "options": Int(session.categoryOptions.rawValue),
+            "routeSharingPolicy": Int(session.routeSharingPolicy.rawValue),
+            "outputs": session.currentRoute.outputs.map { $0.portType.rawValue },
+            "inputs": session.currentRoute.inputs.map { $0.portType.rawValue },
+            "outputVolume": Double(session.outputVolume),
+            "otherAudioPlaying": session.isOtherAudioPlaying
+        ])
+    }
+
     // 経路の変化(イヤホンの抜き差し・Bluetooth の接続と切断・WebKit による種別の立て直し)。
     // 通知は裏のスレッドで来るので main へ回す。当て直すのは「取り込み中(playAndRecord)」のときだけで、
     // WebKit が再生だけの種別(playback など。受話口へは回らない)にしている間は触らない。
@@ -117,7 +134,7 @@ public class FicusAudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
             let session = AVAudioSession.sharedInstance()
             guard session.category == .playAndRecord else { return }
             do {
-                if session.categoryOptions != FicusAudioSessionPlugin.sessionOptions {
+                if self.needsSessionReset(session) {
                     try session.setCategory(.playAndRecord, mode: .default, options: FicusAudioSessionPlugin.sessionOptions)
                 }
                 try self.applyOutputRule(session)
@@ -125,6 +142,20 @@ public class FicusAudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
                 CAPLog.print("FicusAudioSession: route change: \(error.localizedDescription)")
             }
         }
+    }
+
+    // 【便CQ】立て直すかの判断。種別・選択肢に加えてモードも見る ── **念のための条件**(いまの判定は1件も変えない)。
+    // WebKit が取り込み中に立て直すときの選択肢は AllowBluetooth|A2DP|AirPlay(|DefaultToSpeaker)で、ここの sessionOptions とは
+    // 一致しないので、WebKit が videoChat に立て直した場合は選択肢の違いだけで既に真になる(便CQ の審査の指摘)。
+    // モードの条件が効くのは「選択肢は同じでモードだけ違う」場合だけで、いまそれを起こす経路は知られていない。
+    // マイクが入っているとメトロノームが小さい原因は**仮説**(WebKit が videoChat = 通話の音量にする。WebKit bug 271305)で、
+    // 旧来の処理(選択肢が違えば .default へ戻す)で直らなかった理由は未解明。WebKit は routeSharingPolicy も比べるので、
+    // こちらが setCategory すると WebKit がまた立て直しうる。切り分けは診断の板(sessionInfo)で実機の値を見て行う。
+    // モードは .default(殻の仕様 §4.4。setCategory の2か所と同じ値)。
+    func needsSessionReset(_ session: AVAudioSession) -> Bool {
+        return session.category != .playAndRecord
+            || session.mode != .default
+            || session.categoryOptions != FicusAudioSessionPlugin.sessionOptions
     }
 
     // 出口の規則: 受話口に出ているときだけ、本体のスピーカーへ寄せる。

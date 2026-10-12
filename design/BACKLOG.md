@@ -127,6 +127,26 @@
 
 ## 現役の起票
 
+### [ ] 便CQ の残り: メトロノームの音量と裏からの戻り(2026/10/12 起票。便CQ の実装役・審査の差し戻しで書き直し)
+
+便CQ で直したもの・決まりは DESIGN-SYSTEM の殻の節(「モードは `.default`」「裏から戻ったときのメトロノーム」「音の診断の板」)。ここは**直していない・分かっていない**残り。
+- **2件とも原因は仮説のまま。** 本人に診断の板(計測タブで下部タブの「計測」を長押し)のスクリーンショットを頼み、次の値で切り分ける。
+  殻の値(category / mode / options / policy / outputVolume)は **ios-dev を建て直した後**でないと出ない。
+  - 小さいとき: `mode` が VideoChat / VoiceChat のままか(旧来の立て直しが効いていない)、`out` が Receiver か、`outputVolume`、`micSettings` の ec。
+  - 戻って鳴らないとき: `lastStart` の rebuilt / prev / stalled、`metro` の ctx の state と t が進むか、`lastReturn` の bg、`mic` と `micRecover`。
+- **旧来の処理(選択肢が違えば `.default` へ戻す)で小さいのが直らなかった理由は未解明**(審査の指摘)。WebKit は routeSharingPolicy も比べるので、
+  こちらの setCategory の後にまた立て直しうる。
+- **殻のマスターゲイン 1.0 を上げるかは統括の裁定待ち。** 便CQ の実測(Chrome の OfflineAudioContext・WebKit と同じ系統の DynamicsCompressor):
+  リミッターには自動の持ち上げがあり、0dBFS の正弦波で出力 0.891(余裕 ≒1.12 倍)。実際のクリックのピークは殻 1.0 で最大 0.608(20 通り。審査の 300 通りでは最大 0.729・別の 40 通りで 0.760 で、最悪の余裕は ≒1.3 倍。
+  乱数のバッファしだい)、Web 2.6 で最大 1.548(強拍と拍で割れる)。DESIGN-SYSTEM の「実機でまだ小さければ殻も 2.6」は割れを承知の上でなら採れる。
+  初回の報告の「上限 −3dBFS × 2.6 ≒ 1.84」「余裕 1.41 倍」は持ち上げを数えていない誤りだった(審査の指摘3。測り直して直した)。
+- **AdMob(Google Mobile Ads SDK)が音のセッションを触る**可能性を見ていない。SDK は既定で動画広告のときに音のセッションを自分で管理する
+  (`audioSessionIsApplicationManaged` が既定で偽)。WebKit bug 217606 には「AdMob の広告を出すと AudioContext が interrupted になった」という報告者自身の過去の経験の
+  記述がある(調べた結論ではない)。広告の配線は便CQ の立入禁止なので触っていない。診断の板の `otherAudio` と category が手掛かりになる。
+- **裏から戻ったとき、マイクはタップの外(見えるようになった瞬間)で取り直す**(既存の `handleVisibilityChange`)。タブで戻るときは本人が押した後。
+  便CQ はこの時機の違いを残している(決定A で MeasureView の作り直しはそろえた)。WebKit bug 240646 の形(戻った直後に作った ctx が running なのに無音)が
+  解析側に起きても、無音の見張り(`shouldRecoverFromSilence`)と画面のタップでの取り直しがある。
+
 ### [x] D-30a `PhraseTimeline` の**ドリルダウン**の罫が1本残っている → **D-31 で外した（完了）**
 
 **D-31 の独立審査で「D-30 §7.3 の完了条件（カードの作法の3画面に罫が1本も無い）が未達」と

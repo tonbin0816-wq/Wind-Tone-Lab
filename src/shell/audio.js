@@ -7,3 +7,12 @@ export function shellRouteToSpeaker() {
   if (!isNativeShell()) return;
   import("./audioSession.native.js").then((m) => m.routeToSpeaker()).catch(() => {});
 }
+
+// 【便CQ】診断の板(src/audioDiag.jsx)が読む音のセッションの値。Web では null(動的 import もしない)。
+// 殻のビルドが古く読み出し口が無いときは { error } を返す(板は「要ビルド」と出す)。
+export function shellAudioSessionInfo() {
+  if (!isNativeShell()) return Promise.resolve(null);
+  return import("./audioSession.native.js")
+    .then((m) => m.sessionInfo())
+    .catch((e) => ({ error: String(e?.code || e?.message || e) }));
+}

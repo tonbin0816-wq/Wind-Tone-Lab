@@ -13,14 +13,21 @@ import { createFakeIndexedDb } from "../backup/fakeIndexedDb.testutil.js";
 // 【守っていないもの】実機で KeepAwake が画面を点け続けること・出口が実際にスピーカー / イヤホンへ替わること・
 //   止めたマイクが戻ったときに固まらないこと(どれも実機待ち。仕様 §8.4)。メトロノームのゲインの値は policy.test.js と pitch-test が見る。
 // ------------------------------------------------------------------
-const cap = vi.hoisted(() => ({ log: [], factories: [] }));
+const cap = vi.hoisted(() => ({ log: [], factories: [], session: null }));
 vi.mock("@capacitor-community/keep-awake", () => {
   cap.factories.push("keep-awake");
   return { KeepAwake: { keepAwake: async () => { cap.log.push("keepAwake"); }, allowSleep: async () => { cap.log.push("allowSleep"); } } };
 });
 vi.mock("@capacitor/core", () => {
   cap.factories.push("core");
-  return { registerPlugin: (name) => ({ routeToSpeaker: async () => { cap.log.push(`${name}.routeToSpeaker`); return {}; } }) };
+  // 【便CQ】sessionInfo は診断の板が読む。cap.session が無いときは古い殻のビルド(読み出し口が無い)として拒否する
+  return { registerPlugin: (name) => ({
+    routeToSpeaker: async () => { cap.log.push(`${name}.routeToSpeaker`); return {}; },
+    sessionInfo: async () => {
+      if (!cap.session) throw Object.assign(new Error("not implemented"), { code: "UNIMPLEMENTED" });
+      return cap.session;
+    },
+  }) };
 });
 
 const W = 375; const H = 812;
@@ -98,7 +105,7 @@ function installFakeMic() {
 
 beforeEach(() => {
   fake = createFakeIndexedDb();
-  cap.log.length = 0; cap.factories.length = 0; masterGains = [];
+  cap.log.length = 0; cap.factories.length = 0; cap.session = null; masterGains = [];
   window.localStorage.clear();
   if (!window.matchMedia) window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
   if (!window.SVGElement.prototype.getComputedTextLength) {
@@ -313,5 +320,392 @@ describe("Web 版の記録の移し方(すべての計測の 0 件の下に1行)
     await openAll();
     expect(document.body.textContent).toContain("まだ記録がありません");
     expect(document.body.textContent).not.toContain("Web 版の記録は");
+  }, 30000);
+});
+
+// ------------------------------------------------------------------
+// 【便CQ 2026-10-12】本人の実機(Ficus Dev)の報告2件。
+//   (2) しばらく他のアプリを見てから戻るとメトロノームが動かない(リードタブへ移って戻ると使える)。
+//       戻ったら、止まっているメトロノームの ctx を閉じて捨て、次の START がそのタップの中で作り直す。勝手には鳴らさない。
+//   (1) マイクが入っているとメトロノームが小さい。WebKit は取り込み中に音が鳴り始めるたび playAndRecord + videoChat(VC の音量)へ
+//       立て直すので、殻ではメトロノームが鳴り始めた後(resume が解決した後)にもう一度 routeToSpeaker を呼ぶ。
+// 【守っているもの】作り物の AudioContext の上での配線と順序(どの ctx が閉じられ、どの ctx が resume され、どの ctx に予約されるか・
+//   routeToSpeaker が何回・いつ呼ばれるか・getUserMedia に渡す制約の値)。
+// 【守っていないもの】実機で音が出ること・音量が戻ること・WebKit が戻った ctx を本当に「running なのに無音」にするか(どれも実機待ち)。
+//   作り物の ctx は「running で時計も進む」=死んだ ctx の形を真似ているだけで、無音そのものは作れない。
+// ------------------------------------------------------------------
+const metroToggle = () => document.querySelector('button[aria-label="メトロノームの開始/停止"]');
+// 作り物の音源の start() を ctx ごとに数える(予約されたか = 押せば鳴るの作り物での言い換え)
+function countClickStarts() {
+  const P = window.AudioContext.prototype;
+  const orig = P.createBufferSource;
+  P.createBufferSource = function () {
+    const s = orig.call(this);
+    const ctx = this;
+    s.start = () => { ctx.started = (ctx.started || 0) + 1; };
+    return s;
+  };
+}
+const totalStarts = () => masterGains.reduce((a, c) => a + (c.started || 0), 0);
+async function setHidden(v) {
+  Object.defineProperty(document, "hidden", { value: v, configurable: true });
+  await mod.act(async () => { document.dispatchEvent(new Event("visibilitychange")); });
+}
+async function openMetroAndStart() {
+  await waitFor(() => document.querySelector('button[aria-label="メトロノーム"]'), "計測タブ");
+  await click(document.querySelector('button[aria-label="メトロノーム"]'));
+  await waitFor(() => metroToggle(), "メトロノームの面");
+  await click(metroToggle());
+  await waitFor(() => masterGains.some((c) => c.master), "メトロノームの ctx", 5000);
+  return masterGains.find((c) => c.master);
+}
+
+describe("【便CQ】裏から戻ったときのメトロノーム: 止まった状態で戻り、押せば新しい ctx で鳴る", () => {
+  for (const shell of [true, false]) {
+    it(`${shell ? "殻" : "Web"}: 鳴らしたまま裏へ → 戻ると止まったまま(勝手に予約しない)・古い ctx は閉じる → 押すと新しい ctx を resume して予約する`, async () => {
+      if (shell) asShell();
+      countClickStarts();
+      mod = await loadApp();
+      await render();
+      const ctx1 = await openMetroAndStart();
+      await waitFor(() => (ctx1.started || 0) > 0, "1つ目の ctx で予約される");
+      expect(metroToggle().getAttribute("aria-pressed")).toBe("true");
+      try {
+        await setHidden(true);
+        expect(metroToggle().getAttribute("aria-pressed")).toBe("false");   // 隠れたら止める(既存)
+        // 戻ってきた ctx は「running のまま・時計も進む」(WebKit bug 240646 の形)。F-52 の時計の判定では見分けられない
+        expect(ctx1.state).toBe("running");
+        await setHidden(false);
+        expect(ctx1.state).toBe("closed");                                   // 戻ったら閉じて捨てる
+        const startsAtReturn = totalStarts();
+        const ctx1Starts = ctx1.started;
+        await tick(300);
+        expect(metroToggle().getAttribute("aria-pressed")).toBe("false");   // 勝手に鳴り出さない
+        expect(totalStarts()).toBe(startsAtReturn);                          // 戻っただけでは1つも予約しない
+        await click(metroToggle());
+        await waitFor(() => masterGains.some((c) => c !== ctx1 && c.master), "押すと新しい ctx", 5000);
+        const ctx2 = masterGains.find((c) => c !== ctx1 && c.master);
+        expect(ctx2.resumes).toBeGreaterThanOrEqual(1);                     // タップの中で resume を蹴る
+        await waitFor(() => (ctx2.started || 0) > 0, "新しい ctx に予約される", 5000);
+        expect(ctx1.started).toBe(ctx1Starts);                               // 閉じた ctx にはもう予約しない
+        expect(metroToggle().getAttribute("aria-pressed")).toBe("true");
+      } finally { delete document.hidden; }
+    }, 30000);
+  }
+  it("ページのキャッシュから戻った(pageshow・persisted)ときも止まっている ctx を閉じる。persisted でない pageshow では閉じない", async () => {
+    asShell();
+    mod = await loadApp();
+    await render();
+    const ctx1 = await openMetroAndStart();
+    await click(metroToggle());                                              // 止める
+    expect(metroToggle().getAttribute("aria-pressed")).toBe("false");
+    const fresh = new Event("pageshow"); fresh.persisted = false;
+    await mod.act(async () => { window.dispatchEvent(fresh); });
+    expect(ctx1.state).toBe("running");
+    const restored = new Event("pageshow"); restored.persisted = true;
+    await mod.act(async () => { window.dispatchEvent(restored); });
+    expect(ctx1.state).toBe("closed");
+    await click(metroToggle());
+    await waitFor(() => masterGains.some((c) => c !== ctx1 && c.master), "押すと新しい ctx", 5000);
+  }, 30000);
+  it("鳴らしている ctx には触れない(戻りの知らせだけが来ても、鳴っている ctx を閉じない)", async () => {
+    asShell();
+    mod = await loadApp();
+    await render();
+    const ctx1 = await openMetroAndStart();
+    const restored = new Event("pageshow"); restored.persisted = true;
+    await mod.act(async () => { window.dispatchEvent(restored); });
+    try {
+      await setHidden(false);                                                // 隠れずに「見えている」の知らせだけ
+      expect(ctx1.state).toBe("running");
+      expect(metroToggle().getAttribute("aria-pressed")).toBe("true");
+    } finally { delete document.hidden; }
+  }, 30000);
+});
+
+describe("【便CQ】マイクが入っているときのメトロノームの音量(殻)", () => {
+  // メトロノームの ctx の resume だけを手で解決できるようにする(マイクの ctx は描画の時点で running なので resume を呼ばない)
+  let pending = [];
+  const deferMetroResume = () => {
+    const P = window.AudioContext.prototype;
+    const orig = P.resume;
+    P.resume = function () {
+      if (this.isMic) return orig.call(this);
+      this.resumes = (this.resumes || 0) + 1;
+      this.state = "suspended";   // 解決するまでは鳴っていない(本物の resume 待ちと同じ)
+      return new Promise((r) => { pending.push({ ctx: this, run: () => { if (this.state !== "closed") this.state = "running"; r(); } }); });
+    };
+  };
+  const routes = () => cap.log.filter((x) => x === "FicusAudioSession.routeToSpeaker").length;
+  it("鳴らし始めで1回、鳴り始めた(resume が解決した)後にもう1回 routeToSpeaker を呼ぶ", async () => {
+    asShell();
+    pending = [];
+    deferMetroResume();
+    mod = await loadApp();
+    await render();
+    await waitFor(() => routes() === 1, "マイクの直後");
+    await openMetroAndStart();
+    await waitFor(() => routes() === 2, "鳴らし始め");
+    await settle();
+    expect(routes()).toBe(2);                                               // まだ鳴り始めていない間は呼ばない
+    expect(pending.length).toBeGreaterThan(0);
+    await mod.act(async () => { pending.splice(0).forEach((p) => p.run()); });
+    await waitFor(() => routes() === 3, "鳴り始めた後");
+  }, 30000);
+  it("鳴り始める前に止めたら、あとで resume が解決しても呼ばない", async () => {
+    asShell();
+    pending = [];
+    deferMetroResume();
+    mod = await loadApp();
+    await render();
+    await waitFor(() => routes() === 1, "マイクの直後");
+    await openMetroAndStart();
+    await waitFor(() => routes() === 2, "鳴らし始め");
+    await click(metroToggle());                                              // 止める
+    await mod.act(async () => { pending.splice(0).forEach((p) => p.run()); });
+    await settle();
+    expect(routes()).toBe(2);
+  }, 30000);
+  it("getUserMedia に渡す制約は音声処理を3つとも切る(echoCancellation / noiseSuppression / autoGainControl = false)", async () => {
+    const calls = [];
+    const stream = { getTracks: () => [track], getAudioTracks: () => [track] };
+    Object.defineProperty(window.navigator, "mediaDevices", { value: { getUserMedia: async (c) => { calls.push(c); return stream; } }, configurable: true });
+    asShell();
+    mod = await loadApp();
+    await render();
+    await waitFor(() => calls.length > 0, "getUserMedia");
+    expect(calls[0]).toEqual({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+  }, 30000);
+});
+
+// ------------------------------------------------------------------
+// 【便CQ 審査の差し戻し】R4・R5 を振る舞いで落とす / 統括の決定A(殻は戻ったら計測タブの中身を作り直す)/ 決定B(診断の板)
+// ------------------------------------------------------------------
+// 作り物の close を数える。閉じた ctx をもう一度閉じたら控える(本物は InvalidStateError で拒否し、拾われない Promise の拒否になる)
+function countCloses() {
+  const P = window.AudioContext.prototype;
+  const orig = P.close;
+  window.__closedTwice = 0;
+  P.close = function () {
+    if (this.state === "closed") window.__closedTwice += 1;
+    this.closes = (this.closes || 0) + 1;
+    return orig.call(this);
+  };
+}
+// getUserMedia を数え、呼ぶたびに新しい live のトラックを渡す(本物と同じ。installFakeMic は同じトラックを使い回すので、
+// 一度 stop すると ended のまま戻らず、戻ったときの健全さの確かめが偽になって取り直しが2回に見える)。track は最新のものを指す。
+function countGetUserMedia() {
+  const box = { n: 0 };
+  const makeTrack = () => ({ enabled: true, readyState: "live", muted: false, kind: "audio", stopped: 0, stop() { this.stopped++; this.readyState = "ended"; },
+    getSettings() { return { echoCancellation: false, noiseSuppression: false, autoGainControl: false }; } });
+  Object.defineProperty(window.navigator, "mediaDevices", { value: { getUserMedia: async () => {
+    box.n += 1;
+    const t = makeTrack();
+    track = t;
+    return { getTracks: () => [t], getAudioTracks: () => [t] };
+  } }, configurable: true });
+  return box;
+}
+
+describe("【便CQ 差し戻し】鳴り始めた後の routeToSpeaker は、いまの ctx のときだけ(R4)", () => {
+  let pending = [];
+  const deferMetroResume = () => {
+    const P = window.AudioContext.prototype;
+    const orig = P.resume;
+    P.resume = function () {
+      if (this.isMic) return orig.call(this);
+      this.resumes = (this.resumes || 0) + 1;
+      this.state = "suspended";
+      return new Promise((r) => { pending.push({ ctx: this, run: () => { if (this.state !== "closed") this.state = "running"; r(); } }); });
+    };
+  };
+  const routes = () => cap.log.filter((x) => x === "FicusAudioSession.routeToSpeaker").length;
+  it("鳴り始める前に止めて押し直し、別の ctx に替わったあとで古い ctx の resume が解決しても呼ばない。新しい ctx の解決では呼ぶ", async () => {
+    asShell();
+    pending = [];
+    deferMetroResume();
+    mod = await loadApp();
+    await render();
+    await waitFor(() => routes() === 1, "マイクの直後");
+    const ctx1 = await openMetroAndStart();
+    await waitFor(() => routes() === 2, "1回目の鳴らし始め");
+    await click(metroToggle());                                              // 止める
+    await click(metroToggle());                                              // 押し直す(ctx1 は suspended なので作り直す)
+    await waitFor(() => routes() === 3, "2回目の鳴らし始め");
+    await waitFor(() => masterGains.some((c) => c !== ctx1 && c.master), "2つ目の ctx", 5000);
+    const ctx2 = masterGains.find((c) => c !== ctx1 && c.master);
+    expect(ctx2).toBeTruthy();
+    expect(metroToggle().getAttribute("aria-pressed")).toBe("true");
+    const p1 = pending.filter((p) => p.ctx === ctx1);
+    const p2 = pending.filter((p) => p.ctx === ctx2);
+    expect([p1.length, p2.length]).toEqual([1, 1]);
+    await mod.act(async () => { p1.forEach((p) => p.run()); });
+    await settle();
+    expect(routes()).toBe(3);                                               // 古い ctx の解決では呼ばない
+    await mod.act(async () => { p2.forEach((p) => p.run()); });
+    await waitFor(() => routes() === 4, "新しい ctx の解決で呼ぶ");
+  }, 30000);
+});
+
+describe("【便CQ 差し戻し】戻ったときに捨てた ctx を二度閉じない(R5: ref を空にする)", () => {
+  for (const shell of [true, false]) {
+    it(`${shell ? "殻" : "Web"}: 鳴らす → 裏 → 戻る → 押す で、古い ctx の close はちょうど1回・閉じた ctx を閉じ直さない`, async () => {
+      if (shell) asShell();
+      countCloses();
+      mod = await loadApp();
+      await render();
+      const ctx1 = await openMetroAndStart();
+      try {
+        await setHidden(true);
+        await setHidden(false);
+        await settle();
+        await waitFor(() => metroToggle(), "メトロノームの面(殻は作り直したあと)");
+        await click(metroToggle());
+        await waitFor(() => masterGains.some((c) => c !== ctx1 && c.master), "押すと新しい ctx", 5000);
+        await settle();
+        expect(ctx1.closes).toBe(1);
+        expect(window.__closedTwice).toBe(0);
+      } finally { delete document.hidden; }
+    }, 30000);
+  }
+});
+
+describe("【便CQ 統括の決定A】裏から戻ったとき: 殻は計測タブの中身を作り直す(タブを離れて戻るのと同じ)・マイクは1回だけ取り直す", () => {
+  it("殻: 戻ると MeasureView を作り直す(面のボタンが別の要素になる)・隠れたらトラックを止め、戻ったら getUserMedia はちょうど1回", async () => {
+    asShell();
+    const gum = countGetUserMedia();
+    mod = await loadApp();
+    await render();
+    await openMetroAndStart();
+    await click(metroToggle());                                              // 止めておく
+    const before = metroToggle();
+    const live = track;
+    gum.n = 0;
+    try {
+      await setHidden(true);
+      expect(live.readyState).toBe("ended");                                 // 隠れたらマイクを止める(既存)
+      await setHidden(false);
+      await waitFor(() => metroToggle() && metroToggle() !== before, "作り直された面", 5000);
+      await waitFor(() => gum.n >= 1, "戻ったら取り直す");
+      await tick(300);
+      expect(gum.n).toBe(1);                                                // 二重に取り直さない
+      expect(metroToggle().getAttribute("aria-pressed")).toBe("false");     // 勝手に鳴らない
+    } finally { delete document.hidden; }
+  }, 30000);
+  it("Web: 戻っても MeasureView は作り直さない(面のボタンは同じ要素)・getUserMedia はちょうど1回", async () => {
+    const gum = countGetUserMedia();
+    mod = await loadApp();
+    await render();
+    await openMetroAndStart();
+    await click(metroToggle());
+    const before = metroToggle();
+    gum.n = 0;
+    try {
+      await setHidden(true);
+      await setHidden(false);
+      await waitFor(() => gum.n >= 1, "戻ったら取り直す");
+      await tick(300);
+      expect(gum.n).toBe(1);
+      expect(metroToggle()).toBe(before);
+    } finally { delete document.hidden; }
+  }, 30000);
+  it("殻: タブを離れて戻る道と、裏から戻る道で、マイクの取り直しの回数が同じ(どちらも1回)", async () => {
+    asShell();
+    const gum = countGetUserMedia();
+    mod = await loadApp();
+    await render();
+    await waitFor(() => cap.log.includes("FicusAudioSession.routeToSpeaker"), "マイク");
+    gum.n = 0;
+    await click(nav("リード"));
+    await settle();
+    await click(nav("計測"));
+    await waitFor(() => gum.n >= 1, "タブで戻る");
+    await tick(300);
+    const byTab = gum.n;
+    try {
+      await setHidden(true);
+      await setHidden(false);
+      await waitFor(() => gum.n >= byTab + 1, "裏から戻る");
+      await tick(300);
+      expect([byTab, gum.n - byTab]).toEqual([1, 1]);
+    } finally { delete document.hidden; }
+  }, 30000);
+});
+
+describe("【便CQ 統括の決定B】音の診断の板(計測タブで下部タブの「計測」を長押し)", () => {
+  const press = async (ms) => {
+    const btn = nav("計測");
+    await mod.act(async () => { btn.dispatchEvent(new Event("pointerdown", { bubbles: true })); });
+    await tick(ms);
+    await mod.act(async () => {
+      btn.dispatchEvent(new Event("pointerup", { bubbles: true }));
+      btn.click();
+    });
+  };
+  const panel = () => document.querySelector("[data-audio-diag]");
+  const val = (k) => document.querySelector(`[data-audio-diag] [data-diag-key="${k}"]`)?.textContent;
+  it("殻: 長押しで開き、音のセッション(category・mode・options・policy・out・outputVolume)・メトロノーム・戻り・マイクを出す。閉じるで消える", async () => {
+    asShell();
+    cap.session = {
+      category: "AVAudioSessionCategoryPlayAndRecord", mode: "AVAudioSessionModeVideoChat",
+      options: 0x4 | 0x8 | 0x20 | 0x40, routeSharingPolicy: 1,
+      outputs: ["Speaker"], inputs: ["MicrophoneBuiltIn"], outputVolume: 0.8125, otherAudioPlaying: false,
+    };
+    countGetUserMedia();
+    mod = await loadApp();
+    await render();
+    await openMetroAndStart();
+    try {
+      await setHidden(true);
+      await tick(50);
+      await setHidden(false);
+    } finally { delete document.hidden; }
+    await waitFor(() => metroToggle(), "メトロノームの面");
+    await click(metroToggle());                                              // 戻ったあとの START
+    expect(panel()).toBe(null);
+    await press(500);
+    await waitFor(() => panel() && val("category") === "PlayAndRecord", "板と音のセッション", 5000);
+    expect(val("mode")).toBe("VideoChat");
+    expect(val("options")).toBe("0x6c allowBluetoothHFP defaultToSpeaker allowBluetoothA2DP allowAirPlay");
+    expect(val("policy")).toBe("longFormAudio(1)");
+    expect(val("out")).toBe("Speaker");
+    expect(val("outputVolume")).toBe("0.81");
+    expect(val("metro")).toMatch(/^on=yes ctx=running t=\d+\.\d{3}$/);
+    expect(val("lastStart")).toMatch(/rebuilt=yes prev=none stalled=no$/);  // 戻ったときに捨てたので、押したときは新しく作った
+    expect(val("lastReturn")).toMatch(/ bg=\d+\.\ds #1$/);
+    expect(val("mic")).toMatch(/^ctx=running track=live muted=no enabled=yes/);
+    expect(val("micSettings")).toBe("ec=no ns=no agc=no");
+    await click([...panel().querySelectorAll("button")].find((b) => b.textContent === "閉じる"));
+    expect(panel()).toBe(null);
+  }, 30000);
+  it("短く押しただけ・計測タブ以外では開かない", async () => {
+    asShell();
+    mod = await loadApp();
+    await render();
+    await waitFor(() => cap.log.includes("FicusAudioSession.routeToSpeaker"), "マイク");
+    await press(100);
+    await settle();
+    expect(panel()).toBe(null);
+    await click(nav("リード"));
+    await settle();
+    await press(500);
+    await settle();
+    expect(panel()).toBe(null);
+  }, 30000);
+  it("殻のビルドが古い(sessionInfo が無い)と「要ビルド」", async () => {
+    asShell();
+    cap.session = null;
+    mod = await loadApp();
+    await render();
+    await waitFor(() => cap.log.includes("FicusAudioSession.routeToSpeaker"), "マイク");
+    await press(500);
+    await waitFor(() => panel() && /要ビルド/.test(val("session") || ""), "要ビルド", 5000);
+  }, 30000);
+  it("Web: session は n/a (web)", async () => {
+    mod = await loadApp();
+    await render();
+    await waitFor(() => document.querySelector('button[aria-label="メトロノーム"]'), "計測タブ");
+    await press(500);
+    await waitFor(() => panel() && val("session") === "n/a (web)", "Web", 5000);
   }, 30000);
 });

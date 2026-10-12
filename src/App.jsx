@@ -59,6 +59,8 @@ import { REED_CATALOG, searchReeds } from "./community/catalog/gear.js";
 import { isNativeShell } from "./shell/native.js";
 import { micActionOnTabLeave, METRO_MASTER_GAIN_SHELL } from "./shell/policy.js";
 import { shellRouteToSpeaker } from "./shell/audio.js";
+// 【便CQ】音の診断の板(普段は見えない。計測タブで下部タブの「計測」を長押し)
+import { AUDIO_DIAG, AudioDiagPanel, useAudioDiagLongPress, installAudioDiagClock, audioDiagNoteStart, audioDiagNoteMicRecover } from "./audioDiag.jsx";
 // 【殻 S3】広告の帯(AdMob)の呼び口。Web では何もしない(部品は ads.native.js を動的 import)。
 import { shellStartAdsOnce, shellSetAdsHidden } from "./shell/ads.js";
 // 【便BZ 2026-10-07 統括の裁定】殻が --ad-h を後から置いたときの知らせ(環の縮み・計測タブの枠を測り直す)。
@@ -3900,6 +3902,11 @@ export default function WindToneLabPhaseMode() {
   // 分析・セッション詳細・すべての計測を出しているときは今までどおり作り直して My Data の一覧へ戻す。
   // ほかのタブ(計測・リード・コミュニティ)の再タップも今までどおり。
   const dataAtMyDataTopRef = useRef(false);
+  // 【便CQ】音の診断の板の開閉。長押しの長さはリードの並び替えの長押し(REED_DRAG_LONGPRESS_MS)と同じ値を使う(新しい値を作らない)
+  const [audioDiagOpen, setAudioDiagOpen] = useState(false);
+  const openAudioDiag = useCallback(() => setAudioDiagOpen(true), []);
+  const closeAudioDiag = useCallback(() => setAudioDiagOpen(false), []);
+  useAudioDiagLongPress(topTab === "measure", REED_DRAG_LONGPRESS_MS, openAudioDiag);
   const handleNavTap = useCallback((key) => {
     if (isRecordingRef.current) return;
     if (navRetapKeepsView(key, dataAtMyDataTopRef.current)) return;
@@ -4986,6 +4993,7 @@ export default function WindToneLabPhaseMode() {
     micRecoveringRef.current = true;
     silentFramesRef.current = 0;
     console.warn("mic recovery:", reason);
+    audioDiagNoteMicRecover(reason); // 【便CQ】診断の板に出す(記録だけ)
     try {
       stopListeningRef.current();
       const ok = await startListeningRef.current();
@@ -5026,6 +5034,41 @@ export default function WindToneLabPhaseMode() {
     }
   }, []);
   useEffect(() => { recoverMicRef.current = recoverMic; }, [recoverMic]);
+  // 【便CQ】診断の板が読むマイクの状態(ref を読むだけ。何も変えない)
+  useEffect(() => {
+    const getMic = () => {
+      const t = streamRef.current?.getAudioTracks?.()[0];
+      return {
+        ctxState: audioCtxRef.current ? audioCtxRef.current.state : "none",
+        track: t ? { readyState: t.readyState, muted: t.muted, enabled: t.enabled } : null,
+        settings: t && typeof t.getSettings === "function" ? t.getSettings() : null,
+        recovering: micRecoveringRef.current, needsRetry: micNeedsRetryRef.current,
+      };
+    };
+    AUDIO_DIAG.getMic = getMic;
+    const uninstall = installAudioDiagClock();
+    return () => { uninstall(); if (AUDIO_DIAG.getMic === getMic) AUDIO_DIAG.getMic = null; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 【便CQ 2026-10-12 統括の決定A】殻では、裏から戻ったら計測タブの中身(MeasureView)を作り直す ── 本人の実機で直ると分かっている
+  // 「タブを離れて戻る」と同じ道にそろえる。マイクのほうは、隠れたとき stopListening・戻ったとき startListening(下の
+  // handleVisibilityChange)で、タブを離れて戻るとき(殻は stop → 完全再取得)と既に同じ手順なので、ここでは取り直さない(二重にしない)。
+  // 作り直しで MeasureView のアンマウントが走り、メトロノームの ctx を閉じ、次の START がタップの中で新しく作る。勝手には鳴らさない。
+  // 録音中に隠れたときの決まり(stopListening が録音を終わらせ、保存の確認は根の pendingSession)は変えない。Web は作り直さない。
+  const [measureEpoch, setMeasureEpoch] = useState(0);
+  useEffect(() => {
+    if (!isNativeShell()) return undefined;
+    let wasHidden = false; // 隠れてから戻ったときだけ(隠れていない「見える」の知らせでは作り直さない)
+    const onReturn = () => {
+      if (document.hidden) { wasHidden = true; return; }
+      if (!wasHidden) return;
+      wasHidden = false;
+      setMeasureEpoch((n) => n + 1);
+    };
+    document.addEventListener("visibilitychange", onReturn);
+    return () => document.removeEventListener("visibilitychange", onReturn);
+  }, []);
 
   // 計測タブに滞在中は自動でマイクを起動し、他タブへ移ったら一時停止する(マイク接続は保持)。
   // 繋ぎ直さないことで、タブを行き来してもマイク許可のポップアップが繰り返し出ないようにする。
@@ -5519,6 +5562,7 @@ export default function WindToneLabPhaseMode() {
       {topTab === "measure" && (
         <div className="surf-rule">
         <MeasureView
+          key={`measure-${measureEpoch}`}
           isRecording={isRecording} toggleRecording={toggleRecording}
           note={note} centsOffset={centsOffset}
           harmonicLevels={harmonicLevels}
@@ -5684,6 +5728,8 @@ export default function WindToneLabPhaseMode() {
 
       {/* 画面下部の固定タブナビ(Claude Designに準拠)。録音中はタブ移動を無効化する。 */}
       <BottomNav topTab={topTab} onNavTap={handleNavTap} isRecording={isRecording} />
+      {/* 【便CQ】音の診断の板。計測タブで下部タブの「計測」を長押しすると開く(audioDiag.jsx)。新しいボタンは置かない */}
+      {audioDiagOpen && <AudioDiagPanel onClose={closeAudioDiag} />}
       {/* 【便BL 2026-10-02 本人指示】見本の広告の帯。下部タブと同じ重なり順 30 で、**下部タブより後ろに置く**
           (同じ 30 の中では後ろの要素が上に描かれる)。合図が無い端末では何も描かない。 */}
       <AdPreviewStrip held={adHeld} />
@@ -9457,8 +9503,14 @@ function MeasureView(props) {
   }, [metroSchedulerTick]);
 
   // 【D-18b】診断の④⑤が読む音声時計。**診断が持つのは読む口だけ**で、
-  // 生成も破棄も startMetronome / stopMetronome のまま(触っていない)。
+  // 生成は startMetronome、破棄はアンマウントと【便CQ】戻ったときの dropIdleMetroCtx(診断は触っていない)。
   const getMetroCtx = useCallback(() => metroCtxRef.current, []);
+  // 【便CQ】音の診断の板が読むメトロノームの状態(読むだけ)。作り直し(key)で新旧が入れ替わっても、自分が置いたものだけ片付ける
+  useEffect(() => {
+    const getMetro = () => ({ ctx: metroCtxRef.current, on: metroOnRef.current });
+    AUDIO_DIAG.getMetro = getMetro;
+    return () => { if (AUDIO_DIAG.getMetro === getMetro) AUDIO_DIAG.getMetro = null; };
+  }, []);
 
   const startMetronome = useCallback(() => {
     metroGenRef.current++; // 進行中の古い状態を無効化する
@@ -9473,6 +9525,8 @@ function MeasureView(props) {
     // 値は AUDIO_SESSION_TYPE の1箇所。効果は実機でしか確認できない(未対応環境では何も起きない)。
     applyAudioSessionType();
     let ctx = metroCtxRef.current;
+    const diagPrevCtx = ctx; // 【便CQ】診断の板に「作り直したか」を出すための控え(判断には使わない)
+    const diagPrevState = ctx ? ctx.state : "none";
     // 【F-52】state が "running" でも時計が止まっていることがある(iOSの割り込み後)。
     // 控えておいた基準点と突き合わせ、止まっていたなら state を信じずに作り直す。
     const mark = metroClockMarkRef.current;
@@ -9496,7 +9550,16 @@ function MeasureView(props) {
           && shellCtx.state !== "running" && shellCtx.state !== "closed") shellCtx.resume().catch(() => {});
       };
     }
-    ctx.resume().catch(() => {}); // ジェスチャー中に同期的に発火(awaitしない)
+    audioDiagNoteStart({ rebuilt: ctx !== diagPrevCtx, prevState: diagPrevState, stalled: clockStalled }); // 【便CQ】記録だけ
+    // ジェスチャー中に同期的に発火(awaitしない)。
+    // 【便CQ】鳴り始めた(resume が解決した)あとで、出口とモードをもう一度寄せる。**仮説の上の手当て**: WebKit は取り込み中、
+    // 音の出来事のたびに音のセッションを playAndRecord + videoChat(通話の音量 = VC の音量)へ立て直す
+    // (MediaSessionManagerCocoa::updateSessionState。WebKit bug 271305)ので、先頭の呼び出しの後に立て直されている恐れがある。
+    // 小さい原因がこれかは未解明(旧来の経路の変化での立て直しで直らなかった理由が分かっていない)。効くかは実機待ち。Web では何もしない。
+    // 止めた・別の ctx に替わったあとの解決では呼ばない(DESIGN-SYSTEM §殻の中の振る舞い「モードは .default」)。
+    ctx.resume().then(() => {
+      if (metroOnRef.current && metroCtxRef.current === ctx) shellRouteToSpeaker();
+    }).catch(() => {});
     metroTickIndexRef.current = 0;
     metroGBeatRef.current = 0;
     metroNextTimeRef.current = ctx.currentTime + 0.12;
@@ -9525,7 +9588,8 @@ function MeasureView(props) {
     // (旧UIの名残 setMetroSettingsOpen(false) は未定義でstopのたびに例外を投げていたため削除。
     //  設定サブパネルの開閉は metroPanel 側で独立管理しているのでここでは触らない)
     // AudioContextはsuspendしない(スケジューラを止めれば無音になるだけで十分軽量なため、
-    // suspend/resumeの繰り返しによる不安定化を避ける。タブ離脱時のみアンマウント処理でcloseする)。
+    // suspend/resumeの繰り返しによる不安定化を避ける。close するのは、タブ離脱時のアンマウント処理と、
+    // 【便CQ】画面へ戻ったとき(dropIdleMetroCtx・殻では作り直しのアンマウントも)だけ)。
     if (!isRecording) releaseWakeLock(); // 録音中はWake Lockを維持
   }, [isRecording, metroActiveRef, scheduledClicksRef, releaseWakeLock, markMetroClock]);
 
@@ -9552,17 +9616,41 @@ function MeasureView(props) {
   // アプリを閉じる(バックグラウンド化・画面ロック)とiOSはAudioContextを中断し、鳴っていた
   // メトロノームは無音のまま状態だけ残る。復帰後にSTOP表示なのに鳴らない混乱を避けるため、
   // 非表示になった時点でクリーンに止めておく(復帰後はSTARTで確実に鳴らせる=上のstartMetronome)。
+  // 【便CQ 2026-10-12】画面へ戻ったら、止まっているメトロノームの ctx を閉じて捨てる(Web と殻の両方)。次の START が**そのタップの中で**作り直す。
+  // 本人報告「しばらく他のアプリを見てから戻るとメトロノームが動かない。リードタブへ移って戻ると使える」。
+  // iOS の WebKit は、裏から戻った AudioContext を「running なのに音が出ない」「resume() が解決しない」まま返すことがある
+  // (WebKit bug 240646 / 281566 / 217606)。F-52 の時計の判定は「running で時計も進んでいる」死んだ ctx を見分けられない。
+  // **これだけでは空振りの恐れがある**: 裏で時計が止まっていれば、F-52 が以前から押したタップの中で作り直していた。タブを移ると直る道
+  // (殻ではマイクの止め・取り直しと MeasureView の作り直し)にそろえる分は、根の measureEpoch(殻だけ)が持つ。
+  // 戻ったときに resume や作り直しをしない: タップの外で作った ctx は suspended で生まれ、iOS ではタップの中で resume を
+  // 蹴らないと鳴らない(startMetronome の【iOS対策・重要】)。止まった状態で戻し、押せばすぐ鳴る形にする。勝手には鳴らさない。
+  // 鳴っている ctx には触れない(スケジューラの持ち物。罠18)── 隠れた時点で上の onVis が止めているので、戻ったときは止まっている。
+  const dropIdleMetroCtx = useCallback(() => {
+    if (metroOnRef.current) return;
+    const ctx = metroCtxRef.current;
+    if (!ctx) return;
+    metroCtxRef.current = null;
+    metroClockMarkRef.current = null; // 捨てた時計の基準点は次の START で使わない(新しい時計と比べない)
+    try { ctx.close(); } catch { /* noop */ }
+  }, []);
+
   useEffect(() => {
     const onVis = () => {
-      if (!document.hidden) return;
+      if (!document.hidden) { dropIdleMetroCtx(); return; } // 【便CQ】戻ったとき
       // 【F-52】鳴っていたかどうかに関わらず、非表示になる瞬間の時計を控える。
       // iOS はここから復帰するときに「running のまま止まった」コンテキストを返すことがある。
       markMetroClock();
       if (metroOnRef.current) stopMetronome();
     };
+    // 【便CQ】ページのキャッシュ(bfcache)から戻ったときも同じ(visibilitychange が来ない戻り方の逃げ道)
+    const onPageShow = (e) => { if (e && e.persisted) dropIdleMetroCtx(); };
     document.addEventListener("visibilitychange", onVis);
-    return () => document.removeEventListener("visibilitychange", onVis);
-  }, [stopMetronome, markMetroClock]);
+    window.addEventListener("pageshow", onPageShow);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("pageshow", onPageShow);
+    };
+  }, [stopMetronome, markMetroClock, dropIdleMetroCtx]);
 
   // 拍子・分割の変更時は小節の頭から仕切り直す(実行中のみ。テンポ変更は次の拍から自然に反映)
   useEffect(() => {
