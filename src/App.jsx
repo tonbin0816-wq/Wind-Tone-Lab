@@ -62,7 +62,7 @@ import { shellRouteToSpeaker, shellAvailableInputs } from "./shell/audio.js";
 // 【便CS】マイクはいつも端末の内蔵マイク(Bluetooth のイヤホン・有線のヘッドセットのマイクは使わない)
 import { preferBuiltInMicStream, trackLeftBuiltInMic } from "./builtInMic.js";
 // 【便CQ】音の診断の板(普段は見えない。計測タブで下部タブの「計測」を長押し)
-import { AUDIO_DIAG, AudioDiagPanel, useAudioDiagLongPress, installAudioDiagClock, audioDiagNoteStart, audioDiagNoteMicRecover } from "./audioDiag.jsx";
+import { AUDIO_DIAG, AudioDiagPanel, useAudioDiagLongPress, installAudioDiagClock, audioDiagNoteStart, audioDiagNoteMicRecover, audioDiagApplyMetroGain } from "./audioDiag.jsx";
 // 【殻 S3】広告の帯(AdMob)の呼び口。Web では何もしない(部品は ads.native.js を動的 import)。
 import { shellStartAdsOnce, shellSetAdsHidden } from "./shell/ads.js";
 // 【便BZ 2026-10-07 統括の裁定】殻が --ad-h を後から置いたときの知らせ(環の縮み・計測タブの枠を測り直す)。
@@ -5488,7 +5488,9 @@ export default function WindToneLabPhaseMode() {
   }, [coachReady, coachDone.finish, topTab]);
   // はじめの一手の候補(印が読めていて録音中でなければ)と、帯が出ている間の決まり(【便BZ】coachDuringNotice)。描くのは根の OnboardingCoach の1か所。
   // 【便CO】引数は1か所(案内の候補と、広告の帯の止め方の (b)(c) が同じものを読む)
-  const coachArgs = { topTab, done: coachDone, dismissed: coachDismissed, seenTabs: coachSeenTabs, micReady: isListening && !errorMsg, hasSessions: sessions.length > 0, sessionsKnown: sessionsStatus !== "loading", metroPanelOpen, metronomeOn: metronomeOnForCoach, metroTempoQuiet, hasSelectedReed, idealRequested: coachRequest === "idealSeen" };
+  // 【便CT 審査】hasIdealProfile は「目安がある、または、あるかどうかまだ分からない」。目安の読み込みが済んで成功した後(idealProfilesLoaded && idealProfilesReadOk)
+  // にだけ 0 件と判定する ── 読み込み中・読めなかったときは ⑯(目安に設定しよう)を出さない側に倒す。
+  const coachArgs = { topTab, done: coachDone, dismissed: coachDismissed, seenTabs: coachSeenTabs, micReady: isListening && !errorMsg, hasSessions: sessions.length > 0, sessionsKnown: sessionsStatus !== "loading", metroPanelOpen, metronomeOn: metronomeOnForCoach, metroTempoQuiet, hasSelectedReed, idealRequested: coachRequest === "idealSeen", hasIdealProfile: !(idealProfilesLoaded && idealProfilesReadOk) || idealProfiles.length > 0 };
   const coachWithNotice = coachDuringNotice({
     candidates: coachReady && !isRecording ? coachCandidates(coachArgs) : NO_COACH,
     notice, topTab,
@@ -6690,7 +6692,56 @@ function isNearScheduledClick(times, nowMs, preMs = 30, postMs = 90) {
 // (毎tick生成すると無駄なため)。急速減衰エンベロープを焼き込み、短いパーカッシブな
 // 「チッ」という質感の種にする(正弦波の柔らかいビープ音ではなく、輪郭のはっきりした
 // 抜ける音にするため、倍音の詰まったノイズ+バンドパスで音高感を出す設計にした)。
-function getMetroClickBuffer(ctx) {
+//
+// 【便CT 2026-10-13】ピークをそろえる(本人の実機「マイクがあると、まだ小さい」・統括の指示「割れない範囲でクリックを大きくする」)。
+// 以前は ctx ごとに Math.random で雑音を作っていたので、同じ強拍でも出口のピークが ctx ごとに 0.19〜0.84 とばらついた
+// (Chrome 152 の OfflineAudioContext・殻の 1.0・100 通り。審査の実測は 0.25〜0.76)。そこで2つ:
+//   ① 雑音は種を固定した乱数(metroClickRandom = mulberry32・種 METRO_CLICK_SEED)で作る。雑音の作り方(白色・包絡 exp(-i/(n*0.15))・60ms)は同じで、
+//      ctx が替わっても同じ実現になる。種は「拍/強拍・弱拍/強拍のピーク比が、乱数の母集団(4000 通り)の中央値に 44.1k・48k の両方で近い」ものを
+//      20000 通りから選んだ(拍 0.654・弱拍 0.368 @48k / 母集団の中央値 0.653・0.371)── 3段の聞こえの釣り合い(今の比)を保つため。
+//   ② 作った雑音を、**強拍の音(バンドパス → 包絡)のピーク**で正規化する(metroClickPeak が Web Audio の仕様の双二次と指数の包絡を JS で回す)。
+//      リミッターの入口での強拍のピークが METRO_CLICK_LIMITER_IN_PEAK ÷ マスターの基の値(殻 1.0・Web 2.6)になるよう、バッファ全体に1つの係数を掛ける。
+//      係数は3段に共通なので、拍・弱拍の比(音量 1.0 / 0.85 / 0.6 と、帯域の違いによる差)はそのまま。包絡・フィルタ・音量の値は1つも変えていない。
+//      【便CT 審査】「今の比を保つ」は 44.1k / 48k の話(種をその2つで選んだ)。ほかの sampleRate では、比は HEAD の乱数の幅の中を動く
+//      (種 680 の拍/強拍・弱拍/強拍は 16k〜96k の8通りで、乱数 2000 通りの 23〜90 パーセンタイル。リミッターの手前の計算値)。
+//   rand は検査が差し替える口(既定は種を固定した乱数)。
+const METRO_CLICK_SEED = 680;
+// リミッター(閾値 −3dB・比 20・knee 0)の入口での強拍のピーク。マスターの基の値で割って置く(出口のピーク = この値 × リミッターの持ち上げ)。
+// 統括の目標「リミッターを通ったあとのピーク ≈ 0.89」に対し、閾値(10^(−3/20) = 0.708)ちょうどを入口に置く ── 3段ともリミッターの
+// 直線の範囲(持ち上げ ≈ 1.22 倍だけ)に入り、リミッターが音の頭を潰さない(比が崩れない)。出口の強拍は Chrome の実測で 0.86(DESIGN-SYSTEM の殻の節)。
+const METRO_CLICK_LIMITER_IN_PEAK = 0.708;
+function metroClickRandom(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+// 雑音 data を、scheduleMetroClick と同じ音(METRO_CLICK_SPEC のバンドパス → 音量 METRO_CLICK_VOL × makeup から decay 秒で 0.0001 へ落ちる指数の包絡)
+// に通したときのピーク(リミッターの手前)。Web Audio の仕様の BiquadFilter(bandpass)の係数と exponentialRampToValueAtTime の式をそのまま回す。
+function metroClickPeak(data, sampleRate, kind) {
+  const spec = METRO_CLICK_SPEC;
+  const w0 = 2 * Math.PI * (spec.freq[kind] ?? spec.freq.sub) / sampleRate;
+  const alpha = Math.sin(w0) / (2 * spec.q);
+  const a0 = 1 + alpha;
+  const b0 = alpha / a0, b2 = -alpha / a0, a1 = -2 * Math.cos(w0) / a0, a2 = (1 - alpha) / a0;
+  const vol = (METRO_CLICK_VOL[kind] ?? METRO_CLICK_VOL.sub) * spec.makeup;
+  const end = sampleRate * spec.decay;
+  const k = Math.log(0.0001 / vol);
+  let x1 = 0, x2 = 0, y1 = 0, y2 = 0, peak = 0;
+  for (let j = 0; j < data.length; j++) {
+    const x = data[j];
+    const y = b0 * x + b2 * x2 - a1 * y1 - a2 * y2;
+    x2 = x1; x1 = x; y2 = y1; y1 = y;
+    const g = j < end ? vol * Math.exp(k * j / end) : 0.0001;
+    peak = Math.max(peak, Math.abs(y * g));
+  }
+  return peak;
+}
+function getMetroClickBuffer(ctx, rand = metroClickRandom(METRO_CLICK_SEED)) {
   if (ctx.__metroClickBuffer) return ctx.__metroClickBuffer;
   const dur = 0.06;
   const n = Math.ceil(ctx.sampleRate * dur);
@@ -6698,7 +6749,15 @@ function getMetroClickBuffer(ctx) {
   const data = buffer.getChannelData(0);
   for (let i = 0; i < n; i++) {
     const decay = Math.exp(-i / (n * 0.15));
-    data[i] = (Math.random() * 2 - 1) * decay;
+    data[i] = (rand() * 2 - 1) * decay;
+  }
+  // 【便CT】強拍のピークで正規化(マスターの基の値は getMetroMasterInput が ctx に置く。鎖はここで組んでおく)
+  getMetroMasterInput(ctx);
+  const base = ctx.__metroMasterBase > 0 ? ctx.__metroMasterBase : 1;
+  const peak = metroClickPeak(data, ctx.sampleRate, "accent");
+  if (peak > 0) {
+    const scale = METRO_CLICK_LIMITER_IN_PEAK / base / peak;
+    for (let i = 0; i < n; i++) data[i] *= scale;
   }
   ctx.__metroClickBuffer = buffer;
   return buffer;
@@ -6723,6 +6782,11 @@ function getMetroMasterInput(ctx) {
   // 【殻 S2】殻では startMetronome がこの ctx に殻のゲイン(policy.js の METRO_MASTER_GAIN_SHELL = 1.0)を置いていく。
   // Web では置かれないので上の 2.6 のまま。この関数は pitch-test(43.x)が単独で切り出して回すので、外の名前を読まない。
   if (typeof ctx.__metroMasterGainShell === "number") master.gain.value = ctx.__metroMasterGainShell;
+  // 【便CT】基の値(診断の板の倍率を掛ける前)と、マスターのゲインの節点を ctx に置く。基の値はクリックの正規化(getMetroClickBuffer)が、
+  // 節点は診断の板の試し口(audioDiag.jsx の audioDiagSetMetroGain。×1 / ×1.3 / ×1.6。保存しない)が読む。
+  ctx.__metroMasterBase = master.gain.value;
+  ctx.__metroMasterGain = master;
+  if (typeof ctx.__metroDiagGainX === "number" && ctx.__metroDiagGainX !== 1) master.gain.value = ctx.__metroMasterBase * ctx.__metroDiagGainX;
   limiter.connect(master);
   master.connect(ctx.destination);
   ctx.__metroMasterInput = limiter;
@@ -9661,6 +9725,8 @@ function MeasureView(props) {
           && shellCtx.state !== "running" && shellCtx.state !== "closed") shellCtx.resume().catch(() => {});
       };
     }
+    // 【便CT】診断の板の試し口(マスターの倍率。保存しない・既定は x1 = 何も変えない)を、作り直した ctx にも当てる
+    audioDiagApplyMetroGain(ctx, AUDIO_DIAG.metroGainX);
     audioDiagNoteStart({ rebuilt: ctx !== diagPrevCtx, prevState: diagPrevState, stalled: clockStalled }); // 【便CQ】記録だけ
     // ジェスチャー中に同期的に発火(awaitしない)。
     // 【便CQ】鳴り始めた(resume が解決した)あとで、出口とモードをもう一度寄せる。**仮説の上の手当て**: WebKit は取り込み中、

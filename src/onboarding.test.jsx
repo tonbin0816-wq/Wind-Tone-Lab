@@ -295,6 +295,26 @@ describe("どの一手を出すか(coachCandidates)", () => {
     expect(coachCandidates({ topTab: "community", done: doneWith("join", "arriveCommunity", "adoptAverage", "finish") })).toEqual([]);
     expect(coachCandidates({ topTab: "community", done: doneWith("arriveCommunity") })).toEqual([]);   // 参加していなければ何も(参加の画面が出る)
   });
+  // 【便CT 2026-10-13 本人の指示】目安が1つ以上あれば ⑯ adoptAverage を候補にしない(印は立てない = 候補から外すだけ)。
+  // 目安があることが前提の段(goCompare)・⑮・⑰ は変えない。⑱ の条件(finishReady)は hasIdealProfile を読まない。
+  it("【便CT】目安が1つ以上(hasIdealProfile)なら ⑯ を出さない。0 なら今までどおり。目安にした後の goCompare は変えない", () => {
+    const at = (done, hasIdealProfile) => coachCandidates({ topTab: "community", done, hasIdealProfile });
+    const arrived = doneWith("join", "arriveCommunity");
+    expect(at(arrived, false)).toEqual(["adoptAverage"]);
+    expect(coachCandidates({ topTab: "community", done: arrived })).toEqual(["adoptAverage"]);   // 渡さなければ今までどおり
+    expect(at(arrived, true)).toEqual([]);
+    // 前の段(到着)と、目安にした後の段は hasIdealProfile で変わらない
+    expect(at(doneWith("join"), true)).toEqual(["arriveCommunity"]);
+    expect(at(doneWith("join", "arriveCommunity", "adoptAverage"), true)).toEqual(["goCompare"]);
+    expect(at(doneWith("join", "arriveCommunity", "adoptAverage", "goCompare"), true)).toEqual([]);
+    // 他のタブの段は hasIdealProfile で変わらない(⑰ は目安にした印で出る)
+    for (const topTab of ["analysis", "reeds"]) {
+      const d = doneWith("join", "arriveCommunity", "adoptAverage", "trend", "arriveData", "arriveReeds");
+      expect(coachCandidates({ topTab, done: d, hasSessions: true, hasIdealProfile: true })).toEqual(coachCandidates({ topTab, done: d, hasSessions: true }));
+    }
+    // ⑱ の条件は目安の有無を読まない(印を立てないので、コミュニティを開いたことの数え方も変わらない)
+    expect(/hasIdealProfile/.test(finishReady.toString())).toBe(false);
+  });
 });
 
 describe("済んだ印(立てるだけ・戻さない)", () => {

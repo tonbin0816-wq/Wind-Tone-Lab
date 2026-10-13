@@ -6,3 +6,5 @@ const P = registerPlugin("FicusAudioSession");
 export const routeToSpeaker = () => P.routeToSpeaker();
 // 【便CQ】診断の板が読む音のセッションの値(読むだけ。何も変えない)。殻のビルドが古いと UNIMPLEMENTED で拒否される。
 export const sessionInfo = () => P.sessionInfo();
+// 【便CT】診断の板の試し口: モードを替えて聞き比べる(殻はメモリにだけ持つ。保存しない)。殻のビルドが古いと UNIMPLEMENTED で拒否される。
+export const setTestMode = (mode) => P.setTestMode({ mode });

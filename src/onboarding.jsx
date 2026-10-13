@@ -533,10 +533,13 @@ export function coachDuringNotice({ candidates, notice, topTab }) {
 //               **飛ばした段は候補に入れず、流れの次の段へ進む**(計測タブは1つずつ返すので、飛ばした段の次を探して返す)。
 //               以前は計測タブ・データタブの段を群でまるごと消していたので、① を1回外押しすると ②〜⑩ がその起動の間出なかった
 //   seenTabs  … この起動で案内の間に開いたタブ(⑱ の条件 finishReady が読む)
+// 【便CT 2026-10-13 本人の指示】
+//   hasIdealProfile … 目安(App の idealProfiles)が1つ以上ある。あれば ⑯ adoptAverage(みんなの平均を目安にしてみよう)を候補にしない
+//                     (【便CT 審査】App は目安の読み込みが済んで成功するまで真を渡す = 分からない間は出さない側)
 export function coachCandidates({
   topTab, done, micReady = false, hasSessions = false, sessionsKnown = true,
   metroPanelOpen = false, metronomeOn = false, metroTempoQuiet = true, hasSelectedReed = false, idealRequested = false,
-  dismissed = NO_COACH, seenTabs = NO_COACH,
+  dismissed = NO_COACH, seenTabs = NO_COACH, hasIdealProfile = false,
 }) {
   const d = done ?? {};
   const skip = new Set(dismissed ?? []);
@@ -595,7 +598,10 @@ export function coachCandidates({
       if (!d.join) return [];
       // 【便BX】到着(穴なし)。参加した直後(プロフィールを作った)・参加済みの人がタブを開いた直後。⑯ より先
       if (!d.arriveCommunity) return ["arriveCommunity"];
-      if (!d.adoptAverage) return keep(["adoptAverage"]);
+      // 【便CT 2026-10-13 本人の指示「目安が1つでも設定されていたら、目安に設定する案内は出さない」】目安が1つ以上あれば ⑯ を候補にしない
+      // (印は立てない。立てると goCompare・⑰ goMeasure が「目安にした」と読んで出始め、⑱ の条件(FINISH_TAB_TRACES のコミュニティの印)も
+      // コミュニティを開かずに満たしうる)。目安が0に戻れば今までどおり出る。目安があることが前提の段(goCompare・⑮・⑰)は変えていない
+      if (!d.adoptAverage) return hasIdealProfile ? [] : keep(["adoptAverage"]);
       // 【便BZ】⑯ の次: 目安と比べてみよう(目安の帯と同時に・帯が消えたあともコミュニティタブにいる間)
       return keep(goCompareOpen(d) ? ["goCompare"] : []);
     }

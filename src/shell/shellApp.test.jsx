@@ -27,6 +27,13 @@ vi.mock("@capacitor/core", () => {
       if (!cap.session) throw Object.assign(new Error("not implemented"), { code: "UNIMPLEMENTED" });
       return cap.session;
     },
+    // 【便CT】診断の板の試し口。殻が替えた後のモード(生の値)を返す形の作り物。cap.session があれば mode も書き換える
+    setTestMode: async ({ mode }) => {
+      cap.log.push(`${name}.setTestMode:${mode}`);
+      const raw = `AVAudioSessionMode${mode[0].toUpperCase()}${mode.slice(1)}`;
+      if (cap.session) cap.session = { ...cap.session, mode: raw };
+      return { mode: raw };
+    },
   }) };
 });
 
@@ -707,6 +714,151 @@ describe("【便CQ 統括の決定B】音の診断の板(計測タブで下部�
     await waitFor(() => document.querySelector('button[aria-label="メトロノーム"]'), "計測タブ");
     await press(500);
     await waitFor(() => panel() && val("session") === "n/a (web)", "Web", 5000);
+  }, 30000);
+});
+
+// ------------------------------------------------------------------
+// 【便CT 2026-10-13】板の試し口(本人の実機「マイクがあると、まだ小さい」の聞き比べ)。
+// 【守っているもの】作り物の殻と Web Audio の上で: mode のボタンが殻の setTestMode へその名前で届き、板の testMode と mode の行に出る /
+//   gain のボタンがメトロノームのマスターに 基の値(殻 1.0・Web 2.6)× 倍率 を入れ、止めて鳴らし直しても残る / どちらも保存しない
+//   (kv と localStorage が1文字も変わらない・アプリを読み直すと mode は default・倍率は x1)/ 直近のクリックのピークの行が数を出す /
+//   Web では mode は n/a。
+// 【守っていないもの】実機でモードが本当に替わること・どのモードで大きく聞こえるか・ピークの値が実機の出口と同じか(どれも実機待ち。
+//   Swift はここでは走らない。綴りは pitch-test K.6)。
+// ------------------------------------------------------------------
+describe("【便CT】診断の板の試し口(mode・gain・直近のクリックのピーク)", () => {
+  const press = async (ms) => {
+    const btn = nav("計測");
+    await mod.act(async () => { btn.dispatchEvent(new Event("pointerdown", { bubbles: true })); });
+    await tick(ms);
+    await mod.act(async () => {
+      btn.dispatchEvent(new Event("pointerup", { bubbles: true }));
+      btn.click();
+    });
+  };
+  const panel = () => document.querySelector("[data-audio-diag]");
+  const val = (k) => document.querySelector(`[data-audio-diag] [data-diag-key="${k}"]`)?.textContent;
+  const modeBtn = (m) => document.querySelector(`[data-audio-diag] [data-diag-mode="${m}"]`);
+  const gainBtn = (x) => document.querySelector(`[data-audio-diag] [data-diag-gain="${x}"]`);
+  const saved = () => JSON.stringify({
+    kv: [...(fake._peek("windToneLabDB", "kv")?.entries() ?? [])],
+    ls: Object.keys(window.localStorage).sort().map((k) => [k, window.localStorage.getItem(k)]),
+  });
+  const SESSION = {
+    category: "AVAudioSessionCategoryPlayAndRecord", mode: "AVAudioSessionModeDefault", options: 0x28, routeSharingPolicy: 0,
+    outputs: ["Speaker"], inputs: ["MicrophoneBuiltIn"], outputVolume: 0.3, otherAudioPlaying: false,
+  };
+  it("殻: mode は setTestMode へ届き板に出る・gain は マスター = 1.0 × 倍率(鳴らし直しても残る)・どちらも保存しない・読み直すと default / x1", async () => {
+    asShell();
+    cap.session = { ...SESSION };
+    mod = await loadApp();
+    await render();
+    const ctx = await openMetroAndStart();
+    expect(ctx.master.gain.value).toBe(1);
+    await press(500);
+    await waitFor(() => panel() && val("mode") === "Default", "板", 5000);
+    expect(val("testMode")).toBe("default → —");
+    expect(val("metroGain")).toBe("x1");
+    await settle();
+    const before = saved();
+    await click(gainBtn("1.3"));
+    expect(ctx.master.gain.value).toBeCloseTo(1.3, 12);
+    await waitFor(() => val("metroGain") === "x1.3", "倍率の行", 3000);
+    await click(modeBtn("measurement"));
+    await waitFor(() => val("testMode") === "measurement → Measurement" && val("mode") === "Measurement", "モードの行", 3000);
+    expect(cap.log.filter((x) => x.startsWith("FicusAudioSession.setTestMode"))).toEqual(["FicusAudioSession.setTestMode:measurement"]);
+    // 直近のクリックのピーク(作り物の分析は ±0.001 の雑音を返す)
+    await waitFor(() => /^\d\.\d{3} max=\d\.\d{3}$/.test(val("clickPeak") || ""), "ピークの行", 3000);
+    // 止めて鳴らし直しても倍率は残る(同じ ctx でも、作り直した ctx でも)
+    await click(metroToggle());
+    await click(metroToggle());
+    await settle();
+    const now = masterGains.filter((c) => c.master).at(-1);
+    expect(now.master.gain.value).toBeCloseTo(1.3, 12);
+    await settle();
+    expect(saved()).toBe(before);
+    // 読み直す(アプリを開き直す)と default / x1
+    await mod.act(async () => root.unmount());
+    host.remove();
+    masterGains = [];
+    cap.session = { ...SESSION };
+    mod = await loadApp();
+    await render();
+    // 面の開閉は保存される(kv の showMetroPanel)ので、開いていればそのまま鳴らす
+    await waitFor(() => document.querySelector('button[aria-label="メトロノーム"]'), "計測タブ");
+    await settle();
+    if (!metroToggle()) await click(document.querySelector('button[aria-label="メトロノーム"]'));
+    await waitFor(() => metroToggle(), "メトロノームの面");
+    await click(metroToggle());
+    await waitFor(() => masterGains.some((c) => c.master), "読み直した ctx", 5000);
+    const ctx2 = masterGains.find((c) => c.master);
+    expect(ctx2.master.gain.value).toBe(1);
+    await press(500);
+    await waitFor(() => panel() && val("mode") === "Default", "読み直した板", 5000);
+    expect(val("testMode")).toBe("default → —");
+    expect(val("metroGain")).toBe("x1");
+  }, 40000);
+  // 【便CT 審査 統括の裁定】板を閉じたら試し口を元に戻す(gain ×1・殻の mode default)・ピークの読み取り(20ms)を止める・分析の節点を外す
+  it("殻: 閉じると gain は x1・mode は default に戻り、ピークの読み取りが止まり、分析の節点がマスターから外れる", async () => {
+    asShell();
+    cap.session = { ...SESSION };
+    mod = await loadApp();
+    await render();
+    const ctx = await openMetroAndStart();
+    // 分析の節点の読み取りの回数と、マスターからの付け外しを控える
+    let reads = 0;
+    const taps = [];
+    const disc = [];
+    const origCreate = ctx.createAnalyser.bind(ctx);
+    ctx.createAnalyser = () => {
+      const a = origCreate();
+      const g = a.getFloatTimeDomainData;
+      a.getFloatTimeDomainData = (b) => { reads++; return g.call(a, b); };
+      taps.push(a);
+      return a;
+    };
+    ctx.master.disconnect = (n) => { disc.push(n); };
+    await press(500);
+    await waitFor(() => panel() && val("mode") === "Default", "板", 5000);
+    await waitFor(() => reads > 0, "ピークを読み始める", 3000);
+    await click(gainBtn("1.6"));
+    await click(modeBtn("measurement"));
+    await waitFor(() => val("testMode") === "measurement → Measurement", "モードの行", 3000);
+    expect(ctx.master.gain.value).toBeCloseTo(1.6, 12);
+    await click([...panel().querySelectorAll("button")].find((b) => b.textContent === "閉じる"));
+    expect(panel()).toBe(null);
+    await settle();
+    // 戻し: gain は基の値 × 1、殻へ default を頼む
+    expect(ctx.master.gain.value).toBe(1);
+    expect(cap.log.filter((x) => x.startsWith("FicusAudioSession.setTestMode")).at(-1)).toBe("FicusAudioSession.setTestMode:default");
+    // 片付け: 付けた分析の節点はマスターから外れ、読み取りは止まる
+    expect(taps.length).toBeGreaterThan(0);
+    expect(taps.every((a) => disc.includes(a))).toBe(true);
+    expect(ctx.__metroPeakTap ?? null).toBe(null);
+    const atClose = reads;
+    await tick(300);
+    expect(reads).toBe(atClose);
+    // 開き直すと x1 / default のまま
+    await press(500);
+    await waitFor(() => panel() && val("testMode") === "default → Default" && val("metroGain") === "x1", "開き直した板", 5000);
+  }, 40000);
+  it("Web: mode は n/a (web)(殻を呼ばない)・gain は マスター = 2.6 × 倍率(鳴らす前に選んでも、新しく組む鎖に当たる)", async () => {
+    mod = await loadApp();
+    await render();
+    await waitFor(() => document.querySelector('button[aria-label="メトロノーム"]'), "計測タブ");
+    await press(500);
+    await waitFor(() => panel() && val("session") === "n/a (web)", "板", 5000);
+    await click(modeBtn("videoRecording"));
+    await waitFor(() => val("testMode") === "videoRecording → n/a (web)", "Web のモードの行", 3000);
+    // 鳴らす前に x1.6 を選ぶ → START で作る ctx の鎖(getMetroMasterInput)が 2.6 × 1.6 で組まれる
+    await click(gainBtn("1.6"));
+    const ctx = await openMetroAndStart();
+    expect(ctx.master.gain.value).toBeCloseTo(2.6 * 1.6, 12);
+    await click(gainBtn("1"));
+    expect(ctx.master.gain.value).toBeCloseTo(2.6, 12);
+    await click(gainBtn("1.3"));
+    expect(ctx.master.gain.value).toBeCloseTo(2.6 * 1.3, 12);
+    expect(cap.log.some((x) => x.includes("setTestMode"))).toBe(false);
   }, 30000);
 });
 

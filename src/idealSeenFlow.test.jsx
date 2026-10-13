@@ -588,3 +588,51 @@ describe("【便BZ 審査】帯の上には覆いを置かない(アプリ)", ()
     fab.remove();
   }, 60000);
 });
+
+// ------------------------------------------------------------------
+// 【便CT 2026-10-13 本人の指示「目安が1つでも設定されていたら、目安に設定する案内の段は出さない」】
+// ⑯ adoptAverage(みんなの平均を目安にしてみよう)は、目安(kv の idealProfiles)が1つ以上あれば候補にしない(印は立てない)。
+// 0 のときは今までどおり出る。目安があることが前提の段(goCompare「目安と比べてみよう」)は、目安にした(adoptAverage)あと今までどおり出る。
+// 【守っていないもの】目安の一覧が読み込まれる前の一瞬(読み込みは coachReady より速いことを前提にしている。実機の IndexedDB の速さは測っていない)。
+// ------------------------------------------------------------------
+describe("【便CT】目安が1つ以上あると ⑯(目安に設定しよう)を出さない", () => {
+  const { adoptAverage: _a, ...noAdopt } = DONE;
+  const ONB = { ...noAdopt, ...GATE4, arriveCommunity: true };
+  const MY_IDEAL = { id: "p9", name: "練習の目安", sourceKind: "session", saxType: "alto", notes: {} };
+  const watchLayer = async (n = 40) => { let seen = null; for (let i = 0; i < n; i++) { if (layer()) seen = layerId(); await tick(25); } return seen; };
+  it("目安が 0: 今までどおり ⑯ が出る", async () => {
+    await start({ onboardingDone: ONB });
+    await click(nav("コミュニティ"));
+    await waitFor(() => layerId() === "adoptAverage", "⑯");
+  }, 40000);
+  it("目安が 1つ: ⑯ は出ない・印も立てない。それでも目安にしたら、目安が前提の段(goCompare)は今までどおり出る", async () => {
+    await start({ onboardingDone: ONB, idealProfiles: [MY_IDEAL] });
+    await click(nav("コミュニティ"));
+    await waitFor(() => document.querySelector('.surf-card .card.card-accent[data-coach="adoptAverage"]'), "みんなの平均カード(的は在る)");
+    expect(await watchLayer()).toBe(null);
+    expect(kv("onboardingDone").adoptAverage).toBeUndefined();
+    await adoptAverage();
+    await waitFor(() => layerId() === "goCompare", "目安と比べてみよう(帯と同時)");
+  }, 40000);
+  // 【便CT 審査】0 件と判定するのは、目安の読み込みが済んで成功した後だけ。読めなかったときは ⑯ を出さない側に倒す。
+  // 読めない形: kv の idealProfiles に複製できない値を置く(作り物の IndexedDB の get が投げる = 本物の読み出しの失敗と同じ道で readOk が偽のまま)。
+  // 案内そのものは動いていること(到着が出て、押せば済む)を先に確かめてから、⑯ が出ないことを見る。
+  it("目安が読めなかった: 到着は出る(案内は動いている)が、そのあと ⑯ は出ない", async () => {
+    const { adoptAverage: _a, ...noAdopt } = DONE;
+    mod = await loadApp(fake);
+    await seed({ onboardingDone: { ...noAdopt, ...GATE4, migratedCoach4: true } });
+    fake._peek("windToneLabDB", "kv").set("idealProfiles", { unreadable: () => 1 });
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    root = mod.createRoot(host);
+    await mod.act(async () => { root.render(mod.React.createElement(mod.App)); });
+    await waitFor(() => nav("コミュニティ"), "下部タブ");
+    await click(nav("コミュニティ"));
+    await waitFor(() => layerId() === "arriveCommunity", "到着(案内は動いている)");
+    await click(layer().querySelector(".coach-card"));
+    await waitFor(() => kv("onboardingDone")?.arriveCommunity === true, "arriveCommunity の印");
+    await waitFor(() => document.querySelector('.surf-card .card.card-accent[data-coach="adoptAverage"]'), "みんなの平均カード(的は在る)");
+    expect(await watchLayer()).toBe(null);
+    expect(kv("onboardingDone").adoptAverage).toBeUndefined();
+  }, 40000);
+});

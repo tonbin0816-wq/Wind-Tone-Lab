@@ -1288,8 +1288,8 @@ describe("【便BS 審査】【便BW】配線の綴り(App.jsx)", () => {
     // 【便BX】→【便BZ】帯の間の決まりは coachDuringNotice へ(帯が名乗るタブにいる間だけ・コミュニティは goCompare だけ)
     expect(call).toMatch(/hidden=\{coachHidden\}/);
     expect(app).toMatch(/const coachHidden = [^;]*\|\| coachWithNotice\.hidden;/);
-    // 【便CO】引数は const coachArgs の1か所(広告の帯の止め方の (b)(c) も同じものを読む)
-    expect(app).toMatch(/const coachArgs = \{ topTab, done: coachDone, [^\n]*metroPanelOpen, metronomeOn: metronomeOnForCoach, metroTempoQuiet, hasSelectedReed, idealRequested: coachRequest === "idealSeen" \};/);
+    // 【便CO】引数は const coachArgs の1か所(広告の帯の止め方の (b)(c) も同じものを読む)。【便CT】目安が1つ以上あるか(hasIdealProfile)も渡す
+    expect(app).toMatch(/const coachArgs = \{ topTab, done: coachDone, [^\n]*metroPanelOpen, metronomeOn: metronomeOnForCoach, metroTempoQuiet, hasSelectedReed, idealRequested: coachRequest === "idealSeen", hasIdealProfile: !\(idealProfilesLoaded && idealProfilesReadOk\) \|\| idealProfiles\.length > 0 \};/);
     expect(blk).toMatch(/coachCandidates\(coachArgs\)/);
     // 保存の帯は計測タブ・目安の帯はコミュニティタブを名乗る(帯の中身は文字列か null)
     expect(app).toMatch(/coach: typeof next\.coach === "string" \? next\.coach : null,/);

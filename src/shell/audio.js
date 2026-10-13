@@ -17,6 +17,15 @@ export function shellAudioSessionInfo() {
     .catch((e) => ({ error: String(e?.code || e?.message || e) }));
 }
 
+// 【便CT】診断の板の試し口: 殻の音のセッションのモードを替える(聞き比べ用。保存しない = アプリを開き直せば default)。
+// Web では null(動的 import もしない)。殻の答えは { mode }(替えた後のモードの生の値)、断られた・古いビルドは { error }。
+export function shellSetAudioTestMode(mode) {
+  if (!isNativeShell()) return Promise.resolve(null);
+  return import("./audioSession.native.js")
+    .then((m) => m.setTestMode(mode))
+    .catch((e) => ({ error: String(e?.code || e?.message || e) }));
+}
+
 // 【便CS】殻の入力の候補([{ portType, name }])。内蔵マイクの見分け(src/builtInMic.js)が読む。
 // Web・殻のビルドが古い(availableInputs を返さない)・失敗のときは null(= ラベルで見分ける道へ落ちる)。
 export function shellAvailableInputs() {

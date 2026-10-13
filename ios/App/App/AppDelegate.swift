@@ -78,7 +78,8 @@ public class FicusAudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
     public let jsName = "FicusAudioSession"
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "routeToSpeaker", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "sessionInfo", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "sessionInfo", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setTestMode", returnType: CAPPluginReturnPromise)
     ]
 
     // 殻の音のセッションの選択肢(値の唯一の答え)。
@@ -91,6 +92,25 @@ public class FicusAudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
     // routeToSpeaker は Capacitor の部品の列、経路の変化は main で走るので、鍵で守る。
     private var inputRuleTriedRoutes = Set<String>()
     private let inputRuleLock = NSLock()
+
+    // 【便CT】診断の板の試し口で選んだモード(聞き比べ用)。nil = 既定の .default。**保存しない**(メモリだけ。アプリを開き直せば .default)。
+    // routeToSpeaker(Capacitor の部品の列)・経路の変化(main)・setTestMode が読み書きするので、鍵で守る。
+    private var testMode: AVAudioSession.Mode? = nil
+    private let testModeLock = NSLock()
+    // 試し口で選べるモード(板のボタンの名前 → モード)。これ以外の名前は断る。
+    static let testModes: [String: AVAudioSession.Mode] = [
+        "default": .default,
+        "videoRecording": .videoRecording,
+        "measurement": .measurement,
+        "spokenAudio": .spokenAudio,
+        "moviePlayback": .moviePlayback
+    ]
+    // いま求めるモード(試し口で選んでいればそれ、無ければ .default)。立て直しの setCategory の2か所(routeToSpeaker・経路の変化)と needsSessionReset が読む。
+    func desiredMode() -> AVAudioSession.Mode {
+        testModeLock.lock()
+        defer { testModeLock.unlock() }
+        return testMode ?? .default
+    }
 
     @objc override public func load() {
         NotificationCenter.default.addObserver(self,
@@ -108,7 +128,7 @@ public class FicusAudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
         do {
             // 種別・モード・選択肢が既に同じなら立て直さない(取り込み中・再生中の経路を無駄に揺らさない)
             if needsSessionReset(session) {
-                try session.setCategory(.playAndRecord, mode: .default, options: FicusAudioSessionPlugin.sessionOptions)
+                try session.setCategory(.playAndRecord, mode: desiredMode(), options: FicusAudioSessionPlugin.sessionOptions)
             }
             applyInputRule(session)
             try applyOutputRule(session)
@@ -143,6 +163,52 @@ public class FicusAudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
         ])
     }
 
+    // 【便CT】診断の板の試し口: モードを替えて聞き比べる(default / videoRecording / measurement / spokenAudio / moviePlayback)。
+    // 選んだモードはメモリにだけ持ち(保存しない)、以後の立て直し(routeToSpeaker・経路の変化)もそのモードで行う。
+    // 取り込み中(playAndRecord)のときだけ受け、その場で setCategory する(種別と選択肢は sessionOptions のまま)。返すのは替えた後のモード(生の値)。
+    // **iOS が受け付けなかったら(投げた・替わらなかった)前のモードに戻して reject する**(Apple の文書では moviePlayback は playback 用)。
+    // 戻さないと、以後の立て直しが毎回 setCategory を投げて出口の規則まで届かない・替わらないモードを求め続けて経路の変化と往復する。
+    @objc func setTestMode(_ call: CAPPluginCall) {
+        guard let name = call.getString("mode"), let mode = FicusAudioSessionPlugin.testModes[name] else {
+            call.reject("unknown mode")
+            return
+        }
+        let session = AVAudioSession.sharedInstance()
+        guard session.category == .playAndRecord else {
+            // 【便CT 審査】板を閉じたときの戻し(default)は、取り込み中でなくても受けて既定へ戻す(次の立て直しは .default で行う)
+            if mode == .default {
+                storeTestMode(.default)
+                call.resolve(["mode": session.mode.rawValue])
+                return
+            }
+            call.reject("not playAndRecord")
+            return
+        }
+        let previous = desiredMode()
+        storeTestMode(mode)
+        do {
+            if session.mode != mode {
+                try session.setCategory(.playAndRecord, mode: mode, options: FicusAudioSessionPlugin.sessionOptions)
+            }
+            guard session.mode == mode else {
+                storeTestMode(previous)
+                call.reject("not accepted: \(session.mode.rawValue)")
+                return
+            }
+            call.resolve(["mode": session.mode.rawValue])
+        } catch {
+            storeTestMode(previous)
+            call.reject("set mode: \(error.localizedDescription)")
+        }
+    }
+
+    // 試し口のモードをメモリに置く(.default は nil = 選んでいない)。
+    func storeTestMode(_ mode: AVAudioSession.Mode) {
+        testModeLock.lock()
+        testMode = (mode == .default) ? nil : mode
+        testModeLock.unlock()
+    }
+
     // 【便CS】port の portType(生の値)と名前。診断の板と、JS の内蔵マイクの見分け(src/builtInMic.js)が読む。
     static func portInfo(_ port: AVAudioSessionPortDescription) -> [String: String] {
         return ["portType": port.portType.rawValue, "name": port.portName]
@@ -157,7 +223,7 @@ public class FicusAudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
             guard session.category == .playAndRecord else { self.clearInputRuleTriedRoutes(); return }
             do {
                 if self.needsSessionReset(session) {
-                    try session.setCategory(.playAndRecord, mode: .default, options: FicusAudioSessionPlugin.sessionOptions)
+                    try session.setCategory(.playAndRecord, mode: self.desiredMode(), options: FicusAudioSessionPlugin.sessionOptions)
                 }
                 self.applyInputRule(session)
                 try self.applyOutputRule(session)
@@ -175,9 +241,10 @@ public class FicusAudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
     // 旧来の処理(選択肢が違えば .default へ戻す)で直らなかった理由は未解明。WebKit は routeSharingPolicy も比べるので、
     // こちらが setCategory すると WebKit がまた立て直しうる。切り分けは診断の板(sessionInfo)で実機の値を見て行う。
     // モードは .default(殻の仕様 §4.4。setCategory の2か所と同じ値)。
+    // 【便CT】モードの比べる先は desiredMode()(診断の板の試し口で選んだモード。選んでいなければ .default = 今までどおり)。
     func needsSessionReset(_ session: AVAudioSession) -> Bool {
         return session.category != .playAndRecord
-            || session.mode != .default
+            || session.mode != desiredMode()
             || session.categoryOptions != FicusAudioSessionPlugin.sessionOptions
     }
 

@@ -21,6 +21,10 @@
 //   ・雑音に依存するので、**種を固定した疑似乱数で多数回引いて平均**する
 //     (1回の引きでは ±数%ばらつく)。
 //
+// 【便CT 2026-10-13】クリックは強拍のピークで正規化するようになった(App.jsx の getMetroClickBuffer)。いまの木の音量は makeup では決まらず、
+//   リミッターの入口での強拍のピーク = METRO_CLICK_LIMITER_IN_PEAK ÷ マスターの基の値 で決まる(makeup は包絡の傾きにだけ効く)。
+//   下の --solve(makeup を変更前の木のピークに合わせる)は D-25 の記録の再現用で、便CT のあとは解けない(ピークが makeup によらない)。
+//
 // 使い方:
 //   node scripts/metro-click-makeup.mjs [--draws 1000]
 //   node scripts/metro-click-makeup.mjs --solve   ← 変更前の木とピークがそろう makeup を求める
@@ -71,6 +75,11 @@ function extractConst(name) {
 const api = new Function(`${[
   extractConst("METRO_CLICK_VOL"),
   extractConst("METRO_CLICK_SPEC"),
+  // 【便CT】雑音は種を固定した乱数で作り、強拍のピークで正規化する(getMetroClickBuffer が読む)
+  extractConst("METRO_CLICK_SEED"),
+  extractConst("METRO_CLICK_LIMITER_IN_PEAK"),
+  extractFunction("metroClickRandom"),
+  extractFunction("metroClickPeak"),
   extractFunction("getMetroClickBuffer"),
   extractFunction("getMetroMasterInput"),
   extractFunction("scheduleMetroClick"),
@@ -220,8 +229,11 @@ function envelopeAt(events, t) {
 // ---- 組み上がった graph を1回ぶんの波形に描く --------------------------------
 // 鎖は 音源 → (フィルタ) → ゲイン → リミッター。**リミッターの手前まで**を返す。
 // schedule は (ctx, t, kind) を取る予約関数 ── 現行の実装でも、変更前の標本でもよい。
-export function renderWith(schedule, kind, rand) {
+// 【便CT】shellGain に数を渡すと、殻のメトロノームと同じく ctx に殻のマスターの値を置いてから組む(正規化はマスターの基の値で割る)。
+// 便CT から雑音は種を固定した乱数で作る(Math.random を読まない)ので、rand は変更前の木(scheduleBeforeWood)にだけ効く。
+export function renderWith(schedule, kind, rand, shellGain) {
   const ctx = makeGraphCtx();
+  if (typeof shellGain === "number") ctx.__metroMasterGainShell = shellGain;
   const origRandom = Math.random;
   Math.random = rand;
   try { schedule(ctx, 0, kind); } finally { Math.random = origRandom; }
@@ -273,7 +285,7 @@ export function renderWith(schedule, kind, rand) {
 }
 
 // いまの実装(木1種)の1回ぶん。
-export function renderClick(kind, rand) { return renderWith(api.scheduleMetroClick, kind, rand); }
+export function renderClick(kind, rand, shellGain) { return renderWith(api.scheduleMetroClick, kind, rand, shellGain); }
 // 変更前の木(5ab5206)の1回ぶん。**同じ描き手**で描くので、差は音の作りの差だけになる。
 export function renderBefore(kind, rand) { return renderWith(scheduleBeforeWood, kind, rand); }
 

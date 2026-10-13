@@ -493,6 +493,11 @@ const code = [
   extractConst("AUDIO_CLOCK_STALL_RATIO"),
   extractFunction("audioClockStalled"),
   extractFunction("metroCtxNeedsRebuild"),
+  // 【便CT】クリックの雑音は種を固定した乱数で作り、強拍のピークで正規化する(getMetroClickBuffer が読む)
+  extractConst("METRO_CLICK_SEED"),
+  extractConst("METRO_CLICK_LIMITER_IN_PEAK"),
+  extractFunction("metroClickRandom"),
+  extractFunction("metroClickPeak"),
   extractFunction("getMetroClickBuffer"),
   extractFunction("getMetroMasterInput"),
   extractFunction("scheduleMetroClick"),
@@ -580,6 +585,7 @@ const api = new Function(`${code}
            REC_BTN_D, REC_RING_SW, REC_RING_GAP, REC_STOP_PX, REC_STOP_R, recInnerShape,
            METRO_CLICK_VOL, METRO_CLICK_SPEC,
            getMetroClickBuffer, getMetroMasterInput, scheduleMetroClick,
+           METRO_CLICK_SEED, METRO_CLICK_LIMITER_IN_PEAK, metroClickRandom, metroClickPeak,
            audioClockStalled, metroCtxNeedsRebuild,
            TAP_TEMPO_RESET_MS, TAP_TEMPO_INTERVALS, tapTempoPush, tapTempoFromTaps,
            tapTempoLiveCount, tapTempoResetInMs };`)();
@@ -21891,14 +21897,35 @@ console.log("\n========== 検証43: D-25 クリック音は木の1種 / タッ�
         !(negDc > 0.3 && negDc < 0.7) && !(Math.abs(num / den) < 0.3),
         `負 ${(negDc * 100).toFixed(1)}% / 相関 ${(num / den).toFixed(4)}`);
     }
-    // 包絡そのもの(exp(-i/(n*0.15)))は据え置き。こちらは固定乱数で見る(包絡だけを取り出すため)
+    // 包絡そのもの(exp(-i/(n*0.15)))は据え置き。こちらは固定の乱数(rand = () => 1)で見る(包絡だけを取り出すため)
+    // 【便CT】雑音は種を固定した乱数(rand の口。既定は metroClickRandom(METRO_CLICK_SEED))で作り、強拍のピークで正規化する。
+    //   正規化は1つの係数を掛けるだけなので、**形**(先頭との比)で見る。
     {
       const c2 = makeCtx();
-      const b2 = withFixedRandom(() => runFn(api.getMetroClickBuffer, c2).v);
+      const b2 = runFn(api.getMetroClickBuffer, c2, () => 1).v;
       const d2 = b2 && b2.getChannelData(0);
       const wantAt = (i) => Math.exp(-i / (nSamp * 0.15));
-      const worst = d2 ? Math.max(...[0, 100, 432, 1000, 2879].map((i) => Math.abs(d2[i] - wantAt(i)))) : 1;
-      check("43.0 雑音バッファの減衰は exp(-i/(n*0.15)) のまま", worst < 1e-6, String(worst));
+      const worst = d2 && d2[0] > 0 ? Math.max(...[0, 100, 432, 1000, 2879].map((i) => Math.abs(d2[i] / d2[0] - wantAt(i)))) : 1;
+      check("43.0 雑音バッファの減衰は exp(-i/(n*0.15)) のまま(【便CT】正規化の係数を除いた形)", worst < 1e-6, String(worst));
+    }
+    // 【便CT】乱数は種を固定: ctx が替わっても同じ雑音。種を固定した乱数の列そのものに、包絡と1つの係数を掛けたものであること
+    //   (= 雑音の作り方は変えず、大きさだけを正規化した。音色は変えていない)。
+    {
+      const ca = makeCtx(), cb = makeCtx();
+      const da = runFn(api.getMetroClickBuffer, ca).v?.getChannelData(0);
+      const db = runFn(api.getMetroClickBuffer, cb).v?.getChannelData(0);
+      check("43.0 【便CT】雑音は ctx ごとに同じ(種を固定した乱数。Math.random を読まない)",
+        !!da && !!db && da.length === db.length && da.every((v, i) => v === db[i]) && withFixedRandom(() => {
+          const cc = makeCtx();
+          const dc = runFn(api.getMetroClickBuffer, cc).v?.getChannelData(0);
+          return !!dc && dc.every((v, i) => v === da[i]);
+        }));
+      const r = api.metroClickRandom(api.METRO_CLICK_SEED);
+      const raw = Array.from({ length: nSamp }, (_, i) => (r() * 2 - 1) * Math.exp(-i / (nSamp * 0.15)));
+      const k = da ? da[0] / raw[0] : NaN;
+      const worst = da ? Math.max(...raw.map((v, i) => Math.abs(da[i] - v * k))) : 1;
+      check("43.0 【便CT】バッファ = 種を固定した乱数の雑音 × 包絡 × 1つの係数(正規化は大きさだけ・形は変えない)",
+        Number.isFinite(k) && k > 0 && worst < 1e-6, `係数 ${k} / ずれ ${worst}`);
     }
   }
 
@@ -22079,18 +22106,64 @@ console.log("\n========== 検証43: D-25 クリック音は木の1種 / タッ�
         return s / DRAWS;
       });
       const pB = mean(renderBefore, "accent", peakOf), pN = mean(renderClick, "accent", peakOf);
-      const eB = mean(renderBefore, "accent", energyOf), eN = mean(renderClick, "accent", energyOf);
       check("43.1 変更前の木も、いまの木も、波形が描ける(音づくりが例外を投げない・鳴り止まないものを作らない)",
         pB.ok && pN.ok, `変更前 ${shownOf(pB)} / いま ${shownOf(pN)}`);
-      const rel = pB.ok && pN.ok && pB.v > 0 ? pN.v / pB.v : NaN;
-      check("43.1 accent のピークは変更前の木と ±5% 以内でそろう(makeup を計算し直した根拠)",
-        Number.isFinite(rel) && rel >= 0.95 && rel <= 1.05,
-        `変更前 ${pB.ok ? pB.v.toFixed(4) : "—"} / いま ${pN.ok ? pN.v.toFixed(4) : "—"} → 比 ${Number.isFinite(rel) ? rel.toFixed(4) : "—"}`);
-      // エネルギーは「鋭く」した分だけ減る。減衰 30ms → 18ms のぶんで、消えてはいない。
-      const eRel = eB.ok && eN.ok && eB.v > 0 ? eN.v / eB.v : NaN;
-      check("43.1 エネルギーは変更前の木の 0.70〜0.95 倍(減衰を詰めたぶん減る。無音にはならない)",
-        Number.isFinite(eRel) && eRel >= 0.70 && eRel <= 0.95,
-        `変更前 ${eB.ok ? eB.v.toFixed(5) : "—"} / いま ${eN.ok ? eN.v.toFixed(5) : "—"} → 比 ${Number.isFinite(eRel) ? eRel.toFixed(4) : "—"}`);
+      // 【便CT 2026-10-13】「accent のピークは変更前の木と ±5%」「エネルギーは変更前の木の 0.70〜0.95 倍」(D-25 の makeup の根拠)は外した。
+      // 便CT からクリックは強拍のピークで正規化する(大きさは makeup では決まらない)ので、変更前の木と大きさをそろえる理由が無くなった。
+      // 代わりに、**別の実装の描き手**(metro-click-makeup.mjs。App.jsx の metroClickPeak とは別に双二次と包絡を回す)で描いた
+      // リミッターの手前のピークが、**graph に組まれたリミッターの閾値**(comp の threshold)とマスターの値(gain)から決まる所にそろうことを見る。
+      const gW = graphOf("accent");
+      const thrDb = parseFloat((/comp#\d+\.threshold=(-?[\d.]+)/.exec(gW) || [])[1]);
+      const thrAmp = Math.pow(10, thrDb / 20);
+      const masterW = parseFloat((/gain#\d+\.gain=([\d.]+)/.exec(gW) || [])[1]);
+      const pick = (kind, shell) => runFn(() => peakOf(renderClick(kind, mulberry32(0x9e3779b9), shell)));
+      const pkW = pick("accent"), pkS = pick("accent", 1.0);
+      // 出口(マスターの後)に換算した強拍の、リミッターの手前のピーク: Web は × マスター(2.6)、殻は × 1.0
+      const outW = pkW.ok ? pkW.v * masterW : NaN, outS = pkS.ok ? pkS.v * 1.0 : NaN;
+      const inBand = (v) => Number.isFinite(v) && v >= thrAmp * 0.97 && v <= thrAmp * 1.0005;
+      check("43.1 【便CT】強拍は、リミッターの閾値(graph の threshold)の 0.97〜1.0 倍に置く(マスターの値で割り戻す。Web 2.6・殻 1.0 のどちらも)",
+        Number.isFinite(thrAmp) && masterW === 2.6 && inBand(outW) && inBand(outS),
+        `閾値 ${thrAmp.toFixed(4)} / Web ${pkW.ok ? pkW.v.toFixed(4) : "—"}×${masterW} = ${Number.isFinite(outW) ? outW.toFixed(4) : "—"} / 殻 ${Number.isFinite(outS) ? outS.toFixed(4) : "—"}`);
+      // ピークがそろう: 引き直しても(Math.random を差し替えても)強拍・拍・弱拍のピークが変わらない(種を固定した乱数 + 正規化)
+      const KS = ["accent", "beat", "sub"];
+      const peaksBy = (seed) => KS.map((k) => runFn(() => peakOf(renderClick(k, mulberry32(seed), 1.0))));
+      const pa = peaksBy(1), pb = peaksBy(0xdeadbeef);
+      check("43.1 【便CT】強拍・拍・弱拍のピークが引き直しで変わらない(以前は ctx ごとにばらついた)",
+        pa.every((x, i) => x.ok && pb[i].ok && x.v > 0 && x.v === pb[i].v),
+        pa.map((x, i) => `${KS[i]} ${shownOf(x)} / ${shownOf(pb[i])}`).join(" · "));
+      // App.jsx の metroClickPeak(正規化に使う)が、別の実装の描き手と同じピークを出す(3段とも)
+      {
+        const c = makeCtx(48000);
+        const d = runFn(api.getMetroClickBuffer, c).v?.getChannelData(0);
+        // 描き手は Web の鎖(2.6)で描く = ctx に殻の値を置かない makeCtx と同じ
+        const ok = !!d && KS.every((k) => {
+          const a = api.metroClickPeak(d, 48000, k);
+          const b = peakOf(renderClick(k, mulberry32(7)));
+          return Math.abs(a - b) <= 1e-6 * Math.max(1, b);
+        });
+        check("43.1 【便CT】正規化が使うピークの計算(metroClickPeak)は、別の実装の描き手と3段とも一致する",
+          ok, d ? KS.map((k) => `${k} ${api.metroClickPeak(d, 48000, k).toFixed(6)} / ${peakOf(renderClick(k, mulberry32(7))).toFixed(6)}`).join(" · ") : "取れない");
+      }
+      // 「今の比」を保つ: 拍/強拍・弱拍/強拍のピーク比が、**変更前の作り方**(Math.random の雑音・正規化なし)の母集団の中央値の ±5% 以内
+      // (種の選び方。比は 3段の音量 1.0 / 0.85 / 0.6 と、中心周波数ごとの帯域の差で決まる。正規化は3段に共通の1つの係数なので比を変えない)
+      {
+        const n = Math.ceil(48000 * 0.06);
+        const rb = [], rs = [];
+        let seed = 0x12345;
+        const rnd = mulberry32(seed);
+        for (let r = 0; r < 400; r++) {
+          const d = new Float32Array(n);
+          for (let i = 0; i < n; i++) d[i] = (rnd() * 2 - 1) * Math.exp(-i / (n * 0.15));
+          const a = api.metroClickPeak(d, 48000, "accent");
+          rb.push(api.metroClickPeak(d, 48000, "beat") / a); rs.push(api.metroClickPeak(d, 48000, "sub") / a);
+        }
+        const med = (x) => x.slice().sort((p, q) => p - q)[Math.floor(x.length / 2)];
+        const now = KS.map((k) => peakOf(renderClick(k, mulberry32(1), 1.0)));
+        const nb = now[1] / now[0], ns = now[2] / now[0];
+        check("43.1 【便CT】拍/強拍・弱拍/強拍のピーク比は、変更前の作り方の母集団(400 通り)の中央値の ±5% 以内(今の比を保つ)",
+          Math.abs(nb / med(rb) - 1) <= 0.05 && Math.abs(ns / med(rs) - 1) <= 0.05,
+          `いま ${nb.toFixed(4)} / ${ns.toFixed(4)} ・ 中央値 ${med(rb).toFixed(4)} / ${med(rs).toFixed(4)}`);
+      }
     }
   }
 
@@ -32527,18 +32600,42 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     const swiftCode = swift.split("\n").map((l) => l.replace(/\/\/.*$/, "")).join("\n");
     check("K.6 AppDelegate.swift: 音の出口は playAndRecord + [.defaultToSpeaker, .allowBluetoothA2DP](選択肢は1か所)・HFP(.allowBluetooth / .allowBluetoothHFP)の綴りがコードに無い",
       /static let sessionOptions: AVAudioSession\.CategoryOptions = \[\.defaultToSpeaker, \.allowBluetoothA2DP\]\n/.test(swiftCode)
-      && (swiftCode.match(/try session\.setCategory\(\.playAndRecord, mode: \.default, options: FicusAudioSessionPlugin\.sessionOptions\)/g) || []).length === 2
-      && (swiftCode.match(/setCategory\(/g) || []).length === 2
+      // 【便CT】立て直しの2か所のモードは desiredMode()(試し口で選んでいなければ .default)。3か所目は試し口 setTestMode(選んだモードで1回)。
+      //   3か所とも種別は playAndRecord・選択肢は sessionOptions のまま
+      && (swiftCode.match(/try session\.setCategory\(\.playAndRecord, mode: (?:self\.)?desiredMode\(\), options: FicusAudioSessionPlugin\.sessionOptions\)/g) || []).length === 2
+      && (swiftCode.match(/try session\.setCategory\(\.playAndRecord, mode: mode, options: FicusAudioSessionPlugin\.sessionOptions\)/g) || []).length === 1
+      && (swiftCode.match(/setCategory\(/g) || []).length === 3
       && !/\.allowBluetooth(?!A2DP)/.test(swiftCode) && !/allowBluetoothHFP/.test(swiftCode));
     // 【便CQ】モードの条件は**念のための条件**で、いまの判定を1件も変えない(WebKit が立て直すときの選択肢は
     // AllowBluetooth|A2DP|AirPlay(|DefaultToSpeaker)で sessionOptions と一致しないので、選択肢の違いだけで既に真になる)。
     // 音量が小さい原因は仮説(WebKit の videoChat = 通話の音量。bug 271305)で、旧来の処理で直らなかった理由は未解明。
     // ここが守るのは「3つを見る判断を2か所が使う」綴りだけ。Swift はここでは走らない(ビルドが通るか・効くかは実機待ち)。
     check("K.6 AppDelegate.swift: 【便CQ】立て直しの判断 needsSessionReset は種別・モード(.default)・選択肢の3つを見て、routeToSpeaker と経路の変化の両方がそれを使う",
-      /func needsSessionReset\(_ session: AVAudioSession\) -> Bool \{\n\s*return session\.category != \.playAndRecord\n\s*\|\| session\.mode != \.default\n\s*\|\| session\.categoryOptions != FicusAudioSessionPlugin\.sessionOptions\n\s*\}/.test(swiftCode)
+      // 【便CT】モードの比べる先は desiredMode()。試し口で選んでいなければ .default(= 今までどおり)。選んだモードはメモリだけ(保存しない)
+      /func needsSessionReset\(_ session: AVAudioSession\) -> Bool \{\n\s*return session\.category != \.playAndRecord\n\s*\|\| session\.mode != desiredMode\(\)\n\s*\|\| session\.categoryOptions != FicusAudioSessionPlugin\.sessionOptions\n\s*\}/.test(swiftCode)
+      && /func desiredMode\(\) -> AVAudioSession\.Mode \{\n\s*testModeLock\.lock\(\)\n\s*defer \{ testModeLock\.unlock\(\) \}\n\s*return testMode \?\? \.default\n\s*\}/.test(swiftCode)
+      && /private var testMode: AVAudioSession\.Mode\? = nil\n/.test(swiftCode)
       && /\n\s*if needsSessionReset\(session\) \{\n\s*try session\.setCategory\(/.test(swiftCode)
       && /\n\s*if self\.needsSessionReset\(session\) \{\n\s*try session\.setCategory\(/.test(swiftCode)
       && (swiftCode.match(/needsSessionReset\(/g) || []).length === 3);
+    // 【便CT 2026-10-13】診断の板の試し口: setTestMode は5つの名前だけを受け、選んだモードをメモリ(testMode)にだけ持つ(保存しない)。
+    // 取り込み中(playAndRecord)ならその場で setCategory。Swift はここでは走らない(効くか・どれが大きいかは実機待ち)。
+    {
+      const stm = (/@objc func setTestMode\(_ call: CAPPluginCall\) \{[\s\S]*?\n    \}\n/.exec(swiftCode) || [""])[0];
+      const modes = (/static let testModes: \[String: AVAudioSession\.Mode\] = \[([\s\S]*?)\]/.exec(swiftCode) || [])[1] || "";
+      const names = [...modes.matchAll(/"(\w+)": \.(\w+)/g)].map((m) => `${m[1]}=${m[2]}`);
+      check("K.6 AppDelegate.swift: 【便CT】setTestMode は default / videoRecording / measurement / spokenAudio / moviePlayback だけを受け、メモリ(testMode)にだけ持つ(保存しない)",
+        JSON.stringify(names) === JSON.stringify(["default=default", "videoRecording=videoRecording", "measurement=measurement", "spokenAudio=spokenAudio", "moviePlayback=moviePlayback"])
+        && /guard let name = call\.getString\("mode"\), let mode = FicusAudioSessionPlugin\.testModes\[name\] else \{\n\s*call\.reject\("unknown mode"\)/.test(stm)
+        && /func storeTestMode\(_ mode: AVAudioSession\.Mode\) \{\n\s*testModeLock\.lock\(\)\n\s*testMode = \(mode == \.default\) \? nil : mode\n/.test(swiftCode)
+        // 取り込み中だけ受ける・iOS が受け付けなければ(投げた・替わらなかった)前のモードに戻す(戻さないと立て直しが毎回投げる・往復する)
+        // 【便CT 審査】板を閉じたときの戻し(default)だけは、取り込み中でなくても受けて既定へ戻す
+        && /guard session\.category == \.playAndRecord else \{\n\s*if mode == \.default \{\n\s*storeTestMode\(\.default\)\n\s*call\.resolve\(\["mode": session\.mode\.rawValue\]\)\n\s*return\n\s*\}\n\s*call\.reject\("not playAndRecord"\)/.test(stm)
+        && /let previous = desiredMode\(\)\n\s*storeTestMode\(mode\)\n/.test(stm)
+        && /guard session\.mode == mode else \{\n\s*storeTestMode\(previous\)\n/.test(stm)
+        && /\} catch \{\n\s*storeTestMode\(previous\)\n/.test(stm)
+        && !/UserDefaults|NSUbiquitousKeyValueStore|FileManager|write\(/.test(swiftCode), names.join(","));
+    }
     check("K.6 AppDelegate.swift: スピーカーへの上書き overrideOutputAudioPort(.speaker) は出口が受話口のときだけ(イヤホンがあるときにかけない)",
       /func applyOutputRule\(_ session: AVAudioSession\) throws \{\n\s*let outputs = session\.currentRoute\.outputs\.map \{ \$0\.portType \}\n\s*if outputs\.contains\(\.builtInReceiver\) \{\n\s*try session\.overrideOutputAudioPort\(\.speaker\)\n\s*\}\n\s*\}/.test(swiftCode)
       && (swiftCode.match(/overrideOutputAudioPort\(/g) || []).length === 1);
@@ -32766,11 +32863,13 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
         swiftKeys.length === 10 && swiftKeys.includes("availableInputs") && swiftKeys.includes("preferredInput") && JSON.stringify(swiftKeys) === JSON.stringify(jsKeys) && !/setCategory|setActive|overrideOutputAudioPort|setMode/.test(si),
         `${swiftKeys.join(",")} / ${jsKeys.join(",")}`);
     }
-    check("K.14 audioSession.native.js の registerPlugin の名前 = Swift の jsName(FicusAudioSession)・呼ぶメソッド routeToSpeaker / sessionInfo が Swift の pluginMethods と一致",
+    // 【便CT】setTestMode(診断の板の試し口。モードを替える)を足した
+    check("K.14 audioSession.native.js の registerPlugin の名前 = Swift の jsName(FicusAudioSession)・呼ぶメソッド routeToSpeaker / sessionInfo / setTestMode が Swift の pluginMethods と一致",
       jsName === "FicusAudioSession" && swiftJsName === jsName
       && /export const routeToSpeaker = \(\) => P\.routeToSpeaker\(\);/.test(as) && /export const sessionInfo = \(\) => P\.sessionInfo\(\);/.test(as)
-      && JSON.stringify([...as.matchAll(/P\.(\w+)\(\)/g)].map((m) => m[1]).sort()) === JSON.stringify([...swiftMethods].sort())
-      && JSON.stringify(swiftMethods) === JSON.stringify(["routeToSpeaker", "sessionInfo"])
+      && /export const setTestMode = \(mode\) => P\.setTestMode\(\{ mode \}\);/.test(as)
+      && JSON.stringify([...as.matchAll(/P\.(\w+)\(/g)].map((m) => m[1]).sort()) === JSON.stringify([...swiftMethods].sort())
+      && JSON.stringify(swiftMethods) === JSON.stringify(["routeToSpeaker", "sessionInfo", "setTestMode"])
       && /@objc func routeToSpeaker\(_ call: CAPPluginCall\)/.test(swift), `${jsName} / ${swiftJsName} / ${swiftMethods}`);
   }
 
@@ -33269,7 +33368,7 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
   const coachBlkBZ = (/const coachWithNotice = coachDuringNotice\(\{([\s\S]*?)\n  \}\);/.exec(app) || [])[1] || "";
   check("BW.5 <OnboardingCoach> の候補に hasSelectedReed と idealRequested: coachRequest === \"idealSeen\"。hidden の式は【便BZ】の形で一字一句",
     // 【便CO】引数は const coachArgs の1か所(案内の候補と、広告の帯の止め方の (b)(c) が同じものを読む)
-    /\n  const coachArgs = \{ topTab, done: coachDone, [^\n]*metroPanelOpen, metronomeOn: metronomeOnForCoach, metroTempoQuiet, hasSelectedReed, idealRequested: coachRequest === "idealSeen" \};\n  const coachWithNotice = coachDuringNotice\(\{/.test(app)
+    /\n  const coachArgs = \{ topTab, done: coachDone, [^\n]*metroPanelOpen, metronomeOn: metronomeOnForCoach, metroTempoQuiet, hasSelectedReed, idealRequested: coachRequest === "idealSeen", hasIdealProfile: !\(idealProfilesLoaded && idealProfilesReadOk\) \|\| idealProfiles\.length > 0 \};\n  const coachWithNotice = coachDuringNotice\(\{/.test(app)
     && /candidates: coachReady && !isRecording \? coachCandidates\(coachArgs\) : NO_COACH,/.test(coachBlkBZ)
     && /\n\s*notice, topTab,$/.test(coachBlkBZ) && coachCall.includes("candidates={coachWithNotice.candidates}")
     // 【便CJ】hidden の式は const coachHidden の1か所(<OnboardingCoach> と (c) の時計 coachIdle が同じ式を読む)
@@ -33475,7 +33574,7 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     && /if \(!hasSessions\) return keep\(!d\.measure \? \["data"\] : \[\]\);\n(?:\s*\/\/[^\n]*\n)*\s*if \(!d\.arriveData\) return \["arriveData"\];/.test(cc)
     // 【便BZ】⑯ の次に goCompare(goCompareOpen = 目安にした・比べに行っていない・⑮ を見ていない・終わっていない)
     // 【便CJ】飛ばした段は返さない(keep)。到着は飛ばせないので keep を通さない
-    && /case "community": \{\n\s*if \(!d\.join\) return \[\];\n(?:\s*\/\/[^\n]*\n)*\s*if \(!d\.arriveCommunity\) return \["arriveCommunity"\];\n\s*if \(!d\.adoptAverage\) return keep\(\["adoptAverage"\]\);\n(?:\s*\/\/[^\n]*\n)?\s*return keep\(goCompareOpen\(d\) \? \["goCompare"\] : \[\]\);/.test(cc)
+    && /case "community": \{\n\s*if \(!d\.join\) return \[\];\n(?:\s*\/\/[^\n]*\n)*\s*if \(!d\.arriveCommunity\) return \["arriveCommunity"\];\n(?:\s*\/\/[^\n]*\n)*\s*if \(!d\.adoptAverage\) return hasIdealProfile \? \[\] : keep\(\["adoptAverage"\]\);\n(?:\s*\/\/[^\n]*\n)?\s*return keep\(goCompareOpen\(d\) \? \["goCompare"\] : \[\]\);/.test(cc)
     && /export function goCompareOpen\(d\) \{\n\s*const x = d \?\? \{\};\n\s*return Boolean\(x\.adoptAverage\) && !x\.goCompare && !x\.idealSeen && !x\.finish;\n\}/.test(ob));
   // 【便BX 審査 統括の裁定】⑰ は目安にしただけ(adoptAverage)でも・終わった後は出さない
   check("BX.2 ⑭' は参加済みの人に出さない・⑰ は ⑮ か目安にしたあと(データタブの並びの後ろ・終わった後は出さない)",

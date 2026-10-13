@@ -1273,8 +1273,11 @@ iPad との分岐を2か所に持つより上限を1つにしておくほうが�
     録音中・取り込み解析中（Web と同じ行）とメトロノームが ON の間（殻だけ）は取り直す。なお録音中は下部タブの移動そのものが止められている。
   - **計測タブを離れたらマイクを止める**: 殻だけ `stop`（橙の印が消える。Capacitor が WebKit の許可を自動で通すので、戻っても許可の画面は出ない）。
     実機で戻ったときに固まるなら `src/shell/policy.js` の `SHELL_STOP_MIC_ON_TAB_LEAVE = false` で Web と同じ `pause` に戻す（1か所）。
-  - **メトロノームのマスターゲイン**: 殻 1.0（`policy.js` の `METRO_MASTER_GAIN_SHELL`）・Web 2.6（`getMetroMasterInput` の行が唯一の答え）。実機でまだ小さければ殻も 2.6 にして再ビルド。
-    【便CQ 実測】2.6 にすると、実際のクリックはフルスケールを越える（下の「モードは `.default`」の測り方。強拍で最大 1.548）。採るなら割れを承知の上で、統括の裁定が要る。
+  - **メトロノームのマスターゲイン**: 殻 1.0（`policy.js` の `METRO_MASTER_GAIN_SHELL`）・Web 2.6（`getMetroMasterInput` の行が唯一の答え）。
+    **【便CT 2026-10-13】出口の大きさはマスターの値では決まらない**: クリックは強拍のピークで正規化され、リミッターの入口での強拍のピークが
+    `METRO_CLICK_LIMITER_IN_PEAK`（= 0.708 = リミッターの閾値 −3dB）÷ マスターの基の値 になる（下の「クリックのピークをそろえる」）。つまり殻 1.0 でも Web 2.6 でも、
+    出口の強拍は同じ 0.862（Chrome 152 の実測）。マスターの値を上げても出口の強拍は同じ（正規化が割り戻す）。それより大きくするのは、リミッターの後の倍率（診断の板の試し口 ×1.3 / ×1.6）だけで、強拍は 1 を越える（割れの確かめ用）。
+    （便CQ までの「実機でまだ小さければ殻も 2.6」は、便CT の正規化で意味が無くなった。【便CQ 実測】正規化の前は、2.6 で強拍が最大 1.548 = 割れていた。）
     仕様の綴り（`master.gain.value = metroMasterGain(isNativeShell());`）からは外した: Web の 2.6 の行を見る既存の検査と、`getMetroMasterInput` を単独で回す検査を壊さないため、
     殻の値は `startMetronome` が ctx に置き、`getMetroMasterInput` が読む。`policy.js` に Web の 2.6 の写しは持たない。
   - **Web 版の記録の移し方**: 殻だけ・記録が 0 件の間だけ、すべての計測（AllSessionsPage）の「まだ記録がありません」の下に1行。
@@ -1299,6 +1302,15 @@ iPad との分岐を2か所に持つより上限を1つにしておくほうが�
       こちらの `setCategory` の後にまた立て直しうる）・モードは関係ない、のどれかで、実機の値を見ないと決められない（下の「音の診断の板」）。
     - 殻の `needsSessionReset`（種別・モード・選択肢の3つ）の**モードの条件は念のための条件**で、いまの判定を1件も変えない（WebKit が立て直した場合は
       選択肢の違いだけで既に真になる）。routeToSpeaker と経路の変化の両方が使う。
+      【便CT】比べるモードは `desiredMode()`（診断の板の試し口で選んだモード。選んでいなければ `.default` = 今までどおり。メモリだけで保存しない）。
+    - **【便CT 調べたこと】マイクが無いときも、メトロノームを鳴らしている間の種別は PlayAndRecord**（種別の違いでは説明できない）:
+      Web は `startMetronome` が `navigator.audioSession.type = "play-and-record"`（`AUDIO_SESSION_TYPE`）を置き、WebKit はそれを種別の上書き
+      （`DOMAudioSession.cpp` の `fromDOMAudioSessionType` → PlayAndRecord・`setCategoryOverride`）にする。上書きが無ければ Web Audio だけのときは AmbientSound
+      （`MediaSessionManagerCocoa.mm`）。殻は `startMetronome` の先頭の `shellRouteToSpeaker()` で `setCategory(.playAndRecord, …)`。どちらも WebKit main のソースで、
+      本人の iOS の版と同じかは分からない。Apple の DTS の技術者は「Playback は PlayAndRecord より大きい」と書いている（Developer Forums thread 820613）が、
+      Ficus はマイクの有無にかかわらず PlayAndRecord なので、マイクがあるときだけ小さい理由にはならない。違いとして残るのは「入力が動いているか」で、
+      取り込み中に再生が小さくなるという報告は WebKit bug 219424（未解決）・260501 にある（仕組みは書かれていない）。Apple の文書は `measurement` と、
+      voice processing を使わない `voiceChat` / `videoChat` で「再生の大きさが下がる」と書いている。他のモードで大きくなるという資料は見つからない ── 試し口で聞き比べる。
     - 呼ぶ時機に**メトロノームが鳴り始めた後**を足した: `startMetronome` の `ctx.resume()` が解決したとき、いまの ctx で鳴らしている間だけ `shellRouteToSpeaker()`。
       呼び手は マイクの直後・メトロノームの開始・鳴り始めた後 の3か所。これも仮説の上の手当てで、効くかは実機待ち。
     - getUserMedia の制約（`echoCancellation` / `noiseSuppression` / `autoGainControl` を3つとも `false`）は**変えていない**（計測の値の決まりに触れない）。
@@ -1314,7 +1326,32 @@ iPad との分岐を2か所に持つより上限を1つにしておくほうが�
       4倍で 0.999・8倍で 1.045 と、1 を越える（煉瓦の壁ではない）。実際のクリック（App.jsx の `scheduleMetroClick` をそのまま切り出し、1種 20 回 × 乱数の
       バッファ 20 通り）の出力のピークは、殻の 1.0 で強拍 0.248〜0.608・拍 0.176〜0.327・弱拍 0.073〜0.218、Web の 2.6 で強拍 0.543〜1.548・拍 0.415〜1.097・
       弱拍 0.178〜0.529（**2.6 は強拍と拍でフルスケールを越える = 割れる**）。0dBFS までの余裕は、正弦波の定常で 1/0.891 ≒ 1.12 倍、実際のクリックの
-      最悪で約 1.3 倍（審査の測り直し: 強拍・乱数のバッファ 300 通りで最大 0.729〈余裕 ≒1.37 倍〉、別の 40 通りで最大 0.760。上の 20 通りの 0.608 は最悪ではない。保証ではない）。どの値にするかは統括の裁定待ち（BACKLOG）。実機の iOS の出力段は測っていない。
+      最悪で約 1.3 倍（審査の測り直し: 強拍・乱数のバッファ 300 通りで最大 0.729〈余裕 ≒1.37 倍〉、別の 40 通りで最大 0.760。上の 20 通りの 0.608 は最悪ではない。保証ではない）。実機の iOS の出力段は測っていない。
+      ※ ここは便CQ の時点の記録。【便CT】でクリックを正規化したので、いまの値は次の項。
+    - **クリックのピークをそろえる（【便CT 2026-10-13】統括の指示「割れない範囲でクリックを大きくする・ピークがおよそ 0.89 にそろう・3段の比は保つ」）**。
+      - 決まり: 雑音は**種を固定した乱数**（`App.jsx` の `metroClickRandom` = mulberry32・種 `METRO_CLICK_SEED` = 680）で作り、作った雑音を**強拍の音
+        （バンドパス → 包絡）のピーク**で正規化する（`metroClickPeak` が Web Audio の仕様の双二次と指数の包絡を JS で回す。別の実装の描き手
+        `scripts/metro-click-makeup.mjs` と 3段とも一致 ── pitch-test 43.1）。リミッターの入口での強拍のピーク = `METRO_CLICK_LIMITER_IN_PEAK` ÷ マスターの基の値。
+        `METRO_CLICK_LIMITER_IN_PEAK` = 0.708 はリミッターの閾値（−3dB）で、3段ともリミッターの直線の範囲（持ち上げだけ）に入る ── リミッターが音の頭を潰さず、比が崩れない。
+      - 変えていないもの: 雑音の作り方（白色・包絡 exp(−i/(n·0.15))・60ms）・フィルタ（中心周波数・Q 8）・包絡（decay 18ms）・3段の音量 1.0 / 0.85 / 0.6・makeup 4.53・
+        リミッター・マスターの値。正規化は**3段に共通の1つの係数**なので、拍/強拍・弱拍/強拍の比（帯域の違いによる差を含む「今の比」）は変わらない。
+        【便CT 審査】ただし「今の比を保つ」は **44.1k / 48k の話**（種をその2つで選んだ）。ほかの sampleRate では、比は HEAD の乱数の幅の中を動く
+        （種 680 の拍/強拍・弱拍/強拍は 16k / 22.05k / 24k / 32k / 44.1k / 48k / 88.2k / 96k で、乱数 2000 通りの 23〜90 パーセンタイル。リミッターの手前の計算値）。
+        種は「その比が、乱数の母集団（4000 通り）の中央値に 44.1k・48k の両方で近い」ものを 20000 通りから選んだ（48k で 拍 0.654・弱拍 0.368 / 中央値 0.653・0.371）。
+      - 【実測 Chrome 152 の OfflineAudioContext。WebKit と同じ系統の DynamicsCompressor】出口（リミッター → マスターの後）のピーク / RMS（クリックの頭から 60ms）:
+
+        | | 前（乱数・100 通りの 最小〜中央値〜最大） | 後（48kHz） | 後（44.1kHz） |
+        |---|---|---|---|
+        | 殻 強拍 ピーク | 0.194〜0.383〜0.845 | 0.862 | 0.862 |
+        | 殻 拍 ピーク | 0.132〜0.267〜0.590 | 0.564 | 0.555 |
+        | 殻 弱拍 ピーク | 0.071〜0.149〜0.311 | 0.317 | 0.313 |
+        | 殻 強拍 RMS | 0.0186〜0.0311〜0.0642 | 0.0605 | 0.0671 |
+        | Web 強拍 ピーク | 0.482〜0.983〜1.913（1 を越える = 割れ） | 0.862 | 0.862 |
+        | Web 強拍 RMS | 0.0451〜0.0833〜0.1625 | 0.0605 | 0.0671 |
+
+        殻の強拍はピークの中央値で +7.1dB・RMS の中央値で +5.8dB。Web は割れなくなった代わりに、RMS の中央値で −2.8dB（割れていた分の大きさは戻らない）。
+        統括の目標 0.89 に対して 0.862（−0.28dB）: 入口を閾値の 1.1 倍にすると強拍 0.899 になるが、強拍だけがリミッターに潰され比が崩れる（拍/強拍 0.654 → 0.69）ので採らなかった。
+        **実機の iOS の出口・聞こえは測っていない（実機待ち）。**
 - **マイクはいつも端末の内蔵マイク（【便CS 2026-10-13】本人の実機の診断の板: Bluetooth のイヤホンで `in` = `out` = `BluetoothHFP`・`options` 0x28・`outputVolume` 0.15）**。
   - 決まり: **つないでいる機器にかかわらず、入力は端末の内蔵マイク**（殻と Web の両方）。Bluetooth のイヤホン（HFP）のマイクも、**有線のヘッドセットのマイクも使わない**
     （統括の方針「計測の質のため、常に内蔵マイク」。どのマイクで測ったかで記録の音が変わらないように、1つにそろえる）。出力は今つながっている所
@@ -1392,8 +1429,18 @@ iPad との分岐を2か所に持つより上限を1つにしておくほうが�
     `otherAudio` / `metro`（鳴っているか・ctx の state と currentTime）/ `lastStart`（直近の START の時刻・作り直したか・それまでの ctx の state・F-52 の時計の停止）/
     `lastHidden` / `lastReturn`（戻った時刻・裏にいた秒数・戻った回数）/ `mic`（解析の ctx の state・トラックの readyState / muted / enabled・取り直し中か・
     再試行待ちか）/ `micSettings`（トラックの getSettings の echoCancellation / noiseSuppression / autoGainControl）/ 【便CS】`micTrack`（使っているマイクのトラックの label と、getSettings の deviceId の**先頭 8 文字**（`AUDIO_DIAG_ID_HEAD`。便CS の指示「先頭数文字」を 8 にした））/ `micRecover`（直近のマイクの取り直しの時刻と理由）/ `web.audioSession`（`navigator.audioSession.type`）。
+  - **試し口（【便CT 2026-10-13】聞き比べ用。ここだけは音を変える。どちらも保存しない = アプリを開き直せば default・×1）**: 板の下のボタン。
+    **板を閉じたら元に戻す**（【便CT 審査 統括の裁定】）: gain は ×1、殻の mode は default（`setTestMode("default")`。取り込み中でなくても殻は既定へ戻す）。
+    あわせてピークの読み取り（20ms）を止め、分析の節点を外す。戻し忘れると、その起動のあいだ割れが続き、計測の値も変わるため。開いている間の聞き比べは今のまま。
+    - mode: `default` / `videoRecording` / `measurement` / `spokenAudio` / `moviePlayback`。殻の `FicusAudioSession.setTestMode`（`AppDelegate.swift`）がメモリにだけ持ち、
+      取り込み中ならその場で `setCategory(.playAndRecord, mode:, options: sessionOptions)`、以後の立て直し（routeToSpeaker・経路の変化）もそのモードで行う。
+      今の値は `mode` の行、頼んだ値と殻の答えは `testMode` の行（Web は `n/a (web)`・古いビルド・iOS が断ったときは `err: …`。Apple の文書では moviePlayback は playback 用）。
+    - gain: `x1` / `x1.3` / `x1.6`。メトロノームのマスター（リミッターの後）に 基の値 × 倍率 を入れる（鳴らしている最中も効く・作り直した ctx にも当てる。殻と Web の両方）。
+      強拍は ×1 で 0.862 なので、×1.3 から 1 を越える（割れの確かめ）。
+    - `clickPeak`: マスターの後（出口の手前）のピーク。板が開いている間だけ分析の節点（`AnalyserNode`。出口へはつながない）を付け、20ms ごとに読む。
+      直近 1 秒の最大と、板を開いてから（倍率・モードを替えたら数え直す）の最大。1 を越えたら `clip`。
   - 殻の値は自前の部品の読み出し口 `FicusAudioSession.sessionInfo`（`AppDelegate.swift`。読むだけ）。**ios-dev を建て直すまでは `n/a (要ビルド…)`** と出る。Web は `n/a (web)`。
-  - 1秒に1回読み直す。読むだけで、音・マイク・セッションには何もしない。置き場と部品は `src/audioDiag.jsx`（`position: fixed`・z 50・字は `--fs-xs` 以上）。
+  - 1秒に1回読み直す。読むだけで、音・マイク・セッションには何もしない（【便CT】例外は上の試し口のボタンを押したときだけ）。置き場と部品は `src/audioDiag.jsx`（`position: fixed`・z 50・字は `--fs-xs` 以上）。
 - **PrivacyInfo.xcprivacy**: `@capacitor/filesystem` が使うファイルの時刻の API（`NSPrivacyAccessedAPICategoryFileTimestamp`・理由 `C617.1`）を
   `ios/App/App/PrivacyInfo.xcprivacy` で申告し、App ターゲットの Resources に入れてある（プラグインの README の求め）。プラグインを足したら、その README の申告を足す。
 - **Capacitor の部品だけのチャンクの名前**: `vite.config.js` の `chunkFileNames` で `capacitor-*.native-*.js` にする（@capacitor/core の共有分が
