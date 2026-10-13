@@ -5873,7 +5873,8 @@ function BottomNav({ topTab, onNavTap, isRecording }) {
               /* 【便BP】はじめの一手(データタブ)の的は「計測」の絵柄(onboarding.jsx が中の svg を囲む)。
                  【便BW】4つとも名乗る(⑤ リード・⑩ データの的。nav-community は読み手なし)。属性だけで見た目は変えない。 */
               data-coach={`nav-${t.key}`}
-              className="sans"
+              /* 【便CR 2026-10-13 本人の実機の指摘】長押しで文字の選択とコールアウトが出て pointercancel になり、診断の板が開かなかった。no-select(F-49)で選択の判定を出さない */
+              className="sans no-select"
               style={{
                 /* 【便BZ】縦に 絵柄 → 名前。ボタンの高さは内箱の高さ − 上 6 − 下 --nav-pad-bottom = 44(--tap-min) */
                 flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
