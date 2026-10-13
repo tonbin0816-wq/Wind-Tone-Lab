@@ -21,7 +21,7 @@ export const AUDIO_DIAG = {
   lastStart: null,       // 直近の START: { at, prevState, stalled, rebuilt }
   lastMicRecover: null,  // 直近のマイクの取り直し: { at, reason }
   getMetro: null,        // MeasureView が置く: () => ({ ctx, on })
-  getMic: null,          // マイクの処理が置く: () => ({ ctxState, track, settings, recovering, needsRetry })
+  getMic: null,          // マイクの処理が置く: () => ({ ctxState, track(readyState / muted / enabled / label), settings, recovering, needsRetry })
 };
 
 // 隠れた / 戻ったの時刻を控える(純粋に記録だけ)。
@@ -67,6 +67,15 @@ export function audioDiagPolicyName(raw) {
   return `${POLICY_NAMES[raw] ?? "?"}(${raw})`;
 }
 
+// 【便CS】殻の port({ portType, name })→「portType:名前」。portType の接頭辞は付けない(生の値のまま。例 MicrophoneBuiltIn:iPhone マイク)。
+// 優先の入力が無い(nil)とき殻は空の辞書を返すので「none」。
+export function audioDiagPort(p) {
+  if (!p || typeof p !== "object" || !p.portType) return "none";
+  return `${p.portType}:${p.name ?? "?"}`;
+}
+// 板の micTrack に出す deviceId の先頭の文字数(見分けがつけば足りる。全部出すと長く、板の1行に収まらない)。値は便CS の指示「先頭数文字」を 8 にしたもの
+export const AUDIO_DIAG_ID_HEAD = 8;
+
 const clock = (ms) => {
   if (typeof ms !== "number") return "—";
   const d = new Date(ms);
@@ -89,6 +98,9 @@ export function audioDiagRows(session, now = Date.now()) {
     rows.push(["policy", audioDiagPolicyName(session.routeSharingPolicy)]);
     rows.push(["out", (session.outputs || []).join(" ") || "—"]);
     rows.push(["in", (session.inputs || []).join(" ") || "—"]);
+    // 【便CS】入力の候補(availableInputs の portType と名前)と優先の入力(preferredInput)。古い殻のビルドは返さない(「—」)
+    rows.push(["inputs", Array.isArray(session.availableInputs) ? (session.availableInputs.map(audioDiagPort).join(" / ") || "none") : "—"]);
+    rows.push(["preferredIn", session.preferredInput === undefined ? "—" : audioDiagPort(session.preferredInput)]);
     rows.push(["outputVolume", typeof session.outputVolume === "number" ? session.outputVolume.toFixed(2) : "—"]);
     rows.push(["otherAudio", yn(session.otherAudioPlaying)]);
   }
@@ -104,6 +116,10 @@ export function audioDiagRows(session, now = Date.now()) {
   rows.push(["mic", mic ? `ctx=${mic.ctxState} track=${mic.track ? `${mic.track.readyState} muted=${yn(mic.track.muted)} enabled=${yn(mic.track.enabled)}` : "none"} recovering=${yn(mic.recovering)} retry=${yn(mic.needsRetry)}` : "n/a"]);
   const st = mic && mic.settings ? mic.settings : null;
   rows.push(["micSettings", st ? `ec=${yn(st.echoCancellation)} ns=${yn(st.noiseSuppression)} agc=${yn(st.autoGainControl)}` : "—"]);
+  // 【便CS】使っているマイクのトラックの label と deviceId の先頭(AUDIO_DIAG_ID_HEAD 文字)
+  rows.push(["micTrack", mic && mic.track
+    ? `label=${mic.track.label || "—"} id=${st && st.deviceId ? String(st.deviceId).slice(0, AUDIO_DIAG_ID_HEAD) : "—"}`
+    : "—"]);
   const r = AUDIO_DIAG.lastMicRecover;
   rows.push(["micRecover", r ? `${clock(r.at)} ${r.reason}` : "—"]);
   let webType = "—";

@@ -1315,6 +1315,59 @@ iPad との分岐を2か所に持つより上限を1つにしておくほうが�
       バッファ 20 通り）の出力のピークは、殻の 1.0 で強拍 0.248〜0.608・拍 0.176〜0.327・弱拍 0.073〜0.218、Web の 2.6 で強拍 0.543〜1.548・拍 0.415〜1.097・
       弱拍 0.178〜0.529（**2.6 は強拍と拍でフルスケールを越える = 割れる**）。0dBFS までの余裕は、正弦波の定常で 1/0.891 ≒ 1.12 倍、実際のクリックの
       最悪で約 1.3 倍（審査の測り直し: 強拍・乱数のバッファ 300 通りで最大 0.729〈余裕 ≒1.37 倍〉、別の 40 通りで最大 0.760。上の 20 通りの 0.608 は最悪ではない。保証ではない）。どの値にするかは統括の裁定待ち（BACKLOG）。実機の iOS の出力段は測っていない。
+- **マイクはいつも端末の内蔵マイク（【便CS 2026-10-13】本人の実機の診断の板: Bluetooth のイヤホンで `in` = `out` = `BluetoothHFP`・`options` 0x28・`outputVolume` 0.15）**。
+  - 決まり: **つないでいる機器にかかわらず、入力は端末の内蔵マイク**（殻と Web の両方）。Bluetooth のイヤホン（HFP）のマイクも、**有線のヘッドセットのマイクも使わない**
+    （統括の方針「計測の質のため、常に内蔵マイク」。どのマイクで測ったかで記録の音が変わらないように、1つにそろえる）。出力は今つながっている所
+    （Bluetooth のイヤホン = A2DP・有線のイヤホン・無ければスピーカー）。途中でつないだり外したりしても同じ。
+  - 原因（WebKit main のソースで確かめた。本人の iOS の版と同じかは分からない）: WebKit はマイクを取るとき、取り込みの機器を**既定の機器**
+    （`AVAudioSessionCaptureDeviceManager.mm` の `retrieveAudioSessionCaptureDevices`: 補助のセッションの `currentRoute.inputs` の先頭。一覧の先頭に並ぶ）にし、
+    その補助のセッションと本体のセッションの両方に `AllowBluetooth`（HFP）を付ける（同ファイルの `createAudioSession`・`AudioSessionIOS.mm` の `setCategory`）。
+    Bluetooth のイヤホンがつながっていれば既定はイヤホンのマイクで、入力が HFP になると出力も HFP（通話の経路・狭い帯域）に引きずられる。
+    殻が選択肢から HFP を外しても（`options` 0x28）、経路は HFP のままだった（板の実測）。**音量が小さいことと `outputVolume` 0.15 が通話の音量であることは仮説**（実機待ち）。
+  - **deviceId と setPreferredInput（WebKit main）**: 取り込みの機器が決まると `CoreAudioCaptureUnit::captureDeviceChanged` が
+    `setPreferredMicrophoneID(既定の機器なら空 / それ以外はその UID)` を呼び、`setPreferredAudioSessionDeviceIDs` が本体のセッションの
+    `setPreferredInput`（UID が一致する port。空なら nil）にする。WebKit は音のセッションを立て直すたびに、求めた機器が替わっていればもう一度求める
+    （`AudioSessionIOS::setCategory` の `configurePreferredMicrophone`）。**つまり deviceId exact で既定でない機器を選べば、WebKit 自身がその port を求める。
+    既定の機器を選ぶと nil を求める**（iOS に任せる）ので、内蔵マイクが既定の間に取ったあとでイヤホンをつなぐと、入力がイヤホンへ替わりうる。
+    取り込み中に入力が替わると、WebKit はトラックの label / deviceId を新しい入力に替え（`handleNewCurrentMicrophoneDevice`）、`configurationchange` を出す。
+    ページの deviceId は port の UID を塩でハッシュしたもの、label は portName。portType はページへ出ない。
+  - **Web（殻の中の Web も同じ）**: 部品は `src/builtInMic.js`。許可が取れた後（label が読める）に `enumerateDevices` で内蔵マイクを探し、いまのトラックが違えば
+    getUserMedia を `deviceId: { exact }` で取り直す（audio の制約は ec/ns/agc = false のまま。元のトラックは止める）。見つからなければ今のまま。取り直しが失敗したら
+    元のトラックが使える（live かつ muted でない。WebKit は他の取り込みが始まると古いトラックを live のまま muted にすることがある ── WebKit bug 179363 / 192849）
+    なら元のまま・使えなければ元の制約でもう一度だけ取る。いまのトラックがその機器かは `getSettings().deviceId`（出ない環境は label）で比べる。
+    - 内蔵マイクの見分け（ラベルの言語に頼らない順）: ① 殻は自前の部品の `sessionInfo.availableInputs` で portType が `MicrophoneBuiltIn`
+      （`AVAudioSession.Port.builtInMic` の生の値。言語に依らない）の名前と label がちょうど一致する1件 ② それが無ければ、**iOS / iPadOS の WebKit**（`navigator.maxTouchPoints > 1`（Mac は 0）**かつ** `"audioSession" in navigator`
+      （Audio Session API。WebKit だけが持つ。【便CS 審査】タッチ画面の Windows〈maxTouchPoints 10〉で「Headset (Taro's iPhone Hands-Free AG Audio)」を
+      内蔵マイクと取り違えた）。UA は読まない ── pitch-test K.2）で、label に端末の種類の名前 `iPhone` / `iPad` / `iPod` を含む audioinput がちょうど1件（翻訳されない名前。
+      「iPhone マイク」「iPhone Microphone」など）。どちらも当たらない・2件以上当たる → 見つからない（今のまま）。
+    - **取り込み中に替わったら**（`devicechange`・トラックの `configurationchange`）: いまのトラックが内蔵マイクでなくなっていれば、既存の復旧の入口（`recoverMic`。
+      クールダウンも既存の値）で取り直す。**取り直しは devicechange 1回につき1回まで**（内蔵マイクを求めても iOS が別の入力にし続ける場合の歯止め。
+      時間の値は使わない）。録音中は取り直さない（`recoverMic` の決まり）・一時停止中（Web で計測タブを離れている）も取り直さない。どちらも印を立て、
+      次の `startListening` はマイクを再利用せず完全に取り直す。
+      【便CS 審査】**録音が終わったとき**、印が立っていれば取り直す。`recoverMic` が**クールダウンで断った**ときは、クールダウンが明ける時刻
+      （既存の `MIC_RECOVER_COOLDOWN_MS` から、最後の復旧からの経過を引いた残り）に1回だけ予約して確かめ直す（予約は1つだけ・アンマウントで消す）。
+    - **startListening の世代**（【便CS 審査】内蔵マイクの取り直しで待ちが長くなったので塞いだ）: 止める（`stopListening`）・一時停止する（`pauseListening`）・
+      完全に取り直し始めるたびに世代を進め、取り直しの待ちの間に世代が進んでいたら、取れたマイクは使わずに止め、作った ctx も閉じる。
+      `stopListening` はトラックの `onconfigurationchange` も外す。
+      【便CS 再審査】置き換えられたときの戻り値は失敗（false）と別の `MIC_START_SUPERSEDED`（"superseded"）。画面復帰の処理・`recoverMic`・録音のボタンは
+      この値なら何もしない（失敗と読んで取り直すと、リードのタブの上でマイクを開いたままになった）。失敗の枝（catch）も世代を確かめ、置き換えられた古い取得の
+      失敗で新しい取得の成功（errorMsg・isListening）を上書きしない。置き換えられたときも `setMicTried(true)` は立てる（OS の許可の画面はもう出ていないので
+      ATT と重ならない。呼び手は 成功の直後・失敗の枝・置き換え〈成功の側と失敗の側〉の4か所。広告・ATT を始める条件は変えていない）。
+      `recoverMic` は、画面が見えていて（`document.hidden` でない）今のタブが計測のときだけ取り直す。
+  - **殻（`AppDelegate.swift` の `applyInputRule`）**: `availableInputs` の `builtInMic` を `setPreferredInput` する。呼ぶのは routeToSpeaker と経路の変化
+    （`setCategory` の後・出口の規則の前）。入力も優先の入力も本体のマイクなら何もしない。**同じ経路では1回しか呼ばない**（経路 = 入力・出力の portType・
+    優先の入力・選択肢の生の値。判定と挿入は鍵の中で1つの式 `guard inputRuleTriedRoutes.insert(route).inserted`。時間の値は使わない）。入力が本体のマイクになったら・
+    取り込みが終わったら（`playAndRecord` でない経路の変化）試した経路を空にする。つまり1回の取り込みの間は経路の種類の数までで止まり、
+    **取り込みを始めるたびに1周し直す**（WebKit は既定の機器で取り込みを始めるたびに `setPreferredInput(nil)` を呼ぶので、そのたびに求め直す必要がある）。選択肢（`sessionOptions` = `defaultToSpeaker` + `allowBluetoothA2DP`）は変えない
+    （HFP は外したまま）。WebKit が `AllowBluetooth` を付け直すのは音の出来事のたび（経路の変化ではない）なので、殻の立て直しとの往復は今までと同じ回数。
+    JS は機器の一覧が変わったら（`devicechange`）、マイクのトラックが live で enabled の間だけ `shellRouteToSpeaker()` を呼ぶ（呼び手は4か所になった）。
+    【便CS 審査】**録音中は呼ばない**（Web の「録音中は取り直さない」とそろえる）。印を立て、録音が終わったら（トラックがまだ live で enabled なら）呼ぶ。
+    殻では JS で取り直さない（取り込みを止めると WebKit が音のセッションを立て直し、経路がまた揺れる。ネイティブが戻す）。
+  - **有線のイヤホン（マイク付き）**: 内蔵マイクを使う（上の決まり）。ネイティブは `headsetMic` が既定になっても `builtInMic` を求め、Web はヘッドセットのマイクの label
+    （「ヘッドセットマイク」など。iPhone を含まない）を内蔵マイクと見なさない。出力は有線のイヤホン。iOS が有線のヘッドセットと本体のマイクの組み合わせを許すかは実機待ち。
+  - **実機待ち**: 入力が本体のマイクになったときに出力が A2DP（イヤホン）またはスピーカーへ行くか・音量が戻るか（`outputVolume`）。WebKit が `AllowBluetooth` を
+    付け直したとき、HFP と A2DP の両方を持つ機器では HFP が優先される（Apple の `allowBluetoothA2DP` の説明）ので、入力を本体のマイクにしても出力が HFP に残る恐れがある。
+  - 計測の計算・getUserMedia の制約（ec/ns/agc = false）・ゲイン・メトロノームの見た目と動きは変えていない。
 - **裏から戻ったときのメトロノーム（【便CQ 2026-10-12】本人の実機報告「しばらく他のアプリを見てから戻ると動かない。リードタブへ移って戻ると使える」）**。
   - 決まり: **戻ったら止まった状態**（隠れた時点で止めている。既存）で、**押せばすぐ鳴る**。勝手に鳴り出さない（他のアプリから戻ったら急に鳴るのは不可）。
   - **Web と殻の両方**: 画面へ戻ったとき（隠れてから `visibilitychange` で見えるように戻った・`pageshow` の `persisted`）、止まっているメトロノームの ctx を
@@ -1335,10 +1388,10 @@ iPad との分岐を2か所に持つより上限を1つにしておくほうが�
 - **音の診断の板（【便CQ 統括の決定B】不具合の切り分け用。普段は見えない）**。
   - 開き方: **計測タブにいるとき、下部タブの「計測」を長押し**（`data-coach="nav-measure"`。長さはリードの並び替えの長押し `REED_DRAG_LONGPRESS_MS` と同じ値）。
     長押しが成立した直後の click（計測タブの再タップ）は飲み込む。新しいボタンは置かない。他のタブでは開かない。「閉じる」で閉じる。
-  - 出すもの（項目名は英語のまま）: `time` / 殻の音のセッション `category` `mode` `options`（生の値と名前）`policy`（routeSharingPolicy）`out` `in` `outputVolume`
+  - 出すもの（項目名は英語のまま）: `time` / 殻の音のセッション `category` `mode` `options`（生の値と名前）`policy`（routeSharingPolicy）`out` `in` 【便CS】`inputs`（入力の候補 = `availableInputs` の `portType:名前` を「 / 」でつなぐ。空なら none）`preferredIn`（`preferredInput` の `portType:名前`。nil は殻が空の辞書で返し none。古い殻のビルドは項目が無く「—」）`outputVolume`
     `otherAudio` / `metro`（鳴っているか・ctx の state と currentTime）/ `lastStart`（直近の START の時刻・作り直したか・それまでの ctx の state・F-52 の時計の停止）/
     `lastHidden` / `lastReturn`（戻った時刻・裏にいた秒数・戻った回数）/ `mic`（解析の ctx の state・トラックの readyState / muted / enabled・取り直し中か・
-    再試行待ちか）/ `micSettings`（トラックの getSettings の echoCancellation / noiseSuppression / autoGainControl）/ `micRecover`（直近のマイクの取り直しの時刻と理由）/ `web.audioSession`（`navigator.audioSession.type`）。
+    再試行待ちか）/ `micSettings`（トラックの getSettings の echoCancellation / noiseSuppression / autoGainControl）/ 【便CS】`micTrack`（使っているマイクのトラックの label と、getSettings の deviceId の**先頭 8 文字**（`AUDIO_DIAG_ID_HEAD`。便CS の指示「先頭数文字」を 8 にした））/ `micRecover`（直近のマイクの取り直しの時刻と理由）/ `web.audioSession`（`navigator.audioSession.type`）。
   - 殻の値は自前の部品の読み出し口 `FicusAudioSession.sessionInfo`（`AppDelegate.swift`。読むだけ）。**ios-dev を建て直すまでは `n/a (要ビルド…)`** と出る。Web は `n/a (web)`。
   - 1秒に1回読み直す。読むだけで、音・マイク・セッションには何もしない。置き場と部品は `src/audioDiag.jsx`（`position: fixed`・z 50・字は `--fs-xs` 以上）。
 - **PrivacyInfo.xcprivacy**: `@capacitor/filesystem` が使うファイルの時刻の API（`NSPrivacyAccessedAPICategoryFileTimestamp`・理由 `C617.1`）を

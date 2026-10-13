@@ -68,6 +68,8 @@ class FicusViewController: CAPBridgeViewController {
 // 【本人裁定 2026-10-05】Bluetooth のイヤホンへは出す(allowBluetoothA2DP = 出力だけ Bluetooth。マイクは本体のまま)。
 // HFP(.allowBluetoothHFP / 旧名 .allowBluetooth)は付けない ── マイクが Bluetooth 側へ替わり、音が電話の品質に落ちるため。
 // 有線・Bluetooth のイヤホンがつながっていればそちらへ、無ければスピーカーへ。受話口には出さない。
+// 【便CS】選択肢から HFP を外しても、WebKit がマイクを取るときに AllowBluetooth を付け直し、既定の機器(= イヤホンのマイク)で取る。
+// そこで入力は setPreferredInput で本体のマイクに固定する(applyInputRule)。有線のヘッドセットのマイクも使わない。
 // イヤホンをつなぐ・外す(経路の変化)たびに同じ規則を当て直す。外したとき(OldDeviceUnavailable)は WebKit が
 // AudioContext を一度止めるので、メトロノームは JS 側(App.jsx の onstatechange)で再開する(実機で確かめる)。
 @objc(FicusAudioSessionPlugin)
@@ -81,6 +83,14 @@ public class FicusAudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
 
     // 殻の音のセッションの選択肢(値の唯一の答え)。
     static let sessionOptions: AVAudioSession.CategoryOptions = [.defaultToSpeaker, .allowBluetoothA2DP]
+
+    // 【便CS】入力の規則で setPreferredInput を一度呼んだ経路(routeSignature)。同じ経路ではもう呼ばない ──
+    // 1回の取り込みの間は、WebKit や iOS と往復しても、呼ぶ回数は経路の種類の数までで止まる(時間の値は使わない)。
+    // 入力が本体のマイクになったら・取り込みが終わったら(playAndRecord でなくなったら)空にするので、**取り込みを始めるたびに1周し直す**
+    // (WebKit は既定の機器で取り込みを始めるたびに setPreferredInput(nil) を呼ぶ。CoreAudioCaptureUnit.cpp の captureDeviceChanged)。
+    // routeToSpeaker は Capacitor の部品の列、経路の変化は main で走るので、鍵で守る。
+    private var inputRuleTriedRoutes = Set<String>()
+    private let inputRuleLock = NSLock()
 
     @objc override public func load() {
         NotificationCenter.default.addObserver(self,
@@ -100,6 +110,7 @@ public class FicusAudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
             if needsSessionReset(session) {
                 try session.setCategory(.playAndRecord, mode: .default, options: FicusAudioSessionPlugin.sessionOptions)
             }
+            applyInputRule(session)
             try applyOutputRule(session)
             call.resolve([
                 "category": session.category.rawValue,
@@ -114,6 +125,10 @@ public class FicusAudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
     // options と routeSharingPolicy は生の値(整数)で返し、名前への読み替えは JS(src/audioDiag.jsx)が持つ。
     @objc func sessionInfo(_ call: CAPPluginCall) {
         let session = AVAudioSession.sharedInstance()
+        // 【便CS】入力の候補と優先の入力(優先が無い = nil のときは空の辞書。板は none と出す)
+        let availableInputs: [[String: String]] = (session.availableInputs ?? []).map { FicusAudioSessionPlugin.portInfo($0) }
+        var preferredInput: [String: String] = [:]
+        if let port = session.preferredInput { preferredInput = FicusAudioSessionPlugin.portInfo(port) }
         call.resolve([
             "category": session.category.rawValue,
             "mode": session.mode.rawValue,
@@ -122,8 +137,15 @@ public class FicusAudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
             "outputs": session.currentRoute.outputs.map { $0.portType.rawValue },
             "inputs": session.currentRoute.inputs.map { $0.portType.rawValue },
             "outputVolume": Double(session.outputVolume),
-            "otherAudioPlaying": session.isOtherAudioPlaying
+            "otherAudioPlaying": session.isOtherAudioPlaying,
+            "availableInputs": availableInputs,
+            "preferredInput": preferredInput
         ])
+    }
+
+    // 【便CS】port の portType(生の値)と名前。診断の板と、JS の内蔵マイクの見分け(src/builtInMic.js)が読む。
+    static func portInfo(_ port: AVAudioSessionPortDescription) -> [String: String] {
+        return ["portType": port.portType.rawValue, "name": port.portName]
     }
 
     // 経路の変化(イヤホンの抜き差し・Bluetooth の接続と切断・WebKit による種別の立て直し)。
@@ -132,11 +154,12 @@ public class FicusAudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func handleRouteChange(_ notification: Notification) {
         DispatchQueue.main.async {
             let session = AVAudioSession.sharedInstance()
-            guard session.category == .playAndRecord else { return }
+            guard session.category == .playAndRecord else { self.clearInputRuleTriedRoutes(); return }
             do {
                 if self.needsSessionReset(session) {
                     try session.setCategory(.playAndRecord, mode: .default, options: FicusAudioSessionPlugin.sessionOptions)
                 }
+                self.applyInputRule(session)
                 try self.applyOutputRule(session)
             } catch {
                 CAPLog.print("FicusAudioSession: route change: \(error.localizedDescription)")
@@ -156,6 +179,52 @@ public class FicusAudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
         return session.category != .playAndRecord
             || session.mode != .default
             || session.categoryOptions != FicusAudioSessionPlugin.sessionOptions
+    }
+
+    // 【便CS】入力の規則: 入力はいつも本体のマイク(builtInMic)。Bluetooth のイヤホン(HFP)・有線のヘッドセットのマイクは使わない
+    // (計測の質のため。本人の実機の板で in = BluetoothHFP のとき out も BluetoothHFP・outputVolume 0.15 = 通話の経路に引きずられていた)。
+    // WebKit はマイクを取るとき setCategory に AllowBluetooth(HFP)を付け、既定の機器で取ると setPreferredInput(nil) にする
+    // (AVAudioSessionCaptureDeviceManager.mm / CoreAudioCaptureUnit.cpp の captureDeviceChanged)ので、イヤホンのマイクが入力になりうる。
+    // ここで本体のマイクを優先の入力にする。入力が本体のマイクなら、出力は A2DP(イヤホン)かスピーカーへ行く見込み(実機待ち)。
+    // 呼ぶのは routeToSpeaker と経路の変化。入力も優先も本体のマイクなら何もしない。同じ経路では1回しか呼ばない(上の inputRuleTriedRoutes)。
+    // 本体のマイクが一覧に無い(取り込み中でない等)ときも何もしない。失敗は記録だけ(出口の規則は続けて当てる)。
+    func applyInputRule(_ session: AVAudioSession) {
+        guard let builtIn = (session.availableInputs ?? []).first(where: { $0.portType == .builtInMic }) else { return }
+        let inputIsBuiltIn = session.currentRoute.inputs.first?.portType == .builtInMic
+        let preferredIsBuiltIn = session.preferredInput?.portType == .builtInMic
+        if inputIsBuiltIn && preferredIsBuiltIn {
+            clearInputRuleTriedRoutes()
+            return
+        }
+        guard markRouteTried(routeSignature(session)) else { return }
+        do {
+            try session.setPreferredInput(builtIn)
+        } catch {
+            CAPLog.print("FicusAudioSession: preferred input: \(error.localizedDescription)")
+        }
+    }
+
+    // 試した経路の集合に足す。初めての経路なら true。判定と挿入は鍵の中で1つの式(Set.insert の inserted)。
+    // 鍵は setPreferredInput の前に外す(鍵を持ったまま音のセッションを呼ばない)。
+    func markRouteTried(_ route: String) -> Bool {
+        inputRuleLock.lock()
+        defer { inputRuleLock.unlock() }
+        guard inputRuleTriedRoutes.insert(route).inserted else { return false }
+        return true
+    }
+
+    func clearInputRuleTriedRoutes() {
+        inputRuleLock.lock()
+        inputRuleTriedRoutes.removeAll()
+        inputRuleLock.unlock()
+    }
+
+    // 経路の見分け: 入力・出力の portType・優先の入力・選択肢の生の値。
+    func routeSignature(_ session: AVAudioSession) -> String {
+        let inputs = session.currentRoute.inputs.map { $0.portType.rawValue }.joined(separator: ",")
+        let outputs = session.currentRoute.outputs.map { $0.portType.rawValue }.joined(separator: ",")
+        let preferred = session.preferredInput?.portType.rawValue ?? "-"
+        return "\(inputs)|\(outputs)|\(preferred)|\(session.categoryOptions.rawValue)"
     }
 
     // 出口の規則: 受話口に出ているときだけ、本体のスピーカーへ寄せる。

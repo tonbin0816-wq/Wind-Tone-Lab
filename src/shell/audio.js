@@ -16,3 +16,9 @@ export function shellAudioSessionInfo() {
     .then((m) => m.sessionInfo())
     .catch((e) => ({ error: String(e?.code || e?.message || e) }));
 }
+
+// 【便CS】殻の入力の候補([{ portType, name }])。内蔵マイクの見分け(src/builtInMic.js)が読む。
+// Web・殻のビルドが古い(availableInputs を返さない)・失敗のときは null(= ラベルで見分ける道へ落ちる)。
+export function shellAvailableInputs() {
+  return shellAudioSessionInfo().then((s) => (s && Array.isArray(s.availableInputs) ? s.availableInputs : null));
+}

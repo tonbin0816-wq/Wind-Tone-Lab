@@ -32544,8 +32544,25 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
       && (swiftCode.match(/overrideOutputAudioPort\(/g) || []).length === 1);
     check("K.6 AppDelegate.swift: 経路の変化(routeChangeNotification)を load() で受け、取り込み中(playAndRecord)だけ同じ規則を当て直す",
       /@objc override public func load\(\) \{\n\s*NotificationCenter\.default\.addObserver\(self,\s*selector: #selector\(handleRouteChange\(_:\)\),\s*name: AVAudioSession\.routeChangeNotification,\s*object: nil\)/.test(swiftCode)
-      && /@objc func handleRouteChange\(_ notification: Notification\) \{\n\s*DispatchQueue\.main\.async \{\n\s*let session = AVAudioSession\.sharedInstance\(\)\n\s*guard session\.category == \.playAndRecord else \{ return \}/.test(swiftCode)
+      && /@objc func handleRouteChange\(_ notification: Notification\) \{\n\s*DispatchQueue\.main\.async \{\n\s*let session = AVAudioSession\.sharedInstance\(\)\n\s*guard session\.category == \.playAndRecord else \{ self\.clearInputRuleTriedRoutes\(\); return \}/.test(swiftCode)
       && (swiftCode.match(/try (?:self\.)?applyOutputRule\(session\)/g) || []).length === 2);
+    // 【便CS】入力はいつも本体のマイク: applyInputRule が availableInputs の builtInMic を setPreferredInput する。routeToSpeaker と経路の変化の両方が
+    // setCategory の後・出口の規則の前に呼ぶ。入力も優先も本体のマイクなら呼ばない・同じ経路(routeSignature)では1回だけ(WebKit / iOS と往復しても有限)。
+    // 取り込みが終わったら(playAndRecord でない)試した経路を空にする。Swift はここでは走らない(効くか・出口が A2DP / スピーカーへ行くかは実機待ち)。
+    check("K.6 AppDelegate.swift: 【便CS】入力の規則 applyInputRule(本体のマイクを setPreferredInput・同じ経路では1回だけ)を routeToSpeaker と経路の変化の両方が出口の規則の直前に呼ぶ",
+      /func applyInputRule\(_ session: AVAudioSession\) \{\n\s*guard let builtIn = \(session\.availableInputs \?\? \[\]\)\.first\(where: \{ \$0\.portType == \.builtInMic \}\) else \{ return \}\n/.test(swiftCode)
+      && /if inputIsBuiltIn && preferredIsBuiltIn \{\n\s*clearInputRuleTriedRoutes\(\)\n\s*return\n\s*\}/.test(swiftCode)
+      && /\n\s*guard markRouteTried\(routeSignature\(session\)\) else \{ return \}\n\s*do \{\n\s*try session\.setPreferredInput\(builtIn\)\n/.test(swiftCode)
+      // 【便CS 審査】歯止めの要: 判定と挿入を鍵の中で1つの式にする(Set.insert の inserted)。この1行を消すと同じ経路で何度でも呼ぶ
+      && /func markRouteTried\(_ route: String\) -> Bool \{\n\s*inputRuleLock\.lock\(\)\n\s*defer \{ inputRuleLock\.unlock\(\) \}\n\s*guard inputRuleTriedRoutes\.insert\(route\)\.inserted else \{ return false \}\n\s*return true\n\s*\}/.test(swiftCode)
+      && (swiftCode.match(/inputRuleTriedRoutes\.insert\(/g) || []).length === 1
+      // 経路の見分けの中身(入力・出力の portType・優先の入力・選択肢の生の値)。定数にすると2つ目の経路で止まってしまう
+      && /func routeSignature\(_ session: AVAudioSession\) -> String \{\n\s*let inputs = session\.currentRoute\.inputs\.map \{ \$0\.portType\.rawValue \}\.joined\(separator: \",\"\)\n\s*let outputs = session\.currentRoute\.outputs\.map \{ \$0\.portType\.rawValue \}\.joined\(separator: \",\"\)\n\s*let preferred = session\.preferredInput\?\.portType\.rawValue \?\? \"-\"\n\s*return \"\\\(inputs\)\|\\\(outputs\)\|\\\(preferred\)\|\\\(session\.categoryOptions\.rawValue\)\"\n\s*\}/.test(swiftCode)
+      && (swiftCode.match(/setPreferredInput\(/g) || []).length === 1
+      && /\n\s*applyInputRule\(session\)\n\s*try applyOutputRule\(session\)\n/.test(swiftCode)
+      && /\n\s*self\.applyInputRule\(session\)\n\s*try self\.applyOutputRule\(session\)\n/.test(swiftCode)
+      && (swiftCode.match(/applyInputRule\(session\)/g) || []).length === 2
+      && !/\.allowBluetooth(?!A2DP)/.test(swiftCode));
     // 【統括の裁定】Capacitor 8.5.2 のテンプレートは UIScene の作法で、SceneDelegate が根を自分で作る(storyboard だけ替えても根にならない)。
     const scene = existsK("ios/App/App/SceneDelegate.swift") ? readK("ios/App/App/SceneDelegate.swift") : "";
     check("K.6 SceneDelegate.swift: 根は FicusViewController()(CAPBridgeViewController() を作らない)",
@@ -32649,7 +32666,7 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     check("K.12 App.jsx: isNativeShell / micActionOnTabLeave・METRO_MASTER_GAIN_SHELL / shellRouteToSpeaker を shell から import する",
       /\nimport \{ isNativeShell \} from "\.\/shell\/native\.js";\n/.test(app)
       && /\nimport \{ micActionOnTabLeave, METRO_MASTER_GAIN_SHELL \} from "\.\/shell\/policy\.js";\n/.test(app)
-      && /\nimport \{ shellRouteToSpeaker \} from "\.\/shell\/audio\.js";\n/.test(app));
+      && /\nimport \{ shellRouteToSpeaker, shellAvailableInputs \} from "\.\/shell\/audio\.js";\n/.test(app));
     check("K.12 topTab の effect: 計測タブなら start・殻(micActionOnTabLeave が stop)なら stopListening・それ以外は今までどおり pauseListening",
       /\n    if \(topTab === "measure" && !document\.hidden\) \{\n      startListeningRef\.current\(\);\n    \} else if \(micActionOnTabLeave\(isNativeShell\(\)\) === "stop"\) \{\n      stopListeningRef\.current\(\);\s*\n    \} else \{\n      pauseListeningRef\.current\(\);\n    \}\n/.test(app));
     // 仕様 §4.4 の綴り(master.gain.value = metroMasterGain(isNativeShell());)にすると、Web の 2.6 の行を見る既存の検査(3641)と、
@@ -32679,7 +32696,8 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
       /const startMetronome = useCallback\(\(\) => \{\n    metroGenRef\.current\+\+;\s*\n\s*shellRouteToSpeaker\(\);\n/.test(app));
     // 【便CQ】3か所目: メトロノームが鳴り始めた(resume が解決した)後。WebKit は取り込み中に音が鳴り始めるたび
     // playAndRecord + videoChat(VC の音量)へ立て直すので、その後でもう一度寄せる。止めた・別の ctx に替わった後は呼ばない。
-    check("K.12 shellRouteToSpeaker() の呼び手は3か所(マイクの直後・メトロノームの開始・【便CQ】メトロノームが鳴り始めた後(いまの ctx で鳴らしている間だけ))", (app.match(/shellRouteToSpeaker\(\);/g) || []).length === 3
+    check("K.12 shellRouteToSpeaker() の呼び手は4か所(マイクの直後・メトロノームの開始・【便CQ】メトロノームが鳴り始めた後(いまの ctx で鳴らしている間だけ)・【便CS】機器の一覧が変わったとき(マイクのトラックが live で enabled の間だけ・録音中は録音が終わるまで見送る))", (app.match(/shellRouteToSpeaker\(\);/g) || []).length === 4
+      && /\n      if \(!t \|\| t\.readyState !== "live" \|\| !t\.enabled\) \{ shellRoutePendingRef\.current = false; return; \}\n      if \(isRecordingRef\.current\) \{ shellRoutePendingRef\.current = true; return; \}\n      shellRoutePendingRef\.current = false;\n      shellRouteToSpeaker\(\);\n/.test(app)
       && /\n    ctx\.resume\(\)\.then\(\(\) => \{\n      if \(metroOnRef\.current && metroCtxRef\.current === ctx\) shellRouteToSpeaker\(\);\n    \}\)\.catch\(\(\) => \{\}\);\n/.test(app));
     check("K.12 requestWakeLock の先頭が if (isNativeShell()) で KeepAwake を動的 import(Web の navigator.wakeLock の枝は残る)",
       /const requestWakeLock = useCallback\(async \(\) => \{\n    if \(isNativeShell\(\)\) \{\n\s*try \{ const m = await import\("\.\/shell\/keepAwake\.native\.js"\); await m\.keepAwake\(\); \} catch \{\s*\}\n\s*return;\n    \}\n    try \{\n      if \("wakeLock" in navigator && !wakeLockRef\.current\) \{\n        wakeLockRef\.current = await navigator\.wakeLock\.request\("screen"\);/.test(app));
@@ -32745,7 +32763,7 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
       const diag = codeOf(readS("src/audioDiag.jsx"));
       const jsKeys = [...new Set([...diag.matchAll(/session\.(\w+)/g)].map((m) => m[1]).filter((k) => k !== "error"))].sort();
       check("K.14 【便CQ】sessionInfo の返す名前(Swift)と診断の板が読む名前(audioDiag.jsx)が過不足なく一致・読むだけ(setCategory などを呼ばない)",
-        swiftKeys.length === 8 && JSON.stringify(swiftKeys) === JSON.stringify(jsKeys) && !/setCategory|setActive|overrideOutputAudioPort|setMode/.test(si),
+        swiftKeys.length === 10 && swiftKeys.includes("availableInputs") && swiftKeys.includes("preferredInput") && JSON.stringify(swiftKeys) === JSON.stringify(jsKeys) && !/setCategory|setActive|overrideOutputAudioPort|setMode/.test(si),
         `${swiftKeys.join(",")} / ${jsKeys.join(",")}`);
     }
     check("K.14 audioSession.native.js の registerPlugin の名前 = Swift の jsName(FicusAudioSession)・呼ぶメソッド routeToSpeaker / sessionInfo が Swift の pluginMethods と一致",
@@ -33019,7 +33037,10 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     check("K.21 【便CG】shellStartAdsOnce() の呼び手は1か所だけ: マイクの試みが終わった(micTried)かつ adsAllowed(adsOk)の effect",
       (app.match(/shellStartAdsOnce\(\);/g) || []).length === 1
       && /\n  const \[micTried, setMicTried\] = useState\(false\);\n  useEffect\(\(\) => \{\n    if \(micTried && adsOk\) shellStartAdsOnce\(\);\n  \}, \[micTried, adsOk\]\);\n/.test(app)
-      && (app.match(/setMicTried\(true\);/g) || []).length === 2);
+      // 【便CS 再審査】setMicTried(true) は「マイクの試みが終わった」所だけ: 成功の直後・失敗の枝・置き換えられたとき(成功の側と失敗の側の2か所。
+      // どちらも MIC_START_SUPERSEDED を返す直前)。広告・ATT を始める条件(上の effect)は変えていない
+      && (app.match(/setMicTried\(true\);/g) || []).length === 4
+      && (app.match(/setMicTried\(true\);\s*return MIC_START_SUPERSEDED;/g) || []).length === 2);
     check("K.21 ShellAdBannerSync: BottomSheet が開いているかを読み、変わるたびに shellSetAdsHidden。何も描かない",
       /\nfunction ShellAdBannerSync\(\) \{\n  const sheetOpen = useAnyBottomSheetOpen\(\);\n  useEffect\(\(\) => \{ shellSetAdsHidden\(sheetOpen\); \}, \[sheetOpen\]\);\n  return null;\n\}\n/.test(app)
       && (app.match(/shellSetAdsHidden\(/g) || []).length === 1);

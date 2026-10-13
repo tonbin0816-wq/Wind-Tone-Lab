@@ -58,7 +58,9 @@ import { REED_CATALOG, searchReeds } from "./community/catalog/gear.js";
 // 【殻 S2】殻(Capacitor の iOS アプリ)の中だけの分岐。どれも Capacitor に触れない(部品は *.native.js を動的 import)。
 import { isNativeShell } from "./shell/native.js";
 import { micActionOnTabLeave, METRO_MASTER_GAIN_SHELL } from "./shell/policy.js";
-import { shellRouteToSpeaker } from "./shell/audio.js";
+import { shellRouteToSpeaker, shellAvailableInputs } from "./shell/audio.js";
+// 【便CS】マイクはいつも端末の内蔵マイク(Bluetooth のイヤホン・有線のヘッドセットのマイクは使わない)
+import { preferBuiltInMicStream, trackLeftBuiltInMic } from "./builtInMic.js";
 // 【便CQ】音の診断の板(普段は見えない。計測タブで下部タブの「計測」を長押し)
 import { AUDIO_DIAG, AudioDiagPanel, useAudioDiagLongPress, installAudioDiagClock, audioDiagNoteStart, audioDiagNoteMicRecover } from "./audioDiag.jsx";
 // 【殻 S3】広告の帯(AdMob)の呼び口。Web では何もしない(部品は ads.native.js を動的 import)。
@@ -3557,6 +3559,9 @@ const MIC_RECOVER_FAILED_MSG = "マイクを再接続できませんでした";
 // **ERROR_MEASURE_ONLY より前に置く**: 下の配列がこの定数を読むので、
 // 順序を入れ替えると宣言前参照で読み込みごと落ちる。
 const MIC_DENIED_MSG = "マイクの使用が許可されていません";
+// 【便CS 再審査】startListening が「置き換えられた」(待っている間に止める・一時停止・裏へ回る・別の取得が始まった)ときの戻り値。
+// 失敗(false)と分ける ── 呼び手(画面復帰・recoverMic・録音のボタン)はこの値なら何もしない(失敗と読んで取り直すと、計測タブ以外でマイクを開く)。
+const MIC_START_SUPERSEDED = "superseded";
 // 本文。**アプリとして配る前提の経路**を書く(本人裁定)。Safari の経路は書かない。
 const MIC_DENIED_HOWTO = "設定 › Ficus › マイク を「許可」にすると計測できます";
 // **計測タブでしか意味を持たない案内**。「画面をタップしてください」に応えるジェスチャー経路は
@@ -4182,6 +4187,18 @@ export default function WindToneLabPhaseMode() {
   const micRecoveringRef = useRef(false); // 復旧処理の多重起動防止
   const micNeedsRetryRef = useRef(false); // 復旧に失敗しユーザーのタップ待ちである
   const recoverMicRef = useRef(() => {});  // 復旧関数の最新版(tick/トラックイベントのクロージャから呼ぶ)
+  // 【便CS】入力が内蔵マイクから外れたときの取り直し(Web)。下の effect が中身を置く
+  const micLeftBuiltInRef = useRef(false);   // 外れたまま(一時停止中・録音中で取り直せなかった)。次の startListening は再利用しない
+  const builtInArmedRef = useRef(true);      // 取り直しは機器の一覧が変わる(devicechange)たびに1回まで
+  const checkBuiltInMicRef = useRef(() => {});
+  const builtInRetryTimerRef = useRef(null);   // クールダウンで断られたときの取り直しの予約(1つだけ)
+  const shellRoutePendingRef = useRef(false);  // 殻: 録音中に機器の一覧が変わった。録音が終わったら routeToSpeaker
+  const routeAfterDeviceChangeRef = useRef(() => {});
+  // 【便CS 審査】startListening の世代。止める・一時停止するたびに進める。完全に取り直す待ちの間に進んだら、取ったマイクは使わずに止める
+  const listenGenRef = useRef(0);
+  // 【便CS 再審査】今のタブ(recoverMic が「計測タブで、画面が見えているとき」だけ取り直すために読む)
+  const topTabRef = useRef(topTab);
+  useEffect(() => { topTabRef.current = topTab; }, [topTab]);
   const phraseStartTimeRef = useRef(null);
   const lastSampleTimeRef = useRef(0);
   const phraseFramesRef = useRef([]); // stop()のクロージャから最新フレーム配列を参照するためのref
@@ -4376,11 +4393,13 @@ export default function WindToneLabPhaseMode() {
   // マイクを完全に止める(画面を隠した時・アンマウント時に呼ぶ)。マイクデバイスを解放し、
   // 端末のマイク使用インジケータも消える。録音中に離脱した場合の保険としてここでも保存する。
   const stopListening = useCallback(() => {
+    listenGenRef.current += 1; // 【便CS 審査】待っている startListening の取ったマイクを使わせない
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     if (streamRef.current) streamRef.current.getTracks().forEach((t) => {
       // 停止させる前にハンドラを外す(t.stop()自体でendedが飛ぶ実装があり、意図しない復旧を招くため)
       t.onmute = null;
       t.onended = null;
+      t.onconfigurationchange = null; // 【便CS】内蔵マイクから外れた知らせも外す
       t.stop();
     });
     streamRef.current = null;
@@ -4406,6 +4425,7 @@ export default function WindToneLabPhaseMode() {
   // 取得した接続自体は保持する。これにより計測タブへ戻ってもマイク許可のポップアップが
   // 再び出ない(繋ぎ直さずstartListeningの再利用パスでループを再開する)。
   const pauseListening = useCallback(() => {
+    listenGenRef.current += 1; // 【便CS 審査】待っている startListening の取ったマイクを使わせない
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     if (streamRef.current) streamRef.current.getTracks().forEach((t) => { t.enabled = false; });
     if (isRecordingRef.current) finalizeRecording();
@@ -4433,7 +4453,8 @@ export default function WindToneLabPhaseMode() {
     // コンテキストに繋ぐことはできないため、部分的な作り直しはしない)。
     const existingTracks = streamRef.current?.getTracks?.() || [];
     const ctxAlive = audioCtxRef.current && audioCtxRef.current.state !== "closed";
-    if (isMicStreamUsable(streamRef.current) && ctxAlive && tickRef.current) {
+    // 【便CS】一時停止中・録音中に入力が内蔵マイクから外れていたら(micLeftBuiltInRef)、再利用せず完全に取り直す。
+    if (isMicStreamUsable(streamRef.current) && ctxAlive && tickRef.current && !micLeftBuiltInRef.current) {
       existingTracks.forEach((t) => { t.enabled = true; });
       // ジェスチャー権限内で同期的にキックする(awaitを挟むと権限が切れる)
       try { audioCtxRef.current.resume().catch(() => {}); } catch { /* noop */ }
@@ -4448,6 +4469,7 @@ export default function WindToneLabPhaseMode() {
 
     // ここから先は完全再取得。古いコンテキスト・トラックが残っていれば必ず捨てる
     // (中途半端に残すと、新しいコンテキストに古いノードが繋がったままになる)。
+    const gen = ++listenGenRef.current;
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     if (streamRef.current) { try { streamRef.current.getTracks().forEach((t) => t.stop()); } catch { /* noop */ } }
     streamRef.current = null;
@@ -4472,9 +4494,28 @@ export default function WindToneLabPhaseMode() {
       audioCtxRef.current = audioCtx;
       audioCtx.resume().catch(() => {}); // ジェスチャー中に同期発火(awaitしない)。以降tick内でも監視・再resumeする
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
-      });
+      const micAudio = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
+      // 【便CS】許可が取れた後(label が読める)に内蔵マイクを探し、いまのトラックが違えば deviceId exact で取り直す
+      // (制約 micAudio はそのまま)。見つからなければ今のまま。殻では内蔵マイクの名前をネイティブの availableInputs から読む。
+      const stream = await preferBuiltInMicStream(
+        navigator.mediaDevices,
+        await navigator.mediaDevices.getUserMedia({ audio: micAudio }),
+        micAudio,
+        shellAvailableInputs,
+      );
+      // 【便CS 審査】待っている間にタブを離れた・裏へ回った(stopListening / pauseListening)・別の startListening が始まった
+      // → 取ったマイクは使わずに止め、MIC_START_SUPERSEDED を返す(失敗ではない。呼び手は何もしない)。
+      // マイクの試みは終わっている(OS の許可の画面はもう出ていない)ので micTried は立てる(ATT と重ならない)。
+      if (listenGenRef.current !== gen) {
+        try { stream?.getTracks?.().forEach((t) => t.stop()); } catch { /* noop */ }
+        if (audioCtxRef.current === audioCtx) {
+          try { audioCtx.close(); } catch { /* noop */ }
+          audioCtxRef.current = null;
+        }
+        setMicTried(true);
+        return MIC_START_SUPERSEDED;
+      }
+      micLeftBuiltInRef.current = false;
       streamRef.current = stream;
       // 【殻 S2】WebKit は取り込みの開始時に音のセッションを自分で立て直すので、その後で出口をスピーカー
       // (イヤホンがあればイヤホン)へ寄せる。Web では何もしない。待たない・失敗は無視(殻の仕様 §4.4)。
@@ -4488,6 +4529,8 @@ export default function WindToneLabPhaseMode() {
       stream.getTracks().forEach((t) => {
         t.onmute = () => { recoverMicRef.current("track-muted"); };
         t.onended = () => { recoverMicRef.current("track-ended"); };
+        // 【便CS】WebKit は取り込み中にいまの入力が替わると(イヤホンをつないだ等)トラックの機器を替えて configurationchange を出す
+        t.onconfigurationchange = () => { checkBuiltInMicRef.current("track-config"); };
       });
 
       // 端末が実際にAGC/ノイズ抑制/エコー除去を無効化できたか確認する(iOS Safariは
@@ -4926,6 +4969,8 @@ export default function WindToneLabPhaseMode() {
       tick();
       return true;
     } catch (err) {
+      // 【便CS 再審査】置き換えられた古い取得の失敗で、新しい取得の成功(isListening・errorMsg)を上書きしない。試みは終わったので micTried は立てる
+      if (listenGenRef.current !== gen) { setMicTried(true); return MIC_START_SUPERSEDED; }
       // 詳細な原因(権限拒否・デバイスなし等)はコンソールにのみ残し、画面上のアラートは
       // 常に同じ簡潔な一文にする(原因の切り分けはユーザーの手を煩わせない)。
       console.error("getUserMedia failed:", err.name, err.message, err);
@@ -4949,7 +4994,7 @@ export default function WindToneLabPhaseMode() {
     }
     if (!streamRef.current) {
       const ok = await startListening();
-      if (!ok) return;
+      if (ok !== true) return; // 【便CS 再審査】失敗(false)も置き換え(MIC_START_SUPERSEDED)も録音を始めない
     }
     setPendingSession(null); // 新規録音を始めるので前回の候補は破棄
     phraseStartTimeRef.current = performance.now();
@@ -4985,6 +5030,8 @@ export default function WindToneLabPhaseMode() {
   // 録音中は絶対に走らせない(セッションが壊れるため)。
   const recoverMic = useCallback(async (reason, urgent = false) => {
     if (isRecordingRef.current) return false;
+    // 【便CS 再審査】計測タブで、画面が見えているときだけ(他のタブ・裏でマイクを開かない)
+    if (document.hidden || topTabRef.current !== "measure") return false;
     if (micRecoveringRef.current) return false;
     const now = performance.now();
     const cooldown = urgent ? MIC_RETRY_TAP_COOLDOWN_MS : MIC_RECOVER_COOLDOWN_MS;
@@ -4997,6 +5044,7 @@ export default function WindToneLabPhaseMode() {
     try {
       stopListeningRef.current();
       const ok = await startListeningRef.current();
+      if (ok === MIC_START_SUPERSEDED) return false; // 【便CS 再審査】待っている間に置き換えられた(タブを離れた等)。失敗の知らせは出さない
       const ctx = audioCtxRef.current;
       if (ok && ctx && ctx.state !== "running") {
         // resume()しても running にならなければ、そのコンテキストは close() して作り直す。
@@ -5040,7 +5088,7 @@ export default function WindToneLabPhaseMode() {
       const t = streamRef.current?.getAudioTracks?.()[0];
       return {
         ctxState: audioCtxRef.current ? audioCtxRef.current.state : "none",
-        track: t ? { readyState: t.readyState, muted: t.muted, enabled: t.enabled } : null,
+        track: t ? { readyState: t.readyState, muted: t.muted, enabled: t.enabled, label: t.label } : null,
         settings: t && typeof t.getSettings === "function" ? t.getSettings() : null,
         recovering: micRecoveringRef.current, needsRetry: micNeedsRetryRef.current,
       };
@@ -5050,6 +5098,67 @@ export default function WindToneLabPhaseMode() {
     return () => { uninstall(); if (AUDIO_DIAG.getMic === getMic) AUDIO_DIAG.getMic = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 【便CS 2026-10-13】途中で Bluetooth のイヤホン等をつないだり外したりしても、入力は内蔵マイクのまま。
+  //   殻: 機器の一覧が変わったら(devicechange)ネイティブへ規則を当て直させる(shellRouteToSpeaker = 入力は本体のマイク・出口の規則)。
+  //       ネイティブ自身も経路の変化で同じことをする。JS では取り直さない(取り込みを止めると WebKit が音のセッションを立て直し、経路がまた揺れる)。
+  //       マイクを取り込んでいる間(トラックが live で enabled)だけ ── 取り込んでいないときに playAndRecord へ立て直さない。
+  //       【便CS 審査】録音中は呼ばない(Web の「録音中は取り直さない」とそろえる)。印(shellRoutePendingRef)を立て、録音が終わったら呼ぶ。
+  //   Web: いまのトラックが内蔵マイクでなくなったら(devicechange / トラックの configurationchange)、既存の復旧の入口(recoverMic)で
+  //       取り直す(startListening が deviceId exact で内蔵マイクを取る。WebKit はそれを setPreferredInput で求める)。
+  //       録音中は取り直さない(recoverMic の決まり)・一時停止中も取り直さない(計測タブ以外でマイクを動かさない)。どちらも
+  //       micLeftBuiltInRef を立て、次の startListening を完全再取得にする。取り直しは devicechange 1回につき1回まで(builtInArmedRef。
+  //       内蔵マイクを求めても iOS が別の入力にし続ける場合に、取り直しを繰り返さないため)。
+  //       【便CS 審査】録音が終わったとき、印が立っていれば取り直す(下の isRecording の effect)。recoverMic がクールダウンで断ったときは、
+  //       クールダウンが明ける時刻(既存の MIC_RECOVER_COOLDOWN_MS)に1回だけ予約して、もう一度確かめる。
+  useEffect(() => {
+    checkBuiltInMicRef.current = async (reason) => {
+      if (isNativeShell()) return;
+      if (!builtInArmedRef.current || micRecoveringRef.current) return;
+      const stream = streamRef.current;
+      const t = stream?.getAudioTracks?.()[0];
+      if (!t) return;
+      const left = await trackLeftBuiltInMic(navigator.mediaDevices, t, null);
+      if (!left || streamRef.current !== stream) return;
+      micLeftBuiltInRef.current = true;
+      if (!t.enabled || isRecordingRef.current) return;
+      await recoverMicRef.current(`not-built-in-mic(${reason})`);
+      if (streamRef.current !== stream) { builtInArmedRef.current = false; return; }
+      // 取り直されなかった(クールダウン・録音が始まった 等)→ クールダウンが明けたら1回だけもう一度確かめる
+      if (isRecordingRef.current) return;
+      if (builtInRetryTimerRef.current) clearTimeout(builtInRetryTimerRef.current);
+      const wait = Math.max(0, MIC_RECOVER_COOLDOWN_MS - (performance.now() - micRecoverAtRef.current));
+      builtInRetryTimerRef.current = setTimeout(() => {
+        builtInRetryTimerRef.current = null;
+        checkBuiltInMicRef.current("after-cooldown");
+      }, wait);
+    };
+    routeAfterDeviceChangeRef.current = () => {
+      const t = streamRef.current?.getAudioTracks?.()[0];
+      if (!t || t.readyState !== "live" || !t.enabled) { shellRoutePendingRef.current = false; return; }
+      if (isRecordingRef.current) { shellRoutePendingRef.current = true; return; }
+      shellRoutePendingRef.current = false;
+      shellRouteToSpeaker();
+    };
+    const clearRetry = () => { if (builtInRetryTimerRef.current) { clearTimeout(builtInRetryTimerRef.current); builtInRetryTimerRef.current = null; } };
+    const md = navigator.mediaDevices;
+    if (!md || typeof md.addEventListener !== "function") return clearRetry;
+    const onDeviceChange = () => {
+      routeAfterDeviceChangeRef.current();
+      builtInArmedRef.current = true;
+      checkBuiltInMicRef.current("devicechange");
+    };
+    md.addEventListener("devicechange", onDeviceChange);
+    return () => { md.removeEventListener("devicechange", onDeviceChange); clearRetry(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // 【便CS 審査】録音が終わったら: 殻は録音中に見送った routeToSpeaker を呼ぶ。Web は録音中に内蔵マイクから外れていれば取り直す。
+  // (isRecordingRef は上の effect で先に追いついている)
+  useEffect(() => {
+    if (isRecording) return;
+    if (shellRoutePendingRef.current) routeAfterDeviceChangeRef.current();
+    if (micLeftBuiltInRef.current) checkBuiltInMicRef.current("recording-ended");
+  }, [isRecording]);
 
   // 【便CQ 2026-10-12 統括の決定A】殻では、裏から戻ったら計測タブの中身(MeasureView)を作り直す ── 本人の実機で直ると分かっている
   // 「タブを離れて戻る」と同じ道にそろえる。マイクのほうは、隠れたとき stopListening・戻ったとき startListening(下の
@@ -5102,6 +5211,7 @@ export default function WindToneLabPhaseMode() {
         if (topTab === "measure") {
           Promise.resolve(startListeningRef.current())
             .then((ok) => {
+              if (ok === MIC_START_SUPERSEDED) return; // 【便CS 再審査】待っている間にタブを離れた等。取り直さない
               const ctx = audioCtxRef.current;
               const healthy = ok && ctx && ctx.state === "running" && isMicStreamUsable(streamRef.current);
               if (!healthy) recoverMicRef.current("visibility-restore");

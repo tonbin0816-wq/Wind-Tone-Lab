@@ -709,3 +709,525 @@ describe("【便CQ 統括の決定B】音の診断の板(計測タブで下部�
     await waitFor(() => panel() && val("session") === "n/a (web)", "Web", 5000);
   }, 30000);
 });
+
+// ------------------------------------------------------------------
+// 【便CS 2026-10-13】マイクはいつも端末の内蔵マイク(本人の実機の板: Bluetooth のイヤホンで in = out = BluetoothHFP・outputVolume 0.15)。
+// 【守っているもの】作り物の mediaDevices の上で: 許可の後に内蔵マイクを探して deviceId exact で取り直す(制約 ec/ns/agc は false のまま)・
+//   見つからなければ取り直さない・殻は機器の一覧が変わったら routeToSpeaker(ネイティブが入力を本体のマイクへ戻す)を呼び JS では取り直さない・
+//   Web は取り込み中に内蔵マイクから外れたら取り直す(devicechange 1回につき1回まで)・診断の板の新しい項目(inputs / preferredIn / micTrack)。
+// 【守っていないもの】実機の WebKit が exact を setPreferredInput に替えること・ネイティブの setPreferredInput が効くこと・出力が A2DP /
+//   スピーカーへ行くこと・音量が戻ること(どれも実機待ち。Swift はここでは走らない。綴りは pitch-test K.6 が見る)。
+// ------------------------------------------------------------------
+const MIC_C = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
+// 作り物の mediaDevices。getUserMedia は exact があればその機器、無ければ既定(box.defaultId)のトラックを返す。
+// トラックの deviceId を書き換えると、WebKit が取り込み中に入力を替えた(handleNewCurrentMicrophoneDevice)形になる。
+function installDevices(devices, defaultId) {
+  const listeners = new Set();
+  const box = { calls: [], devices, defaultId, tracks: [] };
+  const labelOf = (id) => box.devices.find((d) => d.deviceId === id)?.label ?? "";
+  const makeTrack = (id) => {
+    const t = { enabled: true, readyState: "live", muted: false, kind: "audio", deviceId: id, stopped: 0,
+      get label() { return labelOf(this.deviceId); },
+      stop() { this.stopped++; this.readyState = "ended"; },
+      getSettings() { return { deviceId: this.deviceId, ...MIC_C }; } };
+    box.tracks.push(t);
+    track = t;
+    return t;
+  };
+  const md = {
+    getUserMedia: async (c) => {
+      box.calls.push(c);
+      // 待たせる(完全に取り直す待ちの間にタブを離れる形)。box.queue があれば呼ばれた順に1つずつ使う({ gate, fails })
+      const q = box.queue && box.queue.length ? box.queue.shift() : null;
+      const gate = q ? q.gate : box.gate;
+      const fails = q ? q.fails : box.gateFails;
+      if (gate) {
+        await gate;
+        if (fails) throw Object.assign(new Error("denied"), { name: "NotAllowedError" });
+      }
+      const t = makeTrack(c?.audio?.deviceId?.exact || box.defaultId);
+      return { getTracks: () => [t], getAudioTracks: () => [t] };
+    },
+    enumerateDevices: async () => box.devices.map((d) => ({ kind: "audioinput", groupId: "", ...d })),
+    addEventListener: (type, fn) => { if (type === "devicechange") listeners.add(fn); },
+    removeEventListener: (type, fn) => { listeners.delete(fn); },
+  };
+  box.fire = () => mod.act(async () => { listeners.forEach((fn) => fn()); });
+  box.live = () => box.tracks.filter((t) => t.readyState === "live");
+  Object.defineProperty(window.navigator, "mediaDevices", { value: md, configurable: true });
+  return box;
+}
+const BT_D = { deviceId: "bt0000000000aaaa", label: "AirPods Pro" };
+const MIC_D = { deviceId: "mic1abcdef012345", label: "iPhone マイク" };
+const exactCall = (id) => ({ audio: { ...MIC_C, deviceId: { exact: id } } });
+// iOS / iPadOS の WebKit の形: 指で触れる(maxTouchPoints)+ navigator.audioSession(Audio Session API)。label の道はこの形のときだけ通る
+const setTouch = (n) => {
+  Object.defineProperty(window.navigator, "maxTouchPoints", { value: n, configurable: true });
+  Object.defineProperty(window.navigator, "audioSession", { value: { type: "auto" }, configurable: true, writable: true });
+};
+const clearTouch = () => {
+  try { delete window.navigator.maxTouchPoints; } catch { /* */ }
+  try { delete window.navigator.audioSession; } catch { /* */ }
+};
+
+describe("【便CS】マイクはいつも内蔵マイク(取り直し・見つからないとき・経路が変わったとき)", () => {
+  it("Web: Bluetooth のイヤホンが既定 → 許可の後に内蔵マイクの deviceId exact で取り直す(制約は ec/ns/agc = false のまま)・元のトラックは止める", async () => {
+    setTouch(5);
+    try {
+      const box = installDevices([BT_D, MIC_D], BT_D.deviceId);
+      mod = await loadApp();
+      await render();
+      await waitFor(() => box.calls.length >= 2 && document.querySelector('button[aria-label="メトロノーム"]'), "取り直し");
+      await settle();
+      expect(box.calls).toEqual([{ audio: MIC_C }, exactCall(MIC_D.deviceId)]);
+      expect(box.tracks[0].stopped).toBe(1);
+      expect(box.live().map((t) => t.label)).toEqual(["iPhone マイク"]);
+    } finally { clearTouch(); }
+  }, 30000);
+  it("Web: 内蔵マイクが見つからなければ今のまま(getUserMedia は1回・止めない)", async () => {
+    setTouch(5);
+    try {
+      const box = installDevices([BT_D, { deviceId: "wired0000000000", label: "ヘッドセットマイク" }], BT_D.deviceId);
+      mod = await loadApp();
+      await render();
+      await waitFor(() => box.calls.length >= 1 && document.querySelector('button[aria-label="メトロノーム"]'), "マイク");
+      await settle();
+      expect(box.calls).toEqual([{ audio: MIC_C }]);
+      expect(box.tracks[0].stopped).toBe(0);
+    } finally { clearTouch(); }
+  }, 30000);
+  it("殻: 内蔵マイクの名前はネイティブの availableInputs から(label に iPhone が無くても)取り直す", async () => {
+    asShell();
+    const name = "内蔵のマイク";
+    cap.session = { availableInputs: [{ portType: "BluetoothHFP", name: "AirPods Pro" }, { portType: "MicrophoneBuiltIn", name }] };
+    const box = installDevices([BT_D, { ...MIC_D, label: name }], BT_D.deviceId);
+    mod = await loadApp();
+    await render();
+    await waitFor(() => box.calls.length >= 2 && cap.log.includes("FicusAudioSession.routeToSpeaker"), "取り直し");
+    expect(box.calls).toEqual([{ audio: MIC_C }, exactCall(MIC_D.deviceId)]);
+  }, 30000);
+  it("殻: 機器の一覧が変わったら(devicechange)殻へ内蔵マイクを求める(routeToSpeaker)。JS では取り直さない。マイクを止めている間は呼ばない", async () => {
+    asShell();
+    setTouch(5);
+    try {
+      const box = installDevices([MIC_D], MIC_D.deviceId);
+      mod = await loadApp();
+      await render();
+      await waitFor(() => cap.log.includes("FicusAudioSession.routeToSpeaker"), "マイク");
+      await settle();
+      const routes = () => cap.log.filter((x) => x === "FicusAudioSession.routeToSpeaker").length;
+      const before = routes();
+      box.devices = [MIC_D, BT_D];
+      box.defaultId = BT_D.deviceId;
+      track.deviceId = BT_D.deviceId;                                 // 入力がイヤホンへ替わった
+      await box.fire();
+      await waitFor(() => routes() === before + 1, "devicechange で routeToSpeaker");
+      await settle();
+      expect(box.calls.length).toBe(1);                               // 殻はネイティブが戻す。JS は取り直さない
+      await click(nav("リード"));                                     // 殻はタブを離れるとマイクを止める
+      await settle();
+      expect(box.tracks[0].readyState).toBe("ended");
+      expect(box.tracks[0].onconfigurationchange).toBe(null);         // 【便CS 審査】止めるときに内蔵マイクの知らせも外す
+      const stopped = routes();
+      await box.fire();
+      await settle();
+      expect(routes()).toBe(stopped);
+    } finally { clearTouch(); }
+  }, 30000);
+  it("Web: 取り込み中にイヤホンへ替わったら(devicechange)内蔵マイクで取り直す。iOS が替え続けても、取り直しは devicechange 1回につき1回まで", async () => {
+    setTouch(5);
+    const orig = performance.now.bind(performance);
+    let off = 1e6;                                                    // 復旧のクールダウン(起動直後の 5 秒)を越えた時刻にする
+    vi.spyOn(performance, "now").mockImplementation(() => orig() + off);
+    try {
+      const box = installDevices([MIC_D], MIC_D.deviceId);
+      mod = await loadApp();
+      await render();
+      await waitFor(() => box.calls.length >= 1 && document.querySelector('button[aria-label="メトロノーム"]'), "マイク");
+      await settle();
+      expect(box.calls).toEqual([{ audio: MIC_C }]);                  // 既定が内蔵マイクなので取り直さない
+      box.devices = [MIC_D, BT_D];
+      box.defaultId = BT_D.deviceId;
+      track.deviceId = BT_D.deviceId;
+      await box.fire();
+      await waitFor(() => box.calls.length >= 3, "取り直し");
+      await settle();
+      expect(box.calls).toEqual([{ audio: MIC_C }, { audio: MIC_C }, exactCall(MIC_D.deviceId)]);
+      expect(box.live().map((t) => t.label)).toEqual(["iPhone マイク"]);
+      // iOS がまたイヤホンへ替えた(configurationchange)→ 同じ devicechange の中ではもう取り直さない。
+      // 時計は復旧のクールダウンを越えた所まで進める(クールダウンで止まったのではなく、1回までの歯止めで止まったことを確かめる)
+      off += 1e5;
+      track.deviceId = BT_D.deviceId;
+      await mod.act(async () => { track.onconfigurationchange(); });
+      await settle();
+      await tick(50);
+      expect(box.calls.length).toBe(3);
+      // 次の devicechange で歯止めは戻る → また取り直す
+      await box.fire();
+      await waitFor(() => box.calls.length >= 5, "次の devicechange で取り直す");
+      expect(box.calls[4]).toEqual(exactCall(MIC_D.deviceId));
+    } finally { clearTouch(); vi.restoreAllMocks(); }
+  }, 30000);
+  it("Web: 取り込み中に入力が替わった知らせ(トラックの configurationchange)でも取り直す", async () => {
+    setTouch(5);
+    const orig = performance.now.bind(performance);
+    vi.spyOn(performance, "now").mockImplementation(() => orig() + 1e6);
+    try {
+      const box = installDevices([MIC_D, BT_D], MIC_D.deviceId);
+      mod = await loadApp();
+      await render();
+      await waitFor(() => box.calls.length >= 1 && document.querySelector('button[aria-label="メトロノーム"]'), "マイク");
+      await settle();
+      box.defaultId = BT_D.deviceId;
+      track.deviceId = BT_D.deviceId;
+      await mod.act(async () => { track.onconfigurationchange(); });
+      await waitFor(() => box.calls.length >= 3, "取り直し");
+      expect(box.calls[2]).toEqual(exactCall(MIC_D.deviceId));
+    } finally { clearTouch(); vi.restoreAllMocks(); }
+  }, 30000);
+});
+
+describe("【便CS】Web: 計測タブを離れている(一時停止)間に替わったら、戻ったときにマイクを再利用せず内蔵マイクで取り直す", () => {
+  it("一時停止中は取り直さない(getUserMedia を呼ばない)→ 計測タブへ戻ると完全に取り直して内蔵マイクの deviceId exact", async () => {
+    setTouch(5);
+    try {
+      const box = installDevices([MIC_D], MIC_D.deviceId);
+      mod = await loadApp();
+      await render();
+      await waitFor(() => box.calls.length >= 1 && document.querySelector('button[aria-label="メトロノーム"]'), "マイク");
+      await settle();
+      await click(nav("リード"));                                     // Web は一時停止(enabled = false・止めない)
+      await settle();
+      expect(track.enabled).toBe(false);
+      box.devices = [MIC_D, BT_D];
+      box.defaultId = BT_D.deviceId;
+      track.deviceId = BT_D.deviceId;
+      await box.fire();
+      await settle();
+      expect(box.calls.length).toBe(1);
+      await click(nav("計測"));
+      await waitFor(() => box.calls.length >= 3, "戻ったら取り直す");
+      await settle();
+      expect(box.calls).toEqual([{ audio: MIC_C }, { audio: MIC_C }, exactCall(MIC_D.deviceId)]);
+      expect(box.live().map((t) => t.label)).toEqual(["iPhone マイク"]);
+    } finally { clearTouch(); }
+  }, 30000);
+});
+
+describe("【便CS】診断の板: 入力の候補・優先の入力・使っているマイクのトラック", () => {
+  const press = async (ms) => {
+    const btn = nav("計測");
+    await mod.act(async () => { btn.dispatchEvent(new Event("pointerdown", { bubbles: true })); });
+    await tick(ms);
+    await mod.act(async () => { btn.dispatchEvent(new Event("pointerup", { bubbles: true })); btn.click(); });
+  };
+  const val = (k) => document.querySelector(`[data-audio-diag] [data-diag-key="${k}"]`)?.textContent;
+  it("殻: inputs = availableInputs の portType:名前・preferredIn・micTrack = label と deviceId の先頭 8 文字", async () => {
+    asShell();
+    setTouch(5);
+    try {
+      cap.session = {
+        category: "AVAudioSessionCategoryPlayAndRecord", mode: "AVAudioSessionModeDefault", options: 0x28, routeSharingPolicy: 0,
+        outputs: ["BluetoothA2DPOutput"], inputs: ["MicrophoneBuiltIn"], outputVolume: 0.5, otherAudioPlaying: false,
+        availableInputs: [{ portType: "MicrophoneBuiltIn", name: "iPhone マイク" }, { portType: "BluetoothHFP", name: "AirPods Pro" }],
+        preferredInput: { portType: "MicrophoneBuiltIn", name: "iPhone マイク" },
+      };
+      installDevices([MIC_D, BT_D], MIC_D.deviceId);
+      mod = await loadApp();
+      await render();
+      await waitFor(() => cap.log.includes("FicusAudioSession.routeToSpeaker"), "マイク");
+      await press(500);
+      await waitFor(() => val("inputs") && val("inputs") !== "…", "板", 5000);
+      expect(val("inputs")).toBe("MicrophoneBuiltIn:iPhone マイク / BluetoothHFP:AirPods Pro");
+      expect(val("preferredIn")).toBe("MicrophoneBuiltIn:iPhone マイク");
+      expect(val("micTrack")).toBe("label=iPhone マイク id=mic1abcd");
+    } finally { clearTouch(); }
+  }, 30000);
+  it("殻: 優先の入力が無い(nil = 空の辞書)は none・古い殻のビルド(項目が無い)は「—」", async () => {
+    asShell();
+    cap.session = { category: "AVAudioSessionCategoryPlayAndRecord", availableInputs: [], preferredInput: {} };
+    mod = await loadApp();
+    await render();
+    await waitFor(() => cap.log.includes("FicusAudioSession.routeToSpeaker"), "マイク");
+    await press(500);
+    await waitFor(() => val("preferredIn"), "板", 5000);
+    expect([val("inputs"), val("preferredIn")]).toEqual(["none", "none"]);
+    cap.session = { category: "AVAudioSessionCategoryPlayAndRecord" };
+    await waitFor(() => val("inputs") === "—", "古いビルド", 5000);
+    expect(val("preferredIn")).toBe("—");
+  }, 30000);
+});
+
+// ------------------------------------------------------------------
+// 【便CS 審査の差し戻し】録音の後・クールダウンの後の取り直し / 殻の録音中の見送り / enabled の条件 / startListening の世代
+// ------------------------------------------------------------------
+describe("【便CS 審査】録音・クールダウン・世代", () => {
+  const routes = () => cap.log.filter((x) => x === "FicusAudioSession.routeToSpeaker").length;
+  const toBt = (box) => { box.devices = [MIC_D, BT_D]; box.defaultId = BT_D.deviceId; track.deviceId = BT_D.deviceId; };
+  it("Web: 録音中に外れても取り直さない → 録音が終わったら内蔵マイクで取り直す", async () => {
+    setTouch(5);
+    const orig = performance.now.bind(performance);
+    vi.spyOn(performance, "now").mockImplementation(() => orig() + 1e6);  // 復旧のクールダウン(起動直後の 5 秒)を越えた時刻にする
+    try {
+      const box = installDevices([MIC_D], MIC_D.deviceId);
+      mod = await loadApp();
+      await render();
+      await waitFor(() => box.calls.length >= 1 && document.querySelector('button[aria-label="録音する"]'), "録音のボタン");
+      await settle();
+      await click(document.querySelector('button[aria-label="録音する"]'));
+      await waitFor(() => document.querySelector('button[aria-label="録音を停止"]'), "録音中");
+      toBt(box);
+      await box.fire();
+      await settle();
+      await tick(50);
+      expect(box.calls.length).toBe(1);                               // 録音中は取り直さない
+      await click(document.querySelector('button[aria-label="録音を停止"]'));
+      await waitFor(() => box.calls.length >= 3, "録音が終わったら取り直す");
+      await settle();
+      expect(box.calls).toEqual([{ audio: MIC_C }, { audio: MIC_C }, exactCall(MIC_D.deviceId)]);
+      expect(box.live().map((t) => t.label)).toEqual(["iPhone マイク"]);
+    } finally { clearTouch(); vi.restoreAllMocks(); }
+  }, 30000);
+  it("Web: クールダウンで断られたら、明けたあとに取り直す", async () => {
+    setTouch(5);
+    // 時計を差し替える(負荷で前提が崩れないように、実時間に頼らない):
+    //   知らせの時は 4000ms で止める = 起動直後のクールダウン(最後の復旧 0ms から 5000ms)の中 → 必ず断られ、予約は残り 1000ms 後。
+    //   断られたのを見たら、時計を十分先へ進める → 予約が来たときには必ずクールダウンが明けている。
+    const orig = performance.now.bind(performance);
+    let mode = "real";
+    vi.spyOn(performance, "now").mockImplementation(() => (mode === "freeze" ? 4000 : mode === "late" ? orig() + 1e6 : orig()));
+    try {
+      const box = installDevices([MIC_D], MIC_D.deviceId);
+      mod = await loadApp();
+      await render();
+      await waitFor(() => box.calls.length >= 1 && document.querySelector('button[aria-label="メトロノーム"]'), "マイク");
+      await settle();
+      toBt(box);
+      mode = "freeze";
+      await box.fire();
+      await settle();
+      expect(box.calls.length).toBe(1);                               // 断られた
+      mode = "late";
+      await waitFor(() => box.calls.length >= 3, "クールダウンが明けたら取り直す", 12000);
+      expect(box.calls[2]).toEqual(exactCall(MIC_D.deviceId));
+    } finally { clearTouch(); vi.restoreAllMocks(); }
+  }, 30000);
+  it("殻: 録音中は devicechange から routeToSpeaker を呼ばない → 録音が終わったら呼ぶ", async () => {
+    asShell();
+    setTouch(5);
+    try {
+      const box = installDevices([MIC_D], MIC_D.deviceId);
+      mod = await loadApp();
+      await render();
+      await waitFor(() => cap.log.includes("FicusAudioSession.routeToSpeaker") && document.querySelector('button[aria-label="録音する"]'), "録音のボタン");
+      await settle();
+      await click(document.querySelector('button[aria-label="録音する"]'));
+      await waitFor(() => document.querySelector('button[aria-label="録音を停止"]'), "録音中");
+      const before = routes();
+      toBt(box);
+      await box.fire();
+      await settle();
+      expect(routes()).toBe(before);
+      await click(document.querySelector('button[aria-label="録音を停止"]'));
+      await waitFor(() => routes() === before + 1, "録音が終わったら呼ぶ");
+      await settle();
+      expect(routes()).toBe(before + 1);
+    } finally { clearTouch(); }
+  }, 30000);
+  it("殻: トラックが live でも enabled = false なら devicechange で routeToSpeaker を呼ばない", async () => {
+    asShell();
+    setTouch(5);
+    try {
+      const box = installDevices([MIC_D], MIC_D.deviceId);
+      mod = await loadApp();
+      await render();
+      await waitFor(() => cap.log.includes("FicusAudioSession.routeToSpeaker"), "マイク");
+      await settle();
+      const before = routes();
+      track.enabled = false;
+      await box.fire();
+      await settle();
+      expect(routes()).toBe(before);
+      track.enabled = true;                                           // 戻せば呼ぶ(この試験が「何も起きない」で通っていないことの確かめ)
+      await box.fire();
+      await waitFor(() => routes() === before + 1, "enabled なら呼ぶ");
+    } finally { clearTouch(); }
+  }, 30000);
+  it("殻: マイクを待っている間にタブを離れたら、取れたマイクは使わずに止める(routeToSpeaker も呼ばない)", async () => {
+    asShell();
+    setTouch(5);
+    try {
+      const box = installDevices([MIC_D], MIC_D.deviceId);
+      let release;
+      box.gate = new Promise((r) => { release = r; });
+      mod = await loadApp();
+      await render();
+      await waitFor(() => box.calls.length >= 1, "getUserMedia を待っている");
+      await click(nav("リード"));
+      await settle();
+      box.gate = null;
+      await mod.act(async () => { release(); });
+      await waitFor(() => box.tracks.length >= 1, "マイクが取れた");
+      await settle();
+      expect(box.tracks[0].readyState).toBe("ended");
+      expect(box.tracks[0].stopped).toBe(1);
+      expect(cap.log.includes("FicusAudioSession.routeToSpeaker")).toBe(false);
+    } finally { clearTouch(); }
+  }, 30000);
+});
+
+// ------------------------------------------------------------------
+// 【便CS 再審査】置き換えられた取得(MIC_START_SUPERSEDED)は失敗ではない: 画面復帰・recoverMic は何もしない・古い失敗は新しい成功を上書きしない
+// ------------------------------------------------------------------
+describe("【便CS 再審査】置き換えられた取得", () => {
+  for (const shell of [true, false]) {
+    it(`${shell ? "殻" : "Web"}: 隠れる → 見える → 取得を待っている間にリードへ → 取得が終わる で、live のトラックは0本・recoverMic は走らない`, async () => {
+      if (shell) asShell();
+      setTouch(5);
+      try {
+        const box = installDevices([MIC_D], MIC_D.deviceId);
+        mod = await loadApp();
+        await render();
+        await waitFor(() => box.calls.length >= 1 && document.querySelector('button[aria-label="メトロノーム"]'), "マイク");
+        await settle();
+        const diag = await import("../audioDiag.jsx");
+        let release;
+        try {
+          await setHidden(true);
+          await settle();
+          box.gate = new Promise((r) => { release = r; });
+          await setHidden(false);
+          await waitFor(() => box.calls.length >= 2, "戻ったら取り直しを待つ");
+          await click(nav("リード"));
+          await settle();
+          box.gate = null;
+          await mod.act(async () => { release(); });
+          await settle();
+          await tick(300);
+          await settle();
+        } finally { delete document.hidden; }
+        expect(box.live().length).toBe(0);
+        expect(box.calls.length).toBe(2);                             // 取り直しの取り直し(recoverMic)をしない
+        expect(diag.AUDIO_DIAG.lastMicRecover).toBe(null);
+        expect(document.body.textContent).not.toContain("マイクを再接続できませんでした");
+      } finally { clearTouch(); }
+    }, 30000);
+  }
+  it("Web: 起動の取得を待っている間にリードへ(一時停止)→ 取得が終わっても使わずに止める", async () => {
+    setTouch(5);
+    try {
+      const box = installDevices([MIC_D], MIC_D.deviceId);
+      let release;
+      box.gate = new Promise((r) => { release = r; });
+      mod = await loadApp();
+      await render();
+      await waitFor(() => box.calls.length >= 1, "getUserMedia を待っている");
+      await click(nav("リード"));                                     // Web は一時停止(pauseListening)
+      await settle();
+      box.gate = null;
+      await mod.act(async () => { release(); });
+      await settle();
+      await tick(100);
+      expect(box.live().length).toBe(0);
+      expect(box.tracks[0].stopped).toBe(1);
+    } finally { clearTouch(); }
+  }, 30000);
+  it("殻: 古い取得の失敗(待っている間に置き換えられた)は、新しい取得の成功を上書きしない(エラーを出さない・マイクは動いたまま)", async () => {
+    asShell();
+    setTouch(5);
+    try {
+      const box = installDevices([MIC_D], MIC_D.deviceId);
+      let release;
+      box.gate = new Promise((r) => { release = r; });
+      box.gateFails = true;
+      mod = await loadApp();
+      await render();
+      await waitFor(() => box.calls.length >= 1, "1回目の取得を待っている");
+      box.gate = null;
+      box.gateFails = false;
+      await click(nav("リード"));                                     // 殻は止める(1回目は置き換えられる)
+      await settle();
+      await click(nav("計測"));                                       // 2回目の取得はすぐ成功する
+      await waitFor(() => box.live().length === 1, "2回目の成功");
+      await settle();
+      await mod.act(async () => { release(); });                     // 1回目が今ごろ失敗で終わる
+      await settle();
+      await tick(100);
+      expect(document.body.textContent).not.toContain("マイクの使用が許可されていません");
+      expect(box.live().length).toBe(1);
+      expect(document.querySelector('button[aria-label="録音する"]')).not.toBe(null);
+    } finally { clearTouch(); }
+  }, 30000);
+});
+
+describe("【便CS 再審査】recoverMic は計測タブで、画面が見えているときだけ", () => {
+  it("Web: リードのタブ(一時停止中)でトラックが mute しても・計測タブでも画面が隠れていれば、マイクを取り直さない。計測タブで見えていれば取り直す", async () => {
+    setTouch(5);
+    const orig = performance.now.bind(performance);
+    vi.spyOn(performance, "now").mockImplementation(() => orig() + 1e6);  // 復旧のクールダウンの外
+    try {
+      const box = installDevices([MIC_D], MIC_D.deviceId);
+      mod = await loadApp();
+      await render();
+      await waitFor(() => box.calls.length >= 1 && document.querySelector('button[aria-label="メトロノーム"]'), "マイク");
+      await settle();
+      const t1 = track;
+      await click(nav("リード"));                                     // Web は一時停止(トラックとハンドラは残る)
+      await settle();
+      await mod.act(async () => { t1.onmute(); });
+      await settle();
+      expect(box.calls.length).toBe(1);
+      await click(nav("計測"));
+      await settle();
+      Object.defineProperty(document, "hidden", { value: true, configurable: true });  // 知らせ(visibilitychange)を出さずに隠れた状態だけ作る
+      try {
+        await mod.act(async () => { t1.onmute(); });
+        await settle();
+        expect(box.calls.length).toBe(1);
+      } finally { delete document.hidden; }
+      await mod.act(async () => { t1.onmute(); });                   // 見えていて計測タブなら取り直す(この試験が空振りでないことの確かめ)
+      await waitFor(() => box.calls.length >= 2, "取り直す");
+    } finally { clearTouch(); vi.restoreAllMocks(); }
+  }, 30000);
+});
+
+describe("【便CS 再審査】置き換えられた取得は「失敗」ではない(計測タブで見えたままでも取り直さない)", () => {
+  for (const fails of [false, true]) {
+    it(`Web: 戻る → 隠れる → 戻る で、1つ目の取得が後から${fails ? "失敗" : "成功"}で終わっても recoverMic は走らない(2つ目が使われる)`, async () => {
+      setTouch(5);
+      const orig = performance.now.bind(performance);
+      vi.spyOn(performance, "now").mockImplementation(() => orig() + 1e6);  // 復旧のクールダウンの外(取り直しが走るなら必ず走る)
+      try {
+        const box = installDevices([MIC_D], MIC_D.deviceId);
+        mod = await loadApp();
+        await render();
+        await waitFor(() => box.calls.length >= 1 && document.querySelector('button[aria-label="メトロノーム"]'), "マイク");
+        await settle();
+        const diag = await import("../audioDiag.jsx");
+        let relA; let relB;
+        box.queue = [
+          { gate: new Promise((r) => { relA = r; }), fails },
+          { gate: new Promise((r) => { relB = r; }), fails: false },
+        ];
+        try {
+          await setHidden(true);
+          await setHidden(false);
+          await waitFor(() => box.calls.length >= 2, "1つ目の取得を待つ");
+          await setHidden(true);
+          await setHidden(false);
+          await waitFor(() => box.calls.length >= 3, "2つ目の取得を待つ");
+          await mod.act(async () => { relA(); });                    // 1つ目が終わる(もう置き換えられている)
+          await settle();
+          await tick(100);
+          expect(box.calls.length).toBe(3);                           // recoverMic で取り直していない
+          expect(diag.AUDIO_DIAG.lastMicRecover).toBe(null);
+          await mod.act(async () => { relB(); });
+          await waitFor(() => box.live().length === 1, "2つ目が使われる");
+          await settle();
+          expect(box.calls.length).toBe(3);
+          expect(document.body.textContent).not.toContain("マイクの使用が許可されていません");
+        } finally { delete document.hidden; }
+      } finally { clearTouch(); vi.restoreAllMocks(); }
+    }, 30000);
+  }
+});
