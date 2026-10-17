@@ -1439,8 +1439,56 @@ iPad との分岐を2か所に持つより上限を1つにしておくほうが�
       強拍は ×1 で 0.862 なので、×1.3 から 1 を越える（割れの確かめ）。
     - `clickPeak`: マスターの後（出口の手前）のピーク。板が開いている間だけ分析の節点（`AnalyserNode`。出口へはつながない）を付け、20ms ごとに読む。
       直近 1 秒の最大と、板を開いてから（倍率・モードを替えたら数え直す）の最大。1 を越えたら `clip`。
+  - **試し口「鳴らし方」（【便CU 2026-10-17】殻だけ・保存しない・本番の鳴らし方は変えない）**。
+    - きっかけ（本人の実機の板）: 殻のセッションは PlayAndRecord・mode Default・options 0x28（defaultToSpeaker）・out Speaker・in MicrophoneBuiltIn・ec=no。
+      便CT の mode 5種・×1/1.3/1.6 は**どれも聞こえる音量が変わらなかった**（×1.6 は `clickPeak` 1.331 clip なのに）。音量ボタンを MAX にしても `outputVolume` は 0.05 のまま。
+      参考のネイティブのアプリ（チューナーを使っても音量が変わらない）に切り替えると iPhone の音量の表示は半分ほどになり、その半分で Ficus の MAX と同じくらい鳴る。
+    - **仮説**: Web Audio の音とマイクの取り込みは WebKit の **GPU プロセス側**の音のセッションで動いていて、取り込み中 WebKit はそれを playAndRecord + videoChat（通話）に
+      立て直す（上の「モードは .default」の調べ）。殻のセッション（アプリのプロセス）を替えても聞こえる音に効かないのはそのため。音量の段も通話の段になっている
+      （`outputVolume` 0.05・`otherAudio` yes もそれと合う）。**1回のビルドで切り分ける試し口だけ**を作った（仮説が当たっているかは実機待ち）。
+    - ボタン（板の下・殻だけ。Web〈殻でない〉は出さない ── 殻の新しいメソッドが無い）:
+      - `web`（既定・今のまま）: Web Audio のクリック + Web のマイク。
+      - `nativeClick`: メトロノームの音を**殻（アプリのプロセス）の AVAudioEngine** で鳴らす。Web のマイクはそのまま。Web Audio のメトロノームはマスターを 0 にしてミュート
+        （止めない。拍の表示は今のまま動く。殻のクリックと拍の表示のズレはこの試しでは問わない）。
+      - `nativeBoth`: `nativeClick` に加えて **Web のマイクの取り込みを止め**（既存の `stopListening` = トラックの stop。止めないと WebKit の取り込みが通話のセッションを保つ）、
+        **殻で AVAudioEngine の inputNode にタップを付けてマイクを取る**（標本は捨てる。入力のレベルを `nativeIn` に出す = 本当に取れている証拠）。殻の取り込みを先に始め
+        （Web の取り込みが動いていて種別が playAndRecord の間に）、それから Web のマイクを止める。その間 `recoverMic` は取り直さない（画面のタップ・無音の見張りで
+        Web のマイクが戻らないように。`App.jsx` の1行）。録音中は選べない（`js=nativeBoth: recording`）。
+        【便CU 審査】殻の取り込みが始められなかった（`nativeInputStart` が失敗を返した・投げた）ら、Web のマイクは止めず、鳴らし方を前の値に戻し、Web のマスターも戻す
+        （`js=inStart: …` に出る。前も nativeBoth〈押し直し〉だったときは Web のマイクがもう止まっているので戻し、nativeClick にする）。
+        nativeBoth の間に録音を始めたら（録音のボタンが `startListening` を直に呼ぶ道）、鳴らし方を `web` に戻す（殻のクリックと取り込みを止める。Web のマイクは録音の開始が
+        そのタップの中で取るので、板の側では戻さない = 二重に取らない）。板の表示と実際の状態をずらさないため。
+    - **戻す**: 板を閉じる・計測タブを離れる（MeasureView が外れる）・裏へ行く、で `web` に戻す。【便CU 審査】**二重に鳴らさない順**: 殻のクリックを先に止める（`nativeClickStop`）
+      → 殻の取り込みを止める（`nativeInputStop`。殻はクリックが止まっているので鳴らし直さない）→ Web のマイクを既存の `recoverMic`（タップの再試行と同じ短いクールダウン）で取り直す
+      （断られてマイクが無いままなら既存の `startListening`。計測タブで画面が見えているときだけ）→ Web のマスターを基の値 × 倍率へ戻す。戻すと決めた時点の ctx は
+      その場でマスター 0 にし、殻のクリックを止め終わった時点で（そのときの ctx に）基の値 × 倍率を当て直す。【便CU 再審査 統括の裁定 (a)】「止め終わるまで」の印は
+      `audioDiagApplyMetroGain` の判定に入れない（列の前の処理〈描き出し・前の restore・殻の呼び出し〉が終わらないと印が残り、以後の本番の START の新しい ctx が 0 = 無音になるため）。
+      止め終わる前に START で作り直した ctx が殻と一瞬二重に鳴るのは、試し口の範囲として許す。選んでいなければ殻を1回も呼ばない（閉じるときも）。殻も裏へ行けば（`didEnterBackground`）自分で止める。
+    - 殻のクリックの音: **今の Web のクリックと同じもの**。Web が OfflineAudioContext（無ければ webkitOfflineAudioContext）で accent / beat / sub の3つを今の鎖
+      （`scheduleMetroClick` のバンドパス・包絡 → `getMetroMasterInput` のリミッター → マスター。マスターの基の値は殻の `METRO_MASTER_GAIN_SHELL` = 1.0・板の倍率とミュートは掛けない）で
+      描き出し（`App.jsx` の `renderMetroClickSamples`）、Float32 を base64 で殻へ1回渡す（`nativeClickLoad`。メトロノームの ctx の sampleRate で描く。替われば描き直す）。
+      描く長さは除外の窓の後ろ 90ms（`isNearScheduledClick` の postMs）で、末尾の 0.0001（包絡の行き先）より小さい標本は落とす（殻の AVAudioPlayerNode は1つの列で順に鳴らすので、尾が長いと次の音を待たせる）。
+      **クリックは 0 秒に置かない**: リミッターは作った直後は持ち上げが立ち上がっておらず小さく出る。【便CU 実測 Chrome 152 の OfflineAudioContext】0 秒に置くと強拍 0.151、
+      0.12 秒後に置くと 0.862（0.25 / 0.5 / 1 / 2 秒後も 0.862）。そこで Web のメトロノームの最初のクリックと同じ 0.12 秒後（`startMetronome` の currentTime + 0.12）に置き、そこから切り出す。
+      描いたピーク（実測 Chrome 152）: 48kHz 強拍 0.862・拍 0.564・弱拍 0.317 / 44.1kHz 0.862・0.555・0.313（上の表の「今の出口」と同じ）。長さは約 19ms（頭の約 6ms はリミッターの先読みの遅れで、Web の音と同じく残す）。
+      端末の WebKit で描いた値は板の `nativeBuf` に出る（実機待ち）。
+    - 殻の鳴らし方（`AppDelegate.swift` の `FicusAudioSessionPlugin`。`nativeClickStart` に1小節ぶんの並び `{ stepSec, kinds }` を渡す）: AVAudioEngine + AVAudioPlayerNode
+      （→ mainMixer）で、プレーヤーの時計の sample time で予約する。予約の値は Web の `metroSchedulerTick` と同じ（25ms ごとに 0.12 秒先まで・始めは今から 0.12 秒後・1回 512 個まで。pitch-test K.14 が両方から読んで比べる）。
+      並びは `metroNativeClickPattern`（`metroSchedulerTick` と同じ式・同じ `metroTickKind`）で今のメトロノームの設定値から作り、テンポ・拍子・分割・アクセント・まとまりが変われば渡し直す
+      （小節の頭から始め直す）。メトロノームを止めれば止める。板が開いている間、ピークの読み取りと同じ 20ms ごとに合わせる。
+      殻のセッションは今のまま（種別・モード・選択肢は替えない。`setCategory` は K.6 の3か所のまま）。エンジンを始める前に `setActive(true)`（失敗は記録だけ）。非活性にはしない（WebKit の音まで止めうる）。
+      【便CU 審査】そのため一度この試しを使うと、起動し直すまでアプリのプロセスのセッションは活性のままで、`web` に戻しても試しの前と同じ聞こえ方とは限らない。
+      殻は「このプロセスで `setActive(true)` かエンジンの start を一度でも成功させた」印を持ち、板の `nativeEngine` に `act=yes|no` で出す。
+      **聞き比べは、アプリを起動し直した直後に `web` を先に聞く**（`act=no` のうちに聞く）→ それから `nativeClick` / `nativeBoth`。
+      プレーヤーの `play()` はエンジンが動いているときだけ呼ぶ（動いていないエンジンのプレーヤーに呼ぶと例外で落ちる。`err=engine not running`）。
+      取り込み: `inputNode.inputFormat(forBus: 0)`（ハードウェアの形式）で、付ける直前に `removeTap`・片付けでも外す。入力のレベルは RMS の dBFS。入力を足す・外すときはエンジンを作り直す（鳴らしていれば始め直す）。
+      エンジンの構成の変化（`AVAudioEngineConfigurationChange`）ではエンジンを捨てて回数と理由を控える（自分では始め直さない。板で同じボタンをもう一度押すと始め直す）。
+      エンジンの操作はすべて直列の列（testQueue）の上・タップの中は入力のレベルを鍵の中で書くだけ。
+    - 板の行（殻だけ）: `playback`（web / nativeClick / nativeBoth）/ `nativeEngine`（`running=` エンジンが動いているか・`act=` このプロセスで活性にしたことがあるか・`click=`・`in=`・`cfg=` 構成の変化の回数・`err=` 殻の最後のエラー・`js=` JS 側の失敗）/
+      `nativeBuf`（殻へ渡した3段のピーク @sampleRate）/ `nativeIn`（nativeBoth のとき。殻の取り込みの入力レベル `-xx.x dBFS`）。`outputVolume` は今どおり。殻のビルドが古いと `nativeEngine` は `n/a (要ビルド…)`。
+    - 新しいメソッド（`FicusAudioSession`）: `nativeClickLoad` / `nativeClickStart` / `nativeClickStop` / `nativeInputStart` / `nativeInputStop` / `nativeAudioInfo`（読むだけ）。JS の呼び口は `src/shell/audio.js` の `shellNative*`（Web では null）。
   - 殻の値は自前の部品の読み出し口 `FicusAudioSession.sessionInfo`（`AppDelegate.swift`。読むだけ）。**ios-dev を建て直すまでは `n/a (要ビルド…)`** と出る。Web は `n/a (web)`。
-  - 1秒に1回読み直す。読むだけで、音・マイク・セッションには何もしない（【便CT】例外は上の試し口のボタンを押したときだけ）。置き場と部品は `src/audioDiag.jsx`（`position: fixed`・z 50・字は `--fs-xs` 以上）。
+  - 1秒に1回読み直す。読むだけで、音・マイク・セッションには何もしない（【便CT】例外は上の試し口のボタンを押したときだけ。【便CU】殻では `nativeAudioInfo` も読む）。置き場と部品は `src/audioDiag.jsx`（`position: fixed`・z 50・字は `--fs-xs` 以上）。
 - **PrivacyInfo.xcprivacy**: `@capacitor/filesystem` が使うファイルの時刻の API（`NSPrivacyAccessedAPICategoryFileTimestamp`・理由 `C617.1`）を
   `ios/App/App/PrivacyInfo.xcprivacy` で申告し、App ターゲットの Resources に入れてある（プラグインの README の求め）。プラグインを足したら、その README の申告を足す。
 - **Capacitor の部品だけのチャンクの名前**: `vite.config.js` の `chunkFileNames` で `capacitor-*.native-*.js` にする（@capacitor/core の共有分が

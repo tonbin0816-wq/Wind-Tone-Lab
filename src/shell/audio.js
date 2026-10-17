@@ -31,3 +31,22 @@ export function shellSetAudioTestMode(mode) {
 export function shellAvailableInputs() {
   return shellAudioSessionInfo().then((s) => (s && Array.isArray(s.availableInputs) ? s.availableInputs : null));
 }
+
+// 【便CU 2026-10-17】診断の板の試し口「鳴らし方」: 殻(アプリのプロセス)の AVAudioEngine でメトロノームのクリックを鳴らす・マイクを取る
+// (FicusAudioSession の nativeClickLoad / nativeClickStart / nativeClickStop / nativeInputStart / nativeInputStop / nativeAudioInfo)。
+// Web では null(動的 import もしない。板は Web では試し口を出さない)。殻のビルドが古い・断られたときは { error }。
+function shellNativeCall(name, arg) {
+  if (!isNativeShell()) return Promise.resolve(null);
+  return import("./audioSession.native.js")
+    .then((m) => m[name](arg))
+    .catch((e) => ({ error: String(e?.code || e?.message || e) }));
+}
+// { sampleRate, accent, beat, sub }(3つは Float32 の標本を base64 にしたもの)を1回渡す
+export const shellNativeClickLoad = (o) => shellNativeCall("nativeClickLoad", o);
+// { stepSec, kinds }(1小節ぶんの並び。設定が変わったら渡し直す)で鳴らし始める
+export const shellNativeClickStart = (o) => shellNativeCall("nativeClickStart", o);
+export const shellNativeClickStop = () => shellNativeCall("nativeClickStop");
+export const shellNativeInputStart = () => shellNativeCall("nativeInputStart");
+export const shellNativeInputStop = () => shellNativeCall("nativeInputStop");
+// { engineRunning, clickOn, inputOn, inputDb?, lastError, configChanges }
+export const shellNativeAudioInfo = () => shellNativeCall("nativeAudioInfo");

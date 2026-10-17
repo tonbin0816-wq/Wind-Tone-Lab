@@ -1,6 +1,6 @@
 // src/audioDiag.jsx ── 【便CQ 2026-10-12】音の診断の板(普段は見えない)。
 // 本人の実機の2件(マイクが入るとメトロノームが小さい / 裏から戻るとメトロノームが動かない)を、
-// スクリーンショット1枚で切り分けるためのもの。**読むだけで、音にもマイクにも何もしない。**(【便CT】例外は試し口のボタン(mode・gain)を押したときだけ)
+// スクリーンショット1枚で切り分けるためのもの。**読むだけで、音にもマイクにも何もしない。**(【便CT】例外は試し口のボタン(mode・gain)を押したときだけ。【便CU】殻では鳴らし方 playback も)
 //
 // 開き方: 計測タブにいるとき、下部タブの「計測」(data-coach="nav-measure")を長押しする。
 //   長さはリードの並び替えの長押しと同じ値を App.jsx から受け取る(新しい値を作らない)。
@@ -11,7 +11,11 @@
 // 仕掛ける側(MeasureView・マイクの処理)まで prop を通すと、再レンダーの条件が変わって「観測だけ」でなくなる。
 // 項目名は英語のまま(本人がスクリーンショットを送るだけなので、読み手は統括と実装役)。
 import { useEffect, useRef, useState } from "react";
-import { shellAudioSessionInfo, shellSetAudioTestMode } from "./shell/audio.js";
+import {
+  shellAudioSessionInfo, shellSetAudioTestMode,
+  shellNativeClickLoad, shellNativeClickStart, shellNativeClickStop, shellNativeInputStart, shellNativeInputStop, shellNativeAudioInfo,
+} from "./shell/audio.js";
+import { isNativeShell } from "./shell/native.js";
 
 // 【便CT 2026-10-13】板の試し口(聞き比べ用。本人の実機「マイクがあると、まだ小さい」)。**どちらも保存しない**(メモリだけ。アプリを開き直せば
 // mode は default・倍率は ×1)。ここだけは「読むだけ」ではなく音を変える ── 板を開いてボタンを押したときだけ。
@@ -37,15 +41,158 @@ export const AUDIO_DIAG = {
   metroGainX: 1,         // メトロノームのマスターの倍率(startMetronome が新しい ctx にも当てる)
   testMode: { requested: "default", result: "—" }, // 板で選んだモードと、殻の答え
   peak: { at: [], max: 0 }, // 直近のクリックのピーク: at = [時刻, ピーク] の並び(窓の中だけ)・max = 板を開いてから(倍率・モードを替えたら数え直す)
+  // 【便CU】試し口「鳴らし方」(殻だけ・保存しない)
+  playback: "web",       // "web" | "nativeClick" | "nativeBoth"
+  webMic: null,          // 根が置く: { recording(), stop(), restore() }(nativeBoth の Web のマイクの止めと戻し)
+  renderClicks: null,    // 根が置く: (sampleRate) => Promise<{ sampleRate, accent, beat, sub }>(App.jsx の renderMetroClickSamples)
+  native: { clickKey: null, loadedRate: null, bufPeaks: null, info: undefined, error: "", chain: Promise.resolve() },
 };
+
+// 【便CU 2026-10-17】試し口「鳴らし方」(本人の実機: 殻のセッションのモード 5種も ×1/1.3/1.6 も、聞こえる音量が変わらなかった)。
+// 仮説: Web Audio の音とマイクの取り込みは WebKit の GPU プロセス側の音のセッションで動き、取り込み中 WebKit はそれを playAndRecord + videoChat(通話)に
+// 立て直す。殻(アプリのプロセス)のセッションを替えても聞こえる音に効かないのはそのため。1回のビルドで切り分ける(本番の鳴らし方は変えない):
+//   web         … 既定・今のまま(Web Audio のクリック + Web のマイク)
+//   nativeClick … クリックを殻の AVAudioEngine で鳴らす(Web のマイクはそのまま)。Web Audio のメトロノームはマスターを 0 にしてミュート(止めない。拍の表示は今のまま)
+//   nativeBoth  … nativeClick + Web のマイクを止め(既存の stopListening = トラックの stop)、殻の AVAudioEngine の inputNode にタップを付けてマイクを取る
+//                 (標本は捨てる。入力のレベルを板の nativeIn に出す = 本当に取れている証拠)。その間 recoverMic は取り直さない(App.jsx)
+// **保存しない**(メモリだけ)。板を閉じる・計測タブを離れる(MeasureView が外れて getMetro が消える)・裏へ行く、で web に戻す
+// (殻の取り込みとクリックを止め、Web のマイクは既存の recoverMic / startListening で戻す)。殻も裏へ行けば自分で止める(AppDelegate.swift)。
+// Web(殻でない)では試し口を出さない(殻の新しいメソッドが無い)。殻のクリックと拍の表示のズレはこの試しでは問わない。
+export const AUDIO_DIAG_PLAYBACKS = ["web", "nativeClick", "nativeBoth"];
+const SHELL_NATIVE = {
+  load: shellNativeClickLoad, start: shellNativeClickStart, stop: shellNativeClickStop,
+  inStart: shellNativeInputStart, inStop: shellNativeInputStop, info: shellNativeAudioInfo,
+};
+const nativeErr = (r) => (r && r.error ? String(r.error) : "");
+// 殻への呼び出しは1本の列で順に送る(開始と停止が入れ替わって音が残らないように)
+function nativeEnqueue(fn) {
+  const st = AUDIO_DIAG.native;
+  st.chain = st.chain.then(fn).catch((e) => { st.error = String(e?.message || e); });
+  return st.chain;
+}
+// Float32 の標本 → base64(殻へ1回だけ渡す)
+export function audioDiagFloat32ToBase64(f32) {
+  const bytes = new Uint8Array(f32.buffer, f32.byteOffset, f32.byteLength);
+  let s = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+const absPeak = (d) => { let p = 0; for (let i = 0; i < d.length; i++) p = Math.max(p, Math.abs(d[i])); return p; };
+// クリックの3段を描き出して殻へ渡す(sampleRate が替わったときだけ描き直す)。描いた3段のピークは板の nativeBuf に出す
+async function nativeEnsureLoaded(sampleRate, api) {
+  const st = AUDIO_DIAG.native;
+  if (st.loadedRate === sampleRate) return true;
+  if (!AUDIO_DIAG.renderClicks) { st.error = "load: no renderer"; return false; }
+  const r = await AUDIO_DIAG.renderClicks(sampleRate);
+  st.bufPeaks = { rate: sampleRate, accent: absPeak(r.accent), beat: absPeak(r.beat), sub: absPeak(r.sub) };
+  const res = await api.load({
+    sampleRate, accent: audioDiagFloat32ToBase64(r.accent), beat: audioDiagFloat32ToBase64(r.beat), sub: audioDiagFloat32ToBase64(r.sub),
+  });
+  if (!res || res.error) { st.error = `load: ${nativeErr(res) || "?"}`; return false; }
+  st.loadedRate = sampleRate;
+  return true;
+}
+// 殻のクリックをメトロノームに合わせる(板が開いている間、ピークの読み取りと同じ間隔で呼ぶ)。
+// 鳴っていれば今の設定の1小節の並びで開始(設定が変わったら渡し直す)、止まれば停止。計測タブを離れた・裏へ行ったら web に戻す。
+export function audioDiagSyncNativeClick(api = SHELL_NATIVE) {
+  if (AUDIO_DIAG.playback === "web") return;
+  const st = AUDIO_DIAG.native;
+  const m = AUDIO_DIAG.getMetro ? AUDIO_DIAG.getMetro() : null;
+  if (!m || (typeof document !== "undefined" && document.hidden)) { audioDiagSetPlayback("web", api); return; }
+  const want = m.on && m.ctx && typeof m.clickPattern === "function" ? m.clickPattern() : null;
+  const rate = m.ctx ? m.ctx.sampleRate : null;
+  const key = want ? JSON.stringify([rate, want.stepSec, want.kinds]) : null;
+  if (key === st.clickKey) return;
+  st.clickKey = key;
+  nativeEnqueue(async () => {
+    if (st.clickKey !== key) return; // 列で待っている間に替わった(鳴らし方を戻した等)
+    if (!want) {
+      const r = await api.stop();
+      if (nativeErr(r)) st.error = `stop: ${nativeErr(r)}`;
+      return;
+    }
+    if (!(await nativeEnsureLoaded(rate, api))) return;
+    if (st.clickKey !== key) return; // 描いている間に替わった(止めた・web に戻した)
+    const r = await api.start({ stepSec: want.stepSec, kinds: want.kinds });
+    if (nativeErr(r)) st.error = `start: ${nativeErr(r)}`;
+  });
+}
+// 鳴らし方を選ぶ。同じものをもう一度押すと開き直す(殻のエンジンが止まった〈configurationChange〉ときの再開)。
+// 【便CU 審査】戻す道(web)は**殻のクリックを先に止めてから** Web の音を戻す(二重に鳴らさない): 列の先頭で nativeClickStop →
+// 殻の取り込みを止める(nativeInputStop。殻はクリックが止まっているので鳴らし直さない)→ Web のマイクを戻す → Web のマスターを戻す。
+// 戻すと決めた時点の ctx はその場でマスター 0 にし、殻のクリックを止め終わった時点で(そのときの ctx に)基の値 × 倍率を当て直す。
+// 【便CU 再審査 統括の裁定 (a)】「止め終わるまで」の印は audioDiagApplyMetroGain の判定に入れない ── 列の前の処理(描き出し・前の restore・殻の呼び出し)が
+// 終わらないと印が残り、以後の本番の START(startMetronome → audioDiagApplyMetroGain)が新しい ctx を 0 にしてメトロノームが無音になるため。
+// 止め終わる前に START で作り直した ctx が殻と一瞬二重に鳴るのは、試し口の範囲として許す。
+// opts.skipRestore: Web のマイクを戻さない(呼び手が自分で取る。録音の開始〈App.jsx の toggleRecording〉が使う)。
+export function audioDiagSetPlayback(mode, api = SHELL_NATIVE, opts = {}) {
+  if (!AUDIO_DIAG_PLAYBACKS.includes(mode)) return Promise.resolve();
+  const st = AUDIO_DIAG.native;
+  if (mode === "nativeBoth" && (!AUDIO_DIAG.webMic || AUDIO_DIAG.webMic.recording())) {
+    st.error = AUDIO_DIAG.webMic ? "nativeBoth: recording" : "nativeBoth: no web mic";
+    return Promise.resolve();
+  }
+  const prev = AUDIO_DIAG.playback;
+  AUDIO_DIAG.playback = mode;
+  st.clickKey = null;
+  st.error = "";
+  const applyGain = () => {
+    const m = AUDIO_DIAG.getMetro ? AUDIO_DIAG.getMetro() : null;
+    audioDiagApplyMetroGain(m ? m.ctx : null, AUDIO_DIAG.metroGainX);
+  };
+  if (mode === "web" && prev !== "web") {
+    // 戻すと決めた時点の ctx は、殻のクリックを止め終わるまで 0 のまま(二重に鳴らさない)
+    const m = AUDIO_DIAG.getMetro ? AUDIO_DIAG.getMetro() : null;
+    audioDiagApplyMetroGain(m ? m.ctx : null, 0);
+  } else {
+    // Web Audio のメトロノームのミュート(native の間はマスター 0)
+    applyGain();
+  }
+  audioDiagResetPeak();
+  return nativeEnqueue(async () => {
+    if (mode === "web" && prev !== "web") {
+      const r = await api.stop();
+      if (nativeErr(r)) st.error = `stop: ${nativeErr(r)}`;
+    }
+    if (prev === "nativeBoth" && mode !== "nativeBoth") {
+      const r = await api.inStop();
+      if (nativeErr(r)) st.error = `inStop: ${nativeErr(r)}`;
+      if (AUDIO_DIAG.webMic && !opts.skipRestore) await AUDIO_DIAG.webMic.restore();
+    }
+    if (mode === "web") {
+      if (AUDIO_DIAG.playback === "web") applyGain(); // 殻のクリックを止め終わってから Web のマスターを戻す
+      return;
+    }
+    if (mode === "nativeBoth") {
+      // 殻の取り込みを先に始める(Web の取り込みが動いている = 種別が playAndRecord の間に)。それから Web のマイクを止める。
+      // 【便CU 審査】殻の取り込みが始められなかった(失敗を返した・投げた)ら、Web のマイクは止めず、鳴らし方を前の値に戻し、Web のマスターも戻す。
+      // 開き直し(前も nativeBoth)で失敗したときは、Web のマイクはもう止まっているので戻し、殻のクリックだけの nativeClick にする
+      let err = "";
+      try { err = nativeErr(await api.inStart()); } catch (e) { err = String(e?.message || e); }
+      if (err) {
+        st.error = `inStart: ${err}`;
+        if (AUDIO_DIAG.playback === "nativeBoth") {
+          AUDIO_DIAG.playback = prev === "nativeBoth" ? "nativeClick" : prev;
+          st.clickKey = null; // 列で待っているクリックの開始は捨てる(戻した鳴らし方で合わせ直す)
+          applyGain();
+          if (prev === "nativeBoth" && AUDIO_DIAG.webMic) await AUDIO_DIAG.webMic.restore();
+        }
+        return;
+      }
+      if (AUDIO_DIAG.playback === "nativeBoth" && AUDIO_DIAG.webMic) AUDIO_DIAG.webMic.stop();
+    }
+  }).then(() => { audioDiagSyncNativeClick(api); });
+}
 
 // 【便CT】メトロノームの ctx にマスターの倍率を当てる。鎖がまだ無ければ ctx に置くだけ(getMetroMasterInput が組むときに掛ける)、
 // あれば今のマスターの節点に基の値 × 倍率を入れる(鳴らしている最中でも効く)。基の値と節点は App.jsx の getMetroMasterInput が ctx に置く。
+// 【便CU】試し口「鳴らし方」が native の間は倍率の代わりに 0 を当てる(Web Audio のメトロノームのミュート。止めない)。web(既定)なら x のまま = 今までどおり。
 export function audioDiagApplyMetroGain(ctx, x) {
   if (!ctx) return;
-  ctx.__metroDiagGainX = x;
+  const eff = AUDIO_DIAG.playback === "web" ? x : 0;
+  ctx.__metroDiagGainX = eff;
   const m = ctx.__metroMasterGain;
-  if (m && ctx.__metroMasterBase > 0) m.gain.value = ctx.__metroMasterBase * x;
+  if (m && ctx.__metroMasterBase > 0) m.gain.value = ctx.__metroMasterBase * eff;
 }
 function audioDiagResetPeak() { AUDIO_DIAG.peak = { at: [], max: 0 }; }
 export function audioDiagSetMetroGain(x) {
@@ -69,9 +216,11 @@ export function audioDiagSetTestMode(mode, setMode = shellSetAudioTestMode) {
   });
 }
 // 【便CT 審査】板を閉じたときの戻し: gain は ×1、mode は default。殻へは毎回 default を頼む(板の覚えと殻の覚えがずれていても戻る。Web は何もしない)。
-export function audioDiagResetTests(setMode = shellSetAudioTestMode) {
+// 【便CU】鳴らし方も web に戻す(選んでいなければ殻を1回も呼ばない)。
+export function audioDiagResetTests(setMode = shellSetAudioTestMode, api = SHELL_NATIVE) {
   audioDiagSetMetroGain(1);
-  return audioDiagSetTestMode("default", setMode);
+  const playback = AUDIO_DIAG.playback !== "web" ? audioDiagSetPlayback("web", api) : Promise.resolve();
+  return Promise.all([audioDiagSetTestMode("default", setMode), playback]);
 }
 // メトロノームのマスターの出口(リミッターとマスターの後・出口の手前)のピークを1回読む。分析の節点は板が開いている間だけ付ける
 // (ctx.__metroPeakTap。出口へはつながない = 音には何もしない)。鎖がまだ無いとき・作れないときは null。
@@ -213,6 +362,22 @@ export function audioDiagRows(session, now = Date.now()) {
   const pk = AUDIO_DIAG.peak;
   const recent = pk.at.reduce((a, [, v]) => Math.max(a, v), 0);
   rows.push(["clickPeak", pk.at.length ? `${recent.toFixed(3)} max=${pk.max.toFixed(3)}${pk.max > 1 ? " clip" : ""}` : "—"]);
+  // 【便CU】試し口「鳴らし方」(殻だけ)。nativeEngine = 殻の AVAudioEngine の状態(running か・act = このプロセスで setActive(true) かエンジンの start を一度でも成功させたか・クリック・取り込み・構成の変化の回数・最後のエラー。js= は JS 側の失敗)、
+  // nativeBuf = 殻へ渡したクリックの3段のピーク(この端末の OfflineAudioContext で描いた値。Web の出口と同じ鎖)、nativeIn = 殻の取り込みの入力レベル(nativeBoth のとき)
+  if (isNativeShell()) {
+    const st = AUDIO_DIAG.native;
+    const ni = st.info;
+    rows.push(["playback", AUDIO_DIAG.playback]);
+    rows.push(["nativeEngine", (ni === undefined ? "…"
+      : !ni || ni.error ? `n/a (要ビルド: ${ni?.error ?? "?"})`
+      : `running=${yn(ni.engineRunning)} act=${yn(ni.activated)} click=${yn(ni.clickOn)} in=${yn(ni.inputOn)} cfg=${ni.configChanges ?? 0} err=${ni.lastError || "—"}`)
+      + (st.error ? ` js=${st.error}` : "")]);
+    const bp = st.bufPeaks;
+    rows.push(["nativeBuf", bp ? `${bp.accent.toFixed(3)}/${bp.beat.toFixed(3)}/${bp.sub.toFixed(3)} @${bp.rate}` : "—"]);
+    if (AUDIO_DIAG.playback === "nativeBoth") {
+      rows.push(["nativeIn", ni && typeof ni.inputDb === "number" ? `${ni.inputDb.toFixed(1)} dBFS` : "—"]);
+    }
+  }
   return rows;
 }
 
@@ -259,7 +424,11 @@ export function AudioDiagPanel({ onClose }) {
   useEffect(() => {
     let alive = true;
     const read = () => {
-      shellAudioSessionInfo().then((session) => { if (alive) setRows(audioDiagRows(session)); });
+      // 【便CU】殻では殻の AVAudioEngine の状態も読む(読むだけ)。Web は読まない
+      const nat = isNativeShell()
+        ? shellNativeAudioInfo().then((ni) => { AUDIO_DIAG.native.info = ni; })
+        : Promise.resolve();
+      Promise.all([shellAudioSessionInfo(), nat]).then(([session]) => { if (alive) setRows(audioDiagRows(session)); });
     };
     read();
     const id = setInterval(read, 1000);
@@ -270,10 +439,16 @@ export function AudioDiagPanel({ onClose }) {
       const m = AUDIO_DIAG.getMetro ? AUDIO_DIAG.getMetro() : null;
       const ctx = m ? m.ctx : null;
       if (ctx && audioDiagReadPeak(ctx) !== null) tapped.add(ctx);
+      // 【便CU】鳴らし方が native の間、殻のクリックをメトロノームに合わせる(同じ間隔。web なら何もしない)
+      audioDiagSyncNativeClick();
     };
     const pid = setInterval(readPeak, AUDIO_DIAG_PEAK_POLL_MS);
+    // 【便CU】裏へ行ったら鳴らし方を web に戻す(殻のクリックと取り込みを止める。Web のマイクは戻ったときの既存の取り直しで戻る)
+    const onHide = () => { if (document.hidden && AUDIO_DIAG.playback !== "web") audioDiagSetPlayback("web"); };
+    document.addEventListener("visibilitychange", onHide);
     return () => {
       alive = false; clearInterval(id); clearInterval(pid);
+      document.removeEventListener("visibilitychange", onHide);
       for (const ctx of tapped) audioDiagDropPeakTap(ctx);
       // 【便CT 審査 統括の裁定】板を閉じたら試し口を元に戻す(gain ×1・殻の mode default)。
       // 戻し忘れると、その起動のあいだ割れが続き、計測の値も変わるため。開いている間の聞き比べは今のまま
@@ -286,6 +461,14 @@ export function AudioDiagPanel({ onClose }) {
     setPick((n) => n + 1);
   };
   const pickGain = (x) => { audioDiagSetMetroGain(x); setPick((n) => n + 1); };
+  // 【便CU】鳴らし方(殻だけ)。選んだら行を読み直す
+  const shell = isNativeShell();
+  const pickPlayback = (p) => {
+    audioDiagSetPlayback(p)
+      .then(() => Promise.all([shellAudioSessionInfo(), shellNativeAudioInfo().then((ni) => { AUDIO_DIAG.native.info = ni; })]))
+      .then(([s]) => { setPick((n) => n + 1); setRows(audioDiagRows(s)); });
+    setPick((n) => n + 1);
+  };
   const pill = (on) => ({
     minHeight: "var(--tap-min)", padding: "0 var(--sp-2)", borderRadius: "var(--r-2)",
     border: `1px solid ${on ? "var(--c-accent)" : "var(--c-line-strong)"}`, background: "none",
@@ -326,6 +509,16 @@ export function AudioDiagPanel({ onClose }) {
             style={pill(AUDIO_DIAG.metroGainX === x)} onClick={() => pickGain(x)}>{`x${x}`}</button>
         ))}
       </div>
+      {/* 【便CU】鳴らし方(殻だけ。Web は出さない)。保存しない・閉じたら web に戻る */}
+      {shell && (
+        <div data-diag-test="playback" style={{ display: "flex", flexWrap: "wrap", gap: "var(--sp-1)", marginTop: "var(--sp-1)" }}>
+          {AUDIO_DIAG_PLAYBACKS.map((p) => (
+            <button key={p} type="button" className="sans" data-diag-playback={p}
+              aria-pressed={AUDIO_DIAG.playback === p}
+              style={pill(AUDIO_DIAG.playback === p)} onClick={() => pickPlayback(p)}>{p}</button>
+          ))}
+        </div>
+      )}
       <button
         type="button" onClick={onClose} className="sans"
         style={{ marginTop: "var(--sp-1)", minHeight: "var(--tap-min)", width: "100%", background: "none", border: "none", color: "var(--c-accent)", fontSize: "var(--fs-sm)", cursor: "pointer" }}

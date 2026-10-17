@@ -32774,7 +32774,10 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
       /\n  master\.gain\.value = 2\.6;[^\n]*\n\s*if \(typeof ctx\.__metroMasterGainShell === "number"\) master\.gain\.value = ctx\.__metroMasterGainShell;\n/.test(fnMaster)
       && !/isNativeShell|METRO_MASTER_GAIN_SHELL/.test(fnMaster)
       && /\n      metroCtxRef\.current = ctx;\n    \}\n    if \(isNativeShell\(\)\) \{\n\s*ctx\.__metroMasterGainShell = METRO_MASTER_GAIN_SHELL;\n/.test(app)
-      && (app.match(/__metroMasterGainShell/g) || []).length === 3);
+      // 【便CU】4か所目: 診断の板の試し口「鳴らし方」で殻へ渡すクリックの描き出し(renderMetroClickSamples)が、OfflineAudioContext に殻の値を置く
+      // (殻の AVAudioEngine で鳴らす音を、殻のメトロノームと同じ鎖・同じマスターの値で描くため)。それ以外の所で置かない
+      && (app.match(/__metroMasterGainShell/g) || []).length === 4
+      && /\nasync function renderMetroClickSamples\(sampleRate, OfflineCtor\) \{[\s\S]*?\n    ctx\.__metroMasterGainShell = METRO_MASTER_GAIN_SHELL;\n    scheduleMetroClick\(ctx, head \/ sampleRate, kind\);\n[\s\S]*?\n\}\n/.test(app));
     // 【殻 S2 審査】イヤホンを外すと WebKit がメトロノームの ctx を止める。殻の枝でだけ onstatechange で再開する(Web には付けない)
     check("K.12 殻のメトロノームの ctx だけに onstatechange: 鳴らしている間・いまの ctx・画面が見えている・running でも closed でもないときに resume",
       /\n    if \(isNativeShell\(\)\) \{\n\s*ctx\.__metroMasterGainShell = METRO_MASTER_GAIN_SHELL;\n\s*const shellCtx = ctx;\n\s*shellCtx\.onstatechange = \(\) => \{\n\s*if \(metroOnRef\.current && metroCtxRef\.current === shellCtx && !document\.hidden\n\s*&& shellCtx\.state !== "running" && shellCtx\.state !== "closed"\) shellCtx\.resume\(\)\.catch\(\(\) => \{\}\);\n\s*\};\n    \}\n/.test(app)
@@ -32864,13 +32867,51 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
         `${swiftKeys.join(",")} / ${jsKeys.join(",")}`);
     }
     // 【便CT】setTestMode(診断の板の試し口。モードを替える)を足した
-    check("K.14 audioSession.native.js の registerPlugin の名前 = Swift の jsName(FicusAudioSession)・呼ぶメソッド routeToSpeaker / sessionInfo / setTestMode が Swift の pluginMethods と一致",
+    // 【便CU 2026-10-17】診断の板の試し口「鳴らし方」: 殻の AVAudioEngine の6つ(nativeClickLoad / nativeClickStart / nativeClickStop / nativeInputStart / nativeInputStop / nativeAudioInfo)を足した
+    const CU_METHODS = ["nativeClickLoad", "nativeClickStart", "nativeClickStop", "nativeInputStart", "nativeInputStop", "nativeAudioInfo"];
+    check("K.14 audioSession.native.js の registerPlugin の名前 = Swift の jsName(FicusAudioSession)・呼ぶメソッド routeToSpeaker / sessionInfo / setTestMode /【便CU】native* の6つ が Swift の pluginMethods と一致",
       jsName === "FicusAudioSession" && swiftJsName === jsName
       && /export const routeToSpeaker = \(\) => P\.routeToSpeaker\(\);/.test(as) && /export const sessionInfo = \(\) => P\.sessionInfo\(\);/.test(as)
       && /export const setTestMode = \(mode\) => P\.setTestMode\(\{ mode \}\);/.test(as)
+      && /export const nativeClickLoad = \(o\) => P\.nativeClickLoad\(o\);/.test(as) && /export const nativeClickStart = \(o\) => P\.nativeClickStart\(o\);/.test(as)
       && JSON.stringify([...as.matchAll(/P\.(\w+)\(/g)].map((m) => m[1]).sort()) === JSON.stringify([...swiftMethods].sort())
-      && JSON.stringify(swiftMethods) === JSON.stringify(["routeToSpeaker", "sessionInfo", "setTestMode"])
-      && /@objc func routeToSpeaker\(_ call: CAPPluginCall\)/.test(swift), `${jsName} / ${swiftJsName} / ${swiftMethods}`);
+      && JSON.stringify(swiftMethods) === JSON.stringify(["routeToSpeaker", "sessionInfo", "setTestMode", ...CU_METHODS])
+      && /@objc func routeToSpeaker\(_ call: CAPPluginCall\)/.test(swift)
+      && CU_METHODS.every((n) => new RegExp(`@objc func ${n}\\(_ call: CAPPluginCall\\)`).test(swift)), `${jsName} / ${swiftJsName} / ${swiftMethods}`);
+    // 【便CU】殻の AVAudioEngine の綴り(Swift はここでは走らない。鳴るか・取れるか・大きくなるかは実機待ち):
+    //   取り込みのタップはハードウェアの形式(inputNode.inputFormat(forBus: 0))で、付ける直前に removeTap・片付けでも外す
+    //   裏へ行ったら(didEnterBackground)クリックも取り込みも止める・構成の変化(AVAudioEngineConfigurationChange)ではエンジンを捨てる
+    //   種別は替えない(setCategory は K.6 の3か所のまま)・非活性(setActive(false))にしない
+    //   予約の値(先読みの秒・間隔の ms)は Web の metroSchedulerTick と同じ(App.jsx から読む)
+    //   JS の呼び口は Web では null を返す(動的 import もしない)
+    {
+      const sc = swift.split("\n").map((l) => l.replace(/\/\/.*$/, "")).join("\n");
+      const appS = codeOf(readS("src/App.jsx"));
+      const webLook = parseFloat((/const LOOKAHEAD = ([\d.]+);/.exec(appS) || [])[1]);
+      const webTick = parseInt((/setInterval\(metroSchedulerTickTimed, (\d+)\)/.exec(appS) || [])[1], 10);
+      const natLook = parseFloat((/static let clickLookaheadSec: Double = ([\d.]+)\n/.exec(sc) || [])[1]);
+      const natTick = parseInt((/static let clickTimerMs: Int = (\d+)\n/.exec(sc) || [])[1], 10);
+      const bg = (/@objc func handleTestEngineBackground\(_ notification: Notification\) \{[\s\S]*?\n    \}\n/.exec(sc) || [""])[0];
+      const cfg = (/@objc func handleTestEngineConfigChange\(_ notification: Notification\) \{[\s\S]*?\n    \}\n/.exec(sc) || [""])[0];
+      const stop = (/@objc func nativeClickStop\(_ call: CAPPluginCall\) \{[\s\S]*?\n    \}\n/.exec(sc) || [""])[0];
+      check("K.14 AppDelegate.swift: 【便CU】タップはハードウェアの形式で removeTap の直後に1か所・片付けでも外す・裏へ行けば止める・構成の変化で捨てる・種別を替えない・非活性にしない(活性にした印 act を返す)・play の前にエンジンが動いているか見る・予約の値は Web と同じ・JS は Web で null",
+        /let format = input\.inputFormat\(forBus: 0\)/.test(sc)
+        && /\n\s*input\.removeTap\(onBus: 0\)\n\s*input\.installTap\(onBus: 0, bufferSize: [\w.]+, format: format\)/.test(sc)
+        && (sc.match(/installTap\(/g) || []).length === 1
+        && /if testTapInstalled \{ engine\.inputNode\.removeTap\(onBus: 0\) \}/.test(sc)
+        && /name: UIApplication\.didEnterBackgroundNotification/.test(sc)
+        && /self\.clickOn = false/.test(bg) && /self\.inputOn = false/.test(bg) && /self\.teardownTestEngine\(\)/.test(bg)
+        && /self\.teardownTestEngine\(\)/.test(cfg) && /name: \.AVAudioEngineConfigurationChange/.test(sc)
+        && /self\.clickOn = false/.test(stop) && /if !self\.inputOn \{ self\.teardownTestEngine\(\) \}/.test(stop)
+        && !/setActive\(false/.test(sc)
+        // 【便CU 審査】活性にした印(setActive(true) の成功・エンジンの start の成功の3か所で立て、nativeAudioInfo で返す = 板の act=)
+        && /"activated": self\.testActivated/.test(sc) && (sc.match(/\n\s*testActivated = true\n/g) || []).length === 3
+        // 【便CU 審査】プレーヤーの play() の前にエンジンが動いているかを見る(動いていないエンジンのプレーヤーに呼ぶと例外で落ちる)
+        && /\n\s*guard let engine = testEngine, engine\.isRunning else \{[^}]*\}\n\s*player\.play\(\)/.test(sc) && (sc.match(/player\.play\(\)/g) || []).length === 1
+        && Number.isFinite(webLook) && webLook === natLook && Number.isFinite(webTick) && webTick === natTick
+        && /function shellNativeCall\(name, arg\) \{\n  if \(!isNativeShell\(\)\) return Promise\.resolve\(null\);\n  return import\("\.\/audioSession\.native\.js"\)/.test(audio),
+        `先読み Web ${webLook} / 殻 ${natLook} · 間隔 Web ${webTick} / 殻 ${natTick} · installTap ${(sc.match(/installTap\(/g) || []).length}`);
+    }
   }
 
   // --- K.15 開発版の殻(ios-dev)と本番(ios-testflight)の分け ----------------------------------------------------------

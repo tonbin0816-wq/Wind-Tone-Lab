@@ -79,7 +79,13 @@ public class FicusAudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "routeToSpeaker", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "sessionInfo", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "setTestMode", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "setTestMode", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "nativeClickLoad", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "nativeClickStart", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "nativeClickStop", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "nativeInputStart", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "nativeInputStop", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "nativeAudioInfo", returnType: CAPPluginReturnPromise)
     ]
 
     // 殻の音のセッションの選択肢(値の唯一の答え)。
@@ -116,6 +122,11 @@ public class FicusAudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
         NotificationCenter.default.addObserver(self,
                                                selector: #selector(handleRouteChange(_:)),
                                                name: AVAudioSession.routeChangeNotification,
+                                               object: nil)
+        // 【便CU】診断の板の試し口「鳴らし方」: 裏へ行ったら殻のクリックと取り込みを止める(JS も板の側で web に戻す)
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(handleTestEngineBackground(_:)),
+                                               name: UIApplication.didEnterBackgroundNotification,
                                                object: nil)
     }
 
@@ -304,5 +315,328 @@ public class FicusAudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
         if outputs.contains(.builtInReceiver) {
             try session.overrideOutputAudioPort(.speaker)
         }
+    }
+
+    // ============================================================
+    // 【便CU 2026-10-17】診断の板の試し口「鳴らし方」(nativeClick / nativeBoth)。本番では誰も呼ばない(板で選んだときだけ・保存しない)。
+    // 本人の実機: 便CT の試し口(このプロセスのセッションのモード 5種・マスターの倍率 ×1/1.3/1.6)では、聞こえる音量が変わらなかった。
+    // 仮説: Web Audio の音とマイクの取り込みは WebKit の GPU プロセス側の音のセッションで動き、取り込み中 WebKit はそれを playAndRecord + videoChat
+    // (通話)に立て直す。このプロセスのセッションを替えても聞こえる音に効かないのはそのため。そこでメトロノームのクリックを**このプロセスの
+    // AVAudioEngine** で鳴らし(nativeClick)、さらに Web の取り込みを止めて**このプロセスで**マイクを取る(nativeBoth)と大きくなるかを見る。
+    //   クリックの音: JS が OfflineAudioContext で描いた今の Web のクリック(3段・モノラルの Float32・base64)を nativeClickLoad で1回受け取る。
+    //   鳴らし方: AVAudioPlayerNode に sample time で予約する。予約の値は Web の metroSchedulerTick と同じ(25ms ごとに 0.12 秒先まで・
+    //            始めは今から 0.12 秒後・1回の予約は 512 個まで)。1小節ぶんの並び(stepSec ごとの kinds)は JS が渡し、設定が変わったら渡し直す。
+    //   取り込み: inputNode のハードウェアの形式(inputFormat(forBus: 0))でタップを付け、入力のレベル(RMS の dBFS)だけを控える(標本は捨てる)。
+    //   セッション: 種別・モード・選択肢は今のまま(ここでは種別を替えない)。エンジンを始める前に setActive(true)(失敗は記録だけ)。
+    //            止めるときも非活性にはしない(WebKit の音まで止めうるため)。
+    //   止める: nativeClickStop / nativeInputStop(両方止まればエンジンを捨てる)・裏へ行く(didEnterBackground)・エンジンの構成の変化
+    //          (AVAudioEngineConfigurationChange。エンジンは止まるので捨てて記録する。自分では始め直さない ── 板で同じボタンを押すと始め直す)。
+    // エンジンの操作はすべて testQueue(直列)の上で行う。タップの中(音のスレッド)は入力のレベルを鍵の中で書くだけ。
+    // ============================================================
+    private let testQueue = DispatchQueue(label: "FicusAudioSession.testEngine")
+    private var testEngine: AVAudioEngine? = nil
+    private var testPlayer: AVAudioPlayerNode? = nil
+    private var testTapInstalled = false
+    private var clickFormat: AVAudioFormat? = nil
+    private var clickBuffers: [String: AVAudioPCMBuffer] = [:]
+    private var clickKinds: [String] = []
+    private var clickStepSec: Double = 0
+    private var clickOn = false
+    private var clickIndex = 0
+    private var clickNextSample: Double = -1
+    private var clickTimer: DispatchSourceTimer? = nil
+    private var inputOn = false
+    private var testLastError = ""
+    private var testConfigChanges = 0
+    // 【便CU 審査】このプロセスで setActive(true) かエンジンの start を一度でも成功させたか(以後ずっと true。非活性には戻さないので、
+    // 一度この試しを使うと、起動し直すまでこのプロセスのセッションは活性のまま = web の聞こえ方が試しの前と同じとは限らない)。板の act= に出す
+    private var testActivated = false
+    private var inputLevelDb: Double? = nil
+    private let inputLevelLock = NSLock()
+    // Web の metroSchedulerTick と同じ値(LOOKAHEAD 0.12 秒・setInterval 25ms・始めは currentTime + 0.12・guard 512)
+    static let clickLookaheadSec: Double = 0.12
+    static let clickTimerMs: Int = 25
+    static let clickMaxPerTick: Int = 512
+    // タップの大きさ(フレーム。iOS は目安として扱う)。入力のレベルを見るだけなので小さくなくてよい
+    static let inputTapFrames: AVAudioFrameCount = 4096
+
+    // { sampleRate, accent, beat, sub }(3つは Float32 の標本の base64)。形式(標本化周波数)が替わったらエンジンを作り直す。
+    @objc func nativeClickLoad(_ call: CAPPluginCall) {
+        guard let rate = call.getDouble("sampleRate"), rate > 0,
+              let format = AVAudioFormat(standardFormatWithSampleRate: rate, channels: 1) else {
+            call.reject("bad sampleRate")
+            return
+        }
+        var buffers: [String: AVAudioPCMBuffer] = [:]
+        for kind in ["accent", "beat", "sub"] {
+            guard let b64 = call.getString(kind),
+                  let buffer = FicusAudioSessionPlugin.pcmBuffer(base64: b64, format: format) else {
+                call.reject("bad buffer: \(kind)")
+                return
+            }
+            buffers[kind] = buffer
+        }
+        let loaded = buffers
+        testQueue.async {
+            // 今のエンジンのプレーヤーは前の形式(無ければ既定の形式)でつないである。形式が違うバッファを予約すると落ちるので、作り直す
+            let formatChanged = self.clickFormat?.sampleRate != format.sampleRate
+            self.clickFormat = format
+            self.clickBuffers = loaded
+            if formatChanged && self.testEngine != nil {
+                self.teardownTestEngine()
+                if self.clickOn || self.inputOn { self.startTestEngineAndClick() }
+            }
+            call.resolve(["frames": loaded.mapValues { Int($0.frameLength) }])
+        }
+    }
+
+    // { stepSec, kinds }(1小節ぶんの並び)で鳴らし始める。もう鳴っていれば頭から始め直す。
+    @objc func nativeClickStart(_ call: CAPPluginCall) {
+        let kinds = (call.getArray("kinds") ?? []).compactMap { $0 as? String }
+        guard let step = call.getDouble("stepSec"), step > 0, !kinds.isEmpty else {
+            call.reject("bad pattern")
+            return
+        }
+        testQueue.async {
+            guard self.clickFormat != nil, !self.clickBuffers.isEmpty else {
+                call.reject("not loaded")
+                return
+            }
+            self.clickKinds = kinds
+            self.clickStepSec = step
+            self.clickOn = true
+            if let err = self.startTestEngineAndClick() {
+                call.reject(err)
+                return
+            }
+            call.resolve(["running": self.testEngine?.isRunning ?? false])
+        }
+    }
+
+    @objc func nativeClickStop(_ call: CAPPluginCall) {
+        testQueue.async {
+            self.clickOn = false
+            self.clickTimer?.cancel()
+            self.clickTimer = nil
+            self.testPlayer?.stop()
+            if !self.inputOn { self.teardownTestEngine() }
+            call.resolve()
+        }
+    }
+
+    // 取り込み中(playAndRecord)のときだけ受ける(ここでは種別を替えない)。入力を足すのでエンジンを作り直す(鳴らしていれば始め直す)。
+    @objc func nativeInputStart(_ call: CAPPluginCall) {
+        guard AVAudioSession.sharedInstance().category == .playAndRecord else {
+            call.reject("not playAndRecord")
+            return
+        }
+        testQueue.async {
+            self.inputOn = true
+            self.teardownTestEngine()
+            if let err = self.startTestEngineAndClick() {
+                self.inputOn = false
+                if self.clickOn { self.startTestEngineAndClick() }
+                call.reject(err)
+                return
+            }
+            call.resolve(["running": self.testEngine?.isRunning ?? false])
+        }
+    }
+
+    // 入力を外す(エンジンを捨てる。鳴らしていれば入力なしで始め直す)。
+    // 【便CU 審査】web へ戻すとき JS は nativeClickStop を先に呼ぶので、ここへ来たときは clickOn = false = 鳴らし直さない(Web と二重に鳴らさない)。
+    // 鳴らし直すのは nativeBoth → nativeClick のときだけ。
+    @objc func nativeInputStop(_ call: CAPPluginCall) {
+        testQueue.async {
+            self.inputOn = false
+            self.teardownTestEngine()
+            self.inputLevelLock.lock()
+            self.inputLevelDb = nil
+            self.inputLevelLock.unlock()
+            if self.clickOn { self.startTestEngineAndClick() }
+            call.resolve()
+        }
+    }
+
+    // 板が1秒ごとに読む(読むだけ)。inputDb は取り込みのタップが1回でも来ていれば。
+    @objc func nativeAudioInfo(_ call: CAPPluginCall) {
+        testQueue.async {
+            var info: [String: Any] = [
+                "engineRunning": self.testEngine?.isRunning ?? false,
+                "clickOn": self.clickOn,
+                "inputOn": self.inputOn,
+                "lastError": self.testLastError,
+                "configChanges": self.testConfigChanges,
+                "activated": self.testActivated
+            ]
+            self.inputLevelLock.lock()
+            let db = self.inputLevelDb
+            self.inputLevelLock.unlock()
+            if let db = db { info["inputDb"] = db }
+            call.resolve(info)
+        }
+    }
+
+    // エンジンを用意して(無ければ作る)、鳴らしていればクリックの予約を頭から始め直す。失敗は testLastError に控え、エンジンを捨てて返す。testQueue の上で呼ぶ。
+    @discardableResult
+    private func startTestEngineAndClick() -> String? {
+        if let err = ensureTestEngine() {
+            testLastError = err
+            teardownTestEngine()
+            return err
+        }
+        clickTimer?.cancel()
+        clickTimer = nil
+        testPlayer?.stop()
+        clickIndex = 0
+        clickNextSample = -1
+        guard clickOn, let player = testPlayer else { return nil }
+        // 【便CU 審査】動いていないエンジンのプレーヤーに play を呼ぶと例外で落ちる
+        guard let engine = testEngine, engine.isRunning else {
+            testLastError = "engine not running"
+            return "engine not running"
+        }
+        player.play()
+        let timer = DispatchSource.makeTimerSource(queue: testQueue)
+        timer.schedule(deadline: .now(), repeating: .milliseconds(FicusAudioSessionPlugin.clickTimerMs))
+        timer.setEventHandler { [weak self] in self?.clickTick() }
+        clickTimer = timer
+        timer.resume()
+        return nil
+    }
+
+    // エンジン(プレーヤー → mainMixer。nativeBoth のときは入力のタップも)を作って始める。失敗の文を返す。testQueue の上で呼ぶ。
+    private func ensureTestEngine() -> String? {
+        if let engine = testEngine {
+            if engine.isRunning { return nil }
+            do {
+                try engine.start()
+                testActivated = true
+                return nil
+            } catch {
+                return "start: \(error.localizedDescription)"
+            }
+        }
+        do {
+            try AVAudioSession.sharedInstance().setActive(true)
+            testActivated = true
+        } catch {
+            testLastError = "setActive: \(error.localizedDescription)"
+        }
+        let engine = AVAudioEngine()
+        let player = AVAudioPlayerNode()
+        engine.attach(player)
+        engine.connect(player, to: engine.mainMixerNode, format: clickFormat)
+        testEngine = engine
+        testPlayer = player
+        if inputOn {
+            let input = engine.inputNode
+            let format = input.inputFormat(forBus: 0) // ハードウェアの形式(別の形式を渡すとタップが落ちる)
+            guard format.sampleRate > 0, format.channelCount > 0 else { return "no input format" }
+            input.removeTap(onBus: 0)
+            input.installTap(onBus: 0, bufferSize: FicusAudioSessionPlugin.inputTapFrames, format: format) { [weak self] buffer, _ in
+                self?.noteInputLevel(buffer)
+            }
+            testTapInstalled = true
+        }
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(handleTestEngineConfigChange(_:)),
+                                               name: .AVAudioEngineConfigurationChange,
+                                               object: engine)
+        engine.prepare()
+        do {
+            try engine.start()
+            testActivated = true
+        } catch {
+            return "start: \(error.localizedDescription)"
+        }
+        return nil
+    }
+
+    // 25ms ごと(testQueue)。プレーヤーの時計(sample time)で 0.12 秒先までのクリックを予約する。過ぎてしまっていたら今から 0.12 秒後へ置き直す。
+    private func clickTick() {
+        guard clickOn, !clickKinds.isEmpty, clickStepSec > 0,
+              let engine = testEngine, engine.isRunning, let player = testPlayer,
+              let nodeTime = player.lastRenderTime, nodeTime.isSampleTimeValid,
+              let playerTime = player.playerTime(forNodeTime: nodeTime) else { return }
+        let rate = playerTime.sampleRate
+        let now = Double(playerTime.sampleTime)
+        let ahead = FicusAudioSessionPlugin.clickLookaheadSec * rate
+        if clickNextSample < now { clickNextSample = now + ahead }
+        var count = 0
+        while clickNextSample < now + ahead && count < FicusAudioSessionPlugin.clickMaxPerTick {
+            count += 1
+            let kind = clickKinds[clickIndex % clickKinds.count]
+            if let buffer = clickBuffers[kind] {
+                player.scheduleBuffer(buffer,
+                                      at: AVAudioTime(sampleTime: AVAudioFramePosition(clickNextSample), atRate: rate),
+                                      options: [],
+                                      completionHandler: nil)
+            }
+            clickIndex = (clickIndex + 1) % clickKinds.count
+            clickNextSample += clickStepSec * rate
+        }
+    }
+
+    // 予約の時計・プレーヤー・タップ・エンジンを片付ける(clickOn / inputOn はそのまま)。testQueue の上で呼ぶ。
+    private func teardownTestEngine() {
+        clickTimer?.cancel()
+        clickTimer = nil
+        clickNextSample = -1
+        if let engine = testEngine {
+            NotificationCenter.default.removeObserver(self, name: .AVAudioEngineConfigurationChange, object: engine)
+            testPlayer?.stop()
+            if testTapInstalled { engine.inputNode.removeTap(onBus: 0) }
+            engine.stop()
+        }
+        testTapInstalled = false
+        testEngine = nil
+        testPlayer = nil
+    }
+
+    // 入力のレベル(RMS の dBFS)。タップのスレッドで呼ばれる。
+    private func noteInputLevel(_ buffer: AVAudioPCMBuffer) {
+        guard let samples = buffer.floatChannelData?[0] else { return }
+        let n = Int(buffer.frameLength)
+        guard n > 0 else { return }
+        var sum: Float = 0
+        for i in 0..<n { sum += samples[i] * samples[i] }
+        let db = 20 * log10(Double(sqrt(sum / Float(n))) + 1e-10)
+        inputLevelLock.lock()
+        inputLevelDb = db
+        inputLevelLock.unlock()
+    }
+
+    // エンジンの構成が変わった(経路の変化など)。エンジンは止まっているので捨て、回数と理由を控える(自分では始め直さない)。
+    @objc func handleTestEngineConfigChange(_ notification: Notification) {
+        testQueue.async {
+            guard let engine = notification.object as? AVAudioEngine, engine === self.testEngine else { return }
+            self.testConfigChanges += 1
+            self.testLastError = "configurationChange"
+            self.teardownTestEngine()
+        }
+    }
+
+    // 裏へ行った: クリックも取り込みも止める(戻っても勝手に鳴らさない)。
+    @objc func handleTestEngineBackground(_ notification: Notification) {
+        testQueue.async {
+            self.clickOn = false
+            self.inputOn = false
+            self.teardownTestEngine()
+        }
+    }
+
+    // base64 の Float32 の標本 → この形式(モノラル・Float32)のバッファ。
+    static func pcmBuffer(base64: String, format: AVAudioFormat) -> AVAudioPCMBuffer? {
+        guard let data = Data(base64Encoded: base64) else { return nil }
+        let frames = data.count / MemoryLayout<Float>.size
+        guard frames > 0,
+              let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frames)),
+              let dst = buffer.floatChannelData?[0] else { return nil }
+        data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
+            if let base = raw.baseAddress { memcpy(dst, base, frames * MemoryLayout<Float>.size) }
+        }
+        buffer.frameLength = AVAudioFrameCount(frames)
+        return buffer
     }
 }

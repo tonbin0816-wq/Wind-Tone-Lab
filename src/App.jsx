@@ -62,7 +62,7 @@ import { shellRouteToSpeaker, shellAvailableInputs } from "./shell/audio.js";
 // 【便CS】マイクはいつも端末の内蔵マイク(Bluetooth のイヤホン・有線のヘッドセットのマイクは使わない)
 import { preferBuiltInMicStream, trackLeftBuiltInMic } from "./builtInMic.js";
 // 【便CQ】音の診断の板(普段は見えない。計測タブで下部タブの「計測」を長押し)
-import { AUDIO_DIAG, AudioDiagPanel, useAudioDiagLongPress, installAudioDiagClock, audioDiagNoteStart, audioDiagNoteMicRecover, audioDiagApplyMetroGain } from "./audioDiag.jsx";
+import { AUDIO_DIAG, AudioDiagPanel, useAudioDiagLongPress, installAudioDiagClock, audioDiagNoteStart, audioDiagNoteMicRecover, audioDiagApplyMetroGain, audioDiagSetPlayback } from "./audioDiag.jsx";
 // 【殻 S3】広告の帯(AdMob)の呼び口。Web では何もしない(部品は ads.native.js を動的 import)。
 import { shellStartAdsOnce, shellSetAdsHidden } from "./shell/ads.js";
 // 【便BZ 2026-10-07 統括の裁定】殻が --ad-h を後から置いたときの知らせ(環の縮み・計測タブの枠を測り直す)。
@@ -2439,6 +2439,8 @@ export {
   noteAxisGuideName,
   // 【便BR 2026-10-03】登録のシートの初期値(reedAddDefaults.test.jsx が走らせる)。
   reedAddDefaults,
+  // 【便CU 2026-10-17】診断の板の試し口「鳴らし方」: 殻へ渡す1小節の並びと、殻で鳴らすクリックの描き出し(src/audioDiagNative.test.js が走らせる)。
+  metroNativeClickPattern, renderMetroClickSamples,
 };
 
 // 箱の中のタイルの並び順。表示順(sortOrder)が主で、長押し並び替えで変わる。
@@ -4993,6 +4995,9 @@ export default function WindToneLabPhaseMode() {
       return;
     }
     if (!streamRef.current) {
+      // 【便CU 審査】診断の板の試し口 nativeBoth の間(Web のマイクを止めている)に録音を始めたら、鳴らし方を web に戻す
+      // (殻のクリックと取り込みを止める。Web のマイクはこのあとの startListening がこのタップの中で取るので、板の側では戻さない)。選んでいなければ素通り
+      if (AUDIO_DIAG.playback === "nativeBoth") audioDiagSetPlayback("web", undefined, { skipRestore: true });
       const ok = await startListening();
       if (ok !== true) return; // 【便CS 再審査】失敗(false)も置き換え(MIC_START_SUPERSEDED)も録音を始めない
     }
@@ -5030,6 +5035,9 @@ export default function WindToneLabPhaseMode() {
   // 録音中は絶対に走らせない(セッションが壊れるため)。
   const recoverMic = useCallback(async (reason, urgent = false) => {
     if (isRecordingRef.current) return false;
+    // 【便CU】診断の板の試し口 nativeBoth の間は取り直さない(Web のマイクを止め、殻がマイクを取っている。ここで取り直すと WebKit の取り込みが戻り、
+    // 試しにならない)。板を閉じる・web に戻すと、板が playback を web にしてからここを呼んで戻す。試し口を選んでいなければ素通り
+    if (AUDIO_DIAG.playback === "nativeBoth") return false;
     // 【便CS 再審査】計測タブで、画面が見えているときだけ(他のタブ・裏でマイクを開かない)
     if (document.hidden || topTabRef.current !== "measure") return false;
     if (micRecoveringRef.current) return false;
@@ -5094,8 +5102,27 @@ export default function WindToneLabPhaseMode() {
       };
     };
     AUDIO_DIAG.getMic = getMic;
+    // 【便CU】診断の板の試し口 nativeBoth が使う、Web のマイクの止めと戻し(板が選んだときだけ呼ぶ。普段は誰も呼ばない)。
+    //   stop: 既存の stopListening(トラックの stop・解析の ctx を閉じる)。録音中は板が選ばせない(recording で見る)
+    //   restore: 既存の復旧の入口 recoverMic(タップの再試行と同じ短いクールダウン)。断られて(クールダウン等)マイクが無いままなら、既存の開始処理 startListening
+    const webMic = {
+      recording: () => isRecordingRef.current,
+      stop: () => { stopListeningRef.current(); },
+      restore: async () => {
+        const ok = await recoverMicRef.current("diag-playback-web", true);
+        if (ok !== true && !streamRef.current && !micRecoveringRef.current && !isRecordingRef.current
+          && topTabRef.current === "measure" && !document.hidden) return startListeningRef.current();
+        return ok;
+      },
+    };
+    AUDIO_DIAG.webMic = webMic;
+    AUDIO_DIAG.renderClicks = renderMetroClickSamples;
     const uninstall = installAudioDiagClock();
-    return () => { uninstall(); if (AUDIO_DIAG.getMic === getMic) AUDIO_DIAG.getMic = null; };
+    return () => {
+      uninstall();
+      if (AUDIO_DIAG.getMic === getMic) AUDIO_DIAG.getMic = null;
+      if (AUDIO_DIAG.webMic === webMic) AUDIO_DIAG.webMic = null;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -6677,6 +6704,21 @@ function metroTickKind(tickIndex, sig, subdiv, accentEnabled, groups) {
   return "beat";
 }
 
+// 【便CU 2026-10-17】診断の板の試し口「鳴らし方」(nativeClick / nativeBoth)で、殻(アプリのプロセス)の AVAudioEngine に渡す1小節ぶんの並び。
+// metroSchedulerTick と同じ式(X/8 は8分のグリッドで1小節 = num・X/4 は拍 × 分割。8分の長さはテンポから)と同じ metroTickKind で作る。
+// 殻は stepSec ごとに kinds を順に鳴らす("silent" は鳴らさない)。試し口を選んでいないときは誰も呼ばない(本番の予約の仕組みは1文字も変えていない)。
+function metroNativeClickPattern(tempo, sig, subdiv, accentEnabled, grouping) {
+  const { num, den } = parseMetroSig(sig);
+  const sd = subdiv || 1;
+  const isX8 = den === 8;
+  const eighthDur = isX8 ? (60 / tempo) / 3 : (60 / tempo);
+  const perMeasure = isX8 ? num : num * sd;
+  const stepSec = eighthDur / (isX8 ? 1 : sd);
+  const kinds = [];
+  for (let i = 0; i < perMeasure; i++) kinds.push(metroTickKind(i, sig, sd, accentEnabled, isX8 ? grouping : undefined));
+  return { stepSec, kinds };
+}
+
 // メトロノームのクリック音がマイクに入り得る時間帯か(クリック開始の少し前〜減衰+伝搬遅れ)。
 // timesはperformance.now()基準の予定時刻(昇順)。ライブ計測のフレーム記録スキップ判定に使う。
 function isNearScheduledClick(times, nowMs, preMs = 30, postMs = 90) {
@@ -6844,6 +6886,42 @@ function scheduleMetroClick(ctx, t, kind) {
   filt.connect(gain);
   gain.connect(getMetroMasterInput(ctx));
   src.start(t); // バッファ音源(60ms)は末尾で自分で終わる。除外の窓の後ろ 90ms に収まる
+}
+
+// 【便CU 2026-10-17】診断の板の試し口「鳴らし方」で殻の AVAudioEngine が鳴らすクリック。**今の Web のクリックと同じ音**を OfflineAudioContext
+// (無ければ webkitOfflineAudioContext)で描き出す: 同じ鎖(scheduleMetroClick = 種を固定した雑音・バンドパス・包絡 → getMetroMasterInput の
+// リミッター → マスター)で、マスターの基の値は殻の値(METRO_MASTER_GAIN_SHELL)。板の倍率・ミュートは掛けない(新しい ctx には何も置かない)。
+// 描く長さは除外の窓の後ろ(isNearScheduledClick の postMs = 90ms。クリックはここに収まる ── pitch-test 43.2)。末尾の無音
+// (包絡の行き先 0.0001 より小さい標本)は落とす ── 殻の AVAudioPlayerNode は1つの列で順に鳴らすので、尾が長いと次の音を待たせる。
+// **クリックは 0 秒に置かない**: リミッター(DynamicsCompressor)は作った直後は持ち上げが立ち上がっておらず、音が小さく出る
+// (【便CU 実測 Chrome 152 の OfflineAudioContext・48kHz】0 秒に置くと強拍 0.151・0.12 秒後に置くと 0.862 = 今の出口。0.25 / 0.5 / 1 / 2 秒後も 0.862)。
+// そこで Web のメトロノームの最初のクリックと同じ 0.12 秒後(startMetronome の currentTime + 0.12)に置き、そこから切り出す
+// (頭のリミッターの先読みの遅れ〈数 ms の無音〉は Web の音と同じく残す)。
+// 戻り値は { sampleRate, accent, beat, sub }(Float32Array)。試し口を選んで鳴らすときだけ呼ばれる(本番は呼ばない)。
+const METRO_NATIVE_RENDER_SEC = 0.09;
+const METRO_NATIVE_RENDER_LEAD_SEC = 0.12;
+async function renderMetroClickSamples(sampleRate, OfflineCtor) {
+  const Ctor = OfflineCtor || (typeof window !== "undefined" ? (window.OfflineAudioContext || window.webkitOfflineAudioContext) : null);
+  if (!Ctor) throw new Error("no OfflineAudioContext");
+  const head = Math.round(sampleRate * METRO_NATIVE_RENDER_LEAD_SEC);
+  const length = head + Math.ceil(sampleRate * METRO_NATIVE_RENDER_SEC);
+  const out = { sampleRate };
+  for (const kind of ["accent", "beat", "sub"]) {
+    const ctx = new Ctor(1, length, sampleRate);
+    ctx.__metroMasterGainShell = METRO_MASTER_GAIN_SHELL;
+    scheduleMetroClick(ctx, head / sampleRate, kind);
+    // webkitOfflineAudioContext(古い WebKit)は startRendering が Promise を返さず oncomplete で渡す
+    const rendered = await new Promise((resolve, reject) => {
+      ctx.oncomplete = (e) => resolve(e.renderedBuffer);
+      const p = ctx.startRendering();
+      if (p && typeof p.then === "function") p.then(resolve, reject);
+    });
+    const d = rendered.getChannelData(0);
+    let end = d.length;
+    while (end > head + 1 && Math.abs(d[end - 1]) < 0.0001) end--;
+    out[kind] = d.slice(head, end);
+  }
+  return out;
 }
 
 // メトロノームアイコン(本体の台形+振り子アーム)
@@ -9682,7 +9760,11 @@ function MeasureView(props) {
   const getMetroCtx = useCallback(() => metroCtxRef.current, []);
   // 【便CQ】音の診断の板が読むメトロノームの状態(読むだけ)。作り直し(key)で新旧が入れ替わっても、自分が置いたものだけ片付ける
   useEffect(() => {
-    const getMetro = () => ({ ctx: metroCtxRef.current, on: metroOnRef.current });
+    // 【便CU】clickPattern は診断の板の試し口「鳴らし方」だけが読む(殻の AVAudioEngine に渡す1小節ぶんの並び。今のメトロノームの設定値から作る)
+    const getMetro = () => ({
+      ctx: metroCtxRef.current, on: metroOnRef.current,
+      clickPattern: () => metroNativeClickPattern(metroTempoRef.current, metroSigRef.current, metroSubdivRef.current, metroAccentRef.current, metroGroupingRef.current),
+    });
     AUDIO_DIAG.getMetro = getMetro;
     return () => { if (AUDIO_DIAG.getMetro === getMetro) AUDIO_DIAG.getMetro = null; };
   }, []);

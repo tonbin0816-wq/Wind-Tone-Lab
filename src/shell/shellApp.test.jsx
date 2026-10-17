@@ -13,7 +13,7 @@ import { createFakeIndexedDb } from "../backup/fakeIndexedDb.testutil.js";
 // 【守っていないもの】実機で KeepAwake が画面を点け続けること・出口が実際にスピーカー / イヤホンへ替わること・
 //   止めたマイクが戻ったときに固まらないこと(どれも実機待ち。仕様 §8.4)。メトロノームのゲインの値は policy.test.js と pitch-test が見る。
 // ------------------------------------------------------------------
-const cap = vi.hoisted(() => ({ log: [], factories: [], session: null }));
+const cap = vi.hoisted(() => ({ log: [], factories: [], session: null, native: [], nativeInfo: null, onInStart: null }));
 vi.mock("@capacitor-community/keep-awake", () => {
   cap.factories.push("keep-awake");
   return { KeepAwake: { keepAwake: async () => { cap.log.push("keepAwake"); }, allowSleep: async () => { cap.log.push("allowSleep"); } } };
@@ -33,6 +33,16 @@ vi.mock("@capacitor/core", () => {
       const raw = `AVAudioSessionMode${mode[0].toUpperCase()}${mode.slice(1)}`;
       if (cap.session) cap.session = { ...cap.session, mode: raw };
       return { mode: raw };
+    },
+    // 【便CU】試し口「鳴らし方」: 殻の AVAudioEngine の6つ。呼ばれた順と引数を cap.native に控える。nativeAudioInfo は cap.nativeInfo が無ければ古い殻のビルド
+    nativeClickLoad: async (o) => { cap.native.push(["load", o]); return { frames: {} }; },
+    nativeClickStart: async (o) => { cap.native.push(["start", o]); return { running: true }; },
+    nativeClickStop: async (...a) => { cap.native.push(["stop", ...a]); return {}; },
+    nativeInputStart: async (...a) => { cap.native.push(["inStart", ...a]); cap.onInStart?.(); return { running: true }; },
+    nativeInputStop: async (...a) => { cap.native.push(["inStop", ...a]); return {}; },
+    nativeAudioInfo: async () => {
+      if (!cap.nativeInfo) throw Object.assign(new Error("not implemented"), { code: "UNIMPLEMENTED" });
+      return cap.nativeInfo;
     },
   }) };
 });
@@ -113,6 +123,7 @@ function installFakeMic() {
 beforeEach(() => {
   fake = createFakeIndexedDb();
   cap.log.length = 0; cap.factories.length = 0; cap.session = null; masterGains = [];
+  cap.native = []; cap.nativeInfo = null; cap.onInStart = null; // 配列ごと作り直す(試験が push を差し替えることがある)
   window.localStorage.clear();
   if (!window.matchMedia) window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
   if (!window.SVGElement.prototype.getComputedTextLength) {
@@ -859,6 +870,279 @@ describe("【便CT】診断の板の試し口(mode・gain・直近のクリッ�
     await click(gainBtn("1.3"));
     expect(ctx.master.gain.value).toBeCloseTo(2.6 * 1.3, 12);
     expect(cap.log.some((x) => x.includes("setTestMode"))).toBe(false);
+  }, 30000);
+});
+
+// ------------------------------------------------------------------
+// 【便CU 2026-10-17】板の試し口「鳴らし方」(web / nativeClick / nativeBoth)。本人の実機: 殻のセッションのモード 5種も ×1/1.3/1.6 も聞こえる音量が変わらなかった。
+// 【守っているもの】作り物の殻と Web Audio の上で: nativeClick を選ぶと、描いた3段(base64・sampleRate)を殻へ1回渡し、今のメトロノームの設定の
+//   1小節の並び(♩=120・4/4 → 0.5 秒ごとに 強 拍 拍 拍)で殻のクリックを始め、Web のマスターは 0(止めない)/ メトロノームを止めると殻の停止 /
+//   web に戻すとマスターは基の値 / nativeBoth は殻の取り込みを始めてから(その時 Web のトラックはまだ live)Web のトラックを stop し、nativeIn を出す・
+//   その間の画面のタップでは Web のマイクを取り直さない / 閉じると殻の取り込みとクリックを止め、Web のマイクを取り直す(getUserMedia がもう1回)/
+//   Web では試し口も行も出さず、殻の新しいメソッドを1回も呼ばない。
+// 【守っていないもの】殻の AVAudioEngine が鳴る・取れる・大きく聞こえること(実機待ち。Swift はここでは走らない。綴りは pitch-test K.14)・
+//   描いたクリックの本当の値(作り物の OfflineAudioContext は決まった標本を返すだけ。値の検査は audioDiagNative.test.js、端末の値は板の nativeBuf)。
+// ------------------------------------------------------------------
+describe("【便CU】診断の板の試し口「鳴らし方」(殻の AVAudioEngine)", () => {
+  const press = async (ms) => {
+    const btn = nav("計測");
+    await mod.act(async () => { btn.dispatchEvent(new Event("pointerdown", { bubbles: true })); });
+    await tick(ms);
+    await mod.act(async () => {
+      btn.dispatchEvent(new Event("pointerup", { bubbles: true }));
+      btn.click();
+    });
+  };
+  const panel = () => document.querySelector("[data-audio-diag]");
+  const val = (k) => document.querySelector(`[data-audio-diag] [data-diag-key="${k}"]`)?.textContent;
+  const pbBtn = (p) => document.querySelector(`[data-audio-diag] [data-diag-playback="${p}"]`);
+  const closeBtn = () => [...panel().querySelectorAll("button")].find((b) => b.textContent === "閉じる");
+  const SESSION = {
+    category: "AVAudioSessionCategoryPlayAndRecord", mode: "AVAudioSessionModeDefault", options: 0x28, routeSharingPolicy: 0,
+    outputs: ["Speaker"], inputs: ["MicrophoneBuiltIn"], outputVolume: 0.05, otherAudioPlaying: true,
+  };
+  const INFO = { engineRunning: true, clickOn: true, inputOn: false, lastError: "", configChanges: 0, activated: true };
+  // 作り物の OfflineAudioContext: 鎖は組めるだけ。描いた結果は、助走(0.12 秒)の後ろに決まった標本(末尾の 0 は落ちる)
+  const RENDERED = [0, 0.5, -0.25, 0, 0];
+  const installOffline = () => {
+    const node = () => ({ connect: (d) => d, disconnect() {} });
+    const p = () => ({ value: 0 });
+    window.OfflineAudioContext = class {
+      constructor(ch, length, sampleRate) { this.sampleRate = sampleRate; this.length = length; this.destination = node(); }
+      createBuffer(ch, len) { const d = new Float32Array(len); return { length: len, getChannelData: () => d }; }
+      createBufferSource() { return { ...node(), buffer: null, start() {} }; }
+      createBiquadFilter() { return { ...node(), type: "", frequency: p(), Q: p() }; }
+      createGain() { return { ...node(), gain: { value: 1, setValueAtTime() {}, exponentialRampToValueAtTime() {} } }; }
+      createDynamicsCompressor() { return { ...node(), threshold: p(), knee: p(), ratio: p(), attack: p(), release: p() }; }
+      startRendering() {
+        const d = new Float32Array(this.length);
+        d.set(RENDERED, Math.round(this.sampleRate * 0.12));
+        return Promise.resolve({ getChannelData: () => d });
+      }
+    };
+  };
+  const decode = (b64) => {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return Array.from(new Float32Array(bytes.buffer));
+  };
+  const names = () => cap.native.map((c) => c[0]);
+  afterEach(() => { delete window.OfflineAudioContext; });
+
+  it("殻: nativeClick は描いた3段を渡して今の並びで始め、Web のマスターは 0・止めると停止・web でマスターが戻る・閉じると殻の停止", async () => {
+    asShell();
+    installOffline();
+    cap.session = { ...SESSION };
+    cap.nativeInfo = { ...INFO };
+    mod = await loadApp();
+    await render();
+    const ctx = await openMetroAndStart();
+    await press(500);
+    await waitFor(() => panel() && val("playback") === "web", "板", 5000);
+    expect(["web", "nativeClick", "nativeBoth"].every((p) => pbBtn(p))).toBe(true);
+    expect(cap.native).toEqual([]);                                          // 選ぶまでは殻のエンジンを1回も呼ばない
+    await click(pbBtn("nativeClick"));
+    await waitFor(() => names().includes("start"), "殻のクリックの開始", 5000);
+    const load = cap.native.find((c) => c[0] === "load")[1];
+    expect(load.sampleRate).toBe(48000);
+    for (const k of ["accent", "beat", "sub"]) expect(decode(load[k])).toEqual([0, 0.5, -0.25]);
+    expect(cap.native.find((c) => c[0] === "start")[1]).toEqual({ stepSec: 0.5, kinds: ["accent", "beat", "beat", "beat"] });
+    expect(names().filter((n) => n === "load").length).toBe(1);
+    expect(ctx.master.gain.value).toBe(0);                                   // Web のメトロノームはミュート(止めない)
+    expect(ctx.state).toBe("running");
+    expect(metroToggle().getAttribute("aria-pressed")).toBe("true");
+    await waitFor(() => val("playback") === "nativeClick" && val("nativeEngine") === "running=yes act=yes click=yes in=no cfg=0 err=—", "板の行", 5000);
+    expect(val("nativeBuf")).toBe("0.500/0.500/0.500 @48000");
+    expect(val("outputVolume")).toBe("0.05");
+    expect(val("nativeIn")).toBe(undefined);                                 // nativeBoth のときだけ
+    // メトロノームを止める → 殻のクリックも止める
+    await click(metroToggle());
+    await waitFor(() => cap.native.at(-1)?.[0] === "stop", "殻の停止", 3000);
+    // 鳴らし直すと、また今の並びで始める(描いた3段は渡し直さない)
+    await click(metroToggle());
+    await waitFor(() => cap.native.at(-1)?.[0] === "start", "殻の開始(2回目)", 3000);
+    expect(names().filter((n) => n === "load").length).toBe(1);
+    // 閉じる → 殻のクリックを止め、Web のマスターは基の値へ戻る
+    const before = cap.native.length;
+    await click(closeBtn());
+    expect(panel()).toBe(null);
+    await waitFor(() => cap.native.length > before && cap.native.at(-1)[0] === "stop", "閉じたら殻の停止", 3000);
+    const now = masterGains.filter((c) => c.master).at(-1);
+    await waitFor(() => now.master.gain.value === 1, "殻を止め終わってからマスターが戻る", 3000);
+    // 開き直すと web のまま
+    await press(500);
+    await waitFor(() => panel() && val("playback") === "web", "開き直した板", 5000);
+    expect(pbBtn("web").getAttribute("aria-pressed")).toBe("true");
+  }, 40000);
+
+  it("殻: web に戻すと殻を止め、マスターは基の値 × 倍率へ戻る", async () => {
+    asShell();
+    installOffline();
+    cap.session = { ...SESSION };
+    cap.nativeInfo = { ...INFO };
+    mod = await loadApp();
+    await render();
+    const ctx = await openMetroAndStart();
+    await press(500);
+    await waitFor(() => panel() && val("playback") === "web", "板", 5000);
+    await click(document.querySelector('[data-audio-diag] [data-diag-gain="1.3"]'));
+    await click(pbBtn("nativeClick"));
+    await waitFor(() => names().includes("start"), "殻のクリックの開始", 5000);
+    expect(ctx.master.gain.value).toBe(0);
+    await click(pbBtn("web"));
+    await waitFor(() => cap.native.at(-1)?.[0] === "stop", "殻の停止", 3000);
+    expect(ctx.master.gain.value).toBeCloseTo(1.3, 12);
+  }, 40000);
+
+  it("殻: nativeBoth は殻の取り込みを始めてから Web のトラックを stop し nativeIn を出す・その間のタップで取り直さない・閉じると殻を止めてマイクを取り直す", async () => {
+    asShell();
+    installOffline();
+    cap.session = { ...SESSION };
+    cap.nativeInfo = { ...INFO };
+    const gum = countGetUserMedia();
+    mod = await loadApp();
+    await render();
+    const ctx = await openMetroAndStart();
+    await waitFor(() => gum.n >= 1 && track.readyState === "live", "Web のマイク");
+    await press(500);
+    await waitFor(() => panel() && val("playback") === "web", "板", 5000);
+    const live = track;
+    const stateAtInStart = [];
+    cap.onInStart = () => { stateAtInStart.push(live.readyState); };
+    gum.n = 0;
+    await click(pbBtn("nativeBoth"));
+    await waitFor(() => names().includes("start"), "殻のクリックの開始", 5000);
+    expect(names().slice(0, 1)).toEqual(["inStart"]);
+    expect(stateAtInStart).toEqual(["live"]);                                // 殻の取り込みを始めた時、Web のトラックはまだ動いている
+    expect(live.readyState).toBe("ended");                                   // そのあと Web のトラックを止めた
+    expect(live.stopped).toBe(1);
+    expect(ctx.master.gain.value).toBe(0);
+    cap.nativeInfo = { ...INFO, inputOn: true, inputDb: -42 };
+    await waitFor(() => val("playback") === "nativeBoth" && val("nativeIn") === "-42.0 dBFS", "nativeIn の行", 5000);
+    expect(val("nativeEngine")).toBe("running=yes act=yes click=yes in=yes cfg=0 err=—");
+    // その間、画面のタップ(既存の復旧の入口)でも Web のマイクを取り直さない
+    await mod.act(async () => { document.body.dispatchEvent(new Event("pointerdown", { bubbles: true })); });
+    await tick(300);
+    expect(gum.n).toBe(0);
+    // 閉じる → 殻のクリックを先に止め(二重に鳴らさない)、殻の取り込みを止め、Web のマイクを取り直す
+    const before = cap.native.length;
+    await click(closeBtn());
+    await waitFor(() => names().slice(before).includes("inStop"), "閉じたら殻の取り込みを止める", 5000);
+    expect(names().slice(before)).toEqual(["stop", "inStop"]);
+    await waitFor(() => gum.n >= 1 && track !== live && track.readyState === "live", "Web のマイクが戻る", 5000);
+    await tick(300);
+    expect(gum.n).toBe(1);
+  }, 40000);
+
+  it("殻: 戻す道で二重に鳴らない — 殻のクリックが止まった時点ではまだ Web のマスターは 0・Web のマイクも取り直していない", async () => {
+    asShell();
+    installOffline();
+    cap.session = { ...SESSION };
+    cap.nativeInfo = { ...INFO };
+    const gum = countGetUserMedia();
+    mod = await loadApp();
+    await render();
+    const ctx = await openMetroAndStart();
+    await waitFor(() => gum.n >= 1, "Web のマイク");
+    await press(500);
+    await waitFor(() => panel() && val("playback") === "web", "板", 5000);
+    await click(pbBtn("nativeBoth"));
+    await waitFor(() => names().includes("start"), "殻のクリックの開始", 5000);
+    // 殻のクリックの停止が呼ばれた瞬間の Web の状態を控える
+    const atStop = [];
+    const gumBefore = gum.n;
+    const orig = cap.native.push.bind(cap.native);
+    cap.native.push = (x) => { if (x[0] === "stop") atStop.push({ master: ctx.master.gain.value, gum: gum.n - gumBefore, inStop: names().includes("inStop") }); return orig(x); };
+    await click(pbBtn("web"));
+    await waitFor(() => gum.n > gumBefore && track.readyState === "live", "Web のマイクが戻る", 5000);
+    await waitFor(() => ctx.master.gain.value === 1, "マスターが戻る", 3000);
+    expect(atStop).toEqual([{ master: 0, gum: 0, inStop: false }]);
+  }, 40000);
+
+  it("殻: nativeBoth の間に録音を始めると、鳴らし方は web に戻り(殻のクリックと取り込みを止める)、録音のための取得だけでマイクを取る", async () => {
+    asShell();
+    installOffline();
+    cap.session = { ...SESSION };
+    cap.nativeInfo = { ...INFO };
+    const gum = countGetUserMedia();
+    mod = await loadApp();
+    await render();
+    await openMetroAndStart();
+    await waitFor(() => gum.n >= 1, "Web のマイク");
+    await press(500);
+    await waitFor(() => panel() && val("playback") === "web", "板", 5000);
+    await click(pbBtn("nativeBoth"));
+    await waitFor(() => names().includes("start") && track.readyState === "ended", "nativeBoth", 5000);
+    const before = cap.native.length;
+    gum.n = 0;
+    await click(recButton());
+    await waitFor(() => document.querySelector('button[aria-label="録音を停止"]'), "録音が始まる", 5000);
+    await waitFor(() => names().slice(before).includes("inStop"), "殻の取り込みを止める", 5000);
+    expect(names().slice(before)).toEqual(["stop", "inStop"]);
+    await waitFor(() => val("playback") === "web", "板の表示も web", 3000);
+    expect(pbBtn("web").getAttribute("aria-pressed")).toBe("true");
+    await tick(300);
+    expect(gum.n).toBe(1);                                                   // 録音の開始が取った1回だけ(板の側で二重に取らない)
+    expect(track.readyState).toBe("live");
+  }, 40000);
+
+  it("殻: 閉じたとき recoverMic がクールダウンで断っても、予備の道(startListening)で Web のマイクが戻る", async () => {
+    asShell();
+    installOffline();
+    cap.session = { ...SESSION };
+    cap.nativeInfo = { ...INFO };
+    const gum = countGetUserMedia();
+    mod = await loadApp();
+    const diag = await import("../audioDiag.jsx");
+    await render();
+    await openMetroAndStart();
+    await waitFor(() => gum.n >= 1 && track.readyState === "live", "Web のマイク");
+    await press(500);
+    await waitFor(() => panel() && val("playback") === "web", "板", 5000);
+    // 直前に1回、既存の復旧(トラックの mute)を走らせる → 以後 1 秒(タップの再試行のクールダウン)は recoverMic が断る
+    const n0 = gum.n;
+    await mod.act(async () => { track.onmute(); });
+    await waitFor(() => gum.n > n0 && track.readyState === "live", "既存の復旧が終わる", 3000);
+    await tick(20);
+    expect(diag.AUDIO_DIAG.lastMicRecover.reason).toBe("track-muted");
+    await click(pbBtn("nativeBoth"));
+    await waitFor(() => names().includes("inStart") && track.readyState === "ended", "nativeBoth", 3000);
+    const n1 = gum.n;
+    await click(closeBtn());
+    await waitFor(() => gum.n > n1 && track.readyState === "live", "予備の道で Web のマイクが戻る", 3000);
+    expect(diag.AUDIO_DIAG.lastMicRecover.reason).toBe("track-muted");     // recoverMic は断った(走っていれば diag-playback-web になる)
+    await tick(300);
+    expect(gum.n).toBe(n1 + 1);
+  }, 40000);
+
+  it("殻のビルドが古い(新しいメソッドが無い)と nativeEngine は「要ビルド」", async () => {
+    asShell();
+    cap.session = { ...SESSION };
+    cap.nativeInfo = null;
+    mod = await loadApp();
+    await render();
+    await waitFor(() => cap.log.includes("FicusAudioSession.routeToSpeaker"), "マイク");
+    await press(500);
+    await waitFor(() => panel() && /^n\/a \(要ビルド: UNIMPLEMENTED\)/.test(val("nativeEngine") || ""), "要ビルド", 5000);
+  }, 30000);
+
+  it("Web: 鳴らし方の試し口も行も出さず、殻の新しいメソッドを呼ばない", async () => {
+    installOffline();
+    mod = await loadApp();
+    await render();
+    const ctx = await openMetroAndStart();
+    await press(500);
+    await waitFor(() => panel() && val("session") === "n/a (web)", "板", 5000);
+    await tick(1200);
+    expect(document.querySelector("[data-audio-diag] [data-diag-test='playback']")).toBe(null);
+    expect(document.querySelector("[data-audio-diag] [data-diag-playback]")).toBe(null);
+    for (const k of ["playback", "nativeEngine", "nativeBuf", "nativeIn"]) expect(val(k)).toBe(undefined);
+    expect(cap.native).toEqual([]);
+    expect(ctx.master.gain.value).toBeCloseTo(2.6, 12);
+    await click(closeBtn());
+    await settle();
+    expect(cap.native).toEqual([]);
   }, 30000);
 });
 
