@@ -3,6 +3,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { metroNativeClickPattern, renderMetroClickSamples } from "./App.jsx";
 import {
   AUDIO_DIAG, audioDiagFloat32ToBase64, audioDiagSetPlayback, audioDiagSyncNativeClick, audioDiagResetTests,
+  audioDiagCheckNativeSilence, audioDiagApplyMetroGain, AUDIO_DIAG_NATIVE_SILENT_MS,
 } from "./audioDiag.jsx";
 
 // ------------------------------------------------------------------
@@ -242,7 +243,7 @@ describe("【便CU】鳴らし方の切り替え(殻への呼び出しの順と�
       return { sampleRate: sr, accent: new Float32Array([0.5]), beat: new Float32Array([0.25]), sub: new Float32Array([0.125]) };
     };
     AUDIO_DIAG.webMic = { recording: () => false, stop: () => calls.push(["webMic.stop"]), restore: async () => { calls.push(["webMic.restore"]); return true; } };
-    AUDIO_DIAG.native = { clickKey: null, loadedRate: null, bufPeaks: null, info: undefined, error: "", chain: Promise.resolve() };
+    AUDIO_DIAG.native = { clickKey: null, loadedRate: null, bufPeaks: null, info: undefined, error: "", silent: "", gen: 0, watchAt: 0, watchSched: null, renderTimeoutMs: 5000, chain: Promise.resolve() };
   };
   afterEach(() => {
     AUDIO_DIAG.playback = "web"; AUDIO_DIAG.metroGainX = 1;
@@ -366,6 +367,168 @@ describe("【便CU】鳴らし方の切り替え(殻への呼び出しの順と�
     await flush();
     expect(calls.map((c) => c[0])).toEqual(["stop", "inStop"]);
     expect(AUDIO_DIAG.playback).toBe("web");
+  });
+  // ---- 【便CV】殻の音が出ていないままミュートを続けない(本人の実機「web 以外で鳴らすと音が消える」) ----
+  const silentSetup = (x = 1.3) => {
+    setup();
+    AUDIO_DIAG.metroGainX = x;
+  };
+  const afterSilent = async (reason) => {
+    await flush();
+    expect(AUDIO_DIAG.playback).toBe("nativeClick");              // 選びはそのまま
+    expect(AUDIO_DIAG.native.silent).toBe(reason);
+    expect(metro.ctx.__metroMasterGain.gain.value).toBeCloseTo(AUDIO_DIAG.metroGainX, 12); // Web のマスターは基の値 × 倍率に戻る
+    const fresh = { __metroMasterGain: { gain: { value: 0 } }, __metroMasterBase: 1 };
+    audioDiagApplyMetroGain(fresh, AUDIO_DIAG.metroGainX);          // その後に作り直した ctx も ×倍率(無音にしない)
+    expect(fresh.__metroMasterGain.gain.value).toBeCloseTo(AUDIO_DIAG.metroGainX, 12);
+  };
+  it("nativeClickStart が失敗を返したら、Web のマスターを戻して native=silent(start)。", async () => {
+    silentSetup();
+    api.start = async (o) => { calls.push(["start", o]); return { error: "engine not running" }; };
+    await audioDiagSetPlayback("nativeClick", api);
+    await afterSilent("start");
+  });
+  it("nativeClickStart が reject(投げる)でも同じ: native=silent(start)", async () => {
+    silentSetup();
+    api.start = async () => { throw new Error("boom"); };
+    await audioDiagSetPlayback("nativeClick", api);
+    await afterSilent("start");
+    expect(AUDIO_DIAG.native.error).toBe("start: boom");
+  });
+  it("nativeClickLoad が失敗しても(投げても)native=silent(load)・start は呼ばない", async () => {
+    silentSetup();
+    api.load = async () => { throw new Error("no"); };
+    await audioDiagSetPlayback("nativeClick", api);
+    await afterSilent("load");
+    expect(calls.map((c) => c[0])).toEqual([]);
+  });
+  it("描き出しが終わらない(AUDIO_DIAG.native.renderTimeoutMs)・描き出しが投げる: native=silent(render)。列は詰まらない(web へ戻せる)", async () => {
+    silentSetup();
+    AUDIO_DIAG.native.renderTimeoutMs = 30;
+    AUDIO_DIAG.renderClicks = () => new Promise(() => {});
+    await audioDiagSetPlayback("nativeClick", api);
+    await new Promise((r) => setTimeout(r, 80));
+    await afterSilent("render");
+    await audioDiagSetPlayback("web", api);                          // 詰まっていれば、ここで止まる
+    expect(AUDIO_DIAG.playback).toBe("web");
+    setup(); silentSetup();
+    AUDIO_DIAG.renderClicks = async () => { throw new Error("offline failed"); };
+    await audioDiagSetPlayback("nativeClick", api);
+    await afterSilent("render");
+    expect(AUDIO_DIAG.native.error).toBe("render: offline failed");
+  });
+  // 【便CV 審査】古い処理の失敗を、選び直したあとの正常な殻に掛けない(世代)
+  it("古い描き出しの時間切れが、選び直したあと(nativeClick → web → nativeClick)の殻に silent を立てない", async () => {
+    silentSetup();
+    AUDIO_DIAG.native.renderTimeoutMs = 100;
+    let n = 0;
+    AUDIO_DIAG.renderClicks = (sr) => {
+      n++;
+      if (n === 1) return new Promise(() => {});                    // 1回目だけ永久に終わらない
+      return Promise.resolve({ sampleRate: sr, accent: new Float32Array([0.5]), beat: new Float32Array([0.25]), sub: new Float32Array([0.125]) });
+    };
+    audioDiagSetPlayback("nativeClick", api);
+    await flush();                                                   // 1回目の描き出しが始まって止まっている
+    audioDiagSetPlayback("web", api);
+    const again = audioDiagSetPlayback("nativeClick", api);
+    await new Promise((r) => setTimeout(r, 250));                    // 1回目が時間切れになる(100ms)・列が進んで2回目の描き出しと start が済む
+    await again; await flush();
+    expect(n).toBe(2);
+    expect(AUDIO_DIAG.native.silent).toBe("");                       // 古い時間切れは今の選びに掛からない
+    expect(AUDIO_DIAG.playback).toBe("nativeClick");
+    expect(metro.ctx.__metroMasterGain.gain.value).toBe(0);          // 殻が鳴っているので Web は 0 のまま
+    expect(calls.map((c) => c[0])).toContain("start");
+  });
+  it("古い load / start の失敗も、世代が進んでいれば今の選びに silent を立てない", async () => {
+    silentSetup();
+    let release;
+    const slow = new Promise((r) => { release = r; });
+    api.load = async (o) => { calls.push(["load", o]); await slow; return { error: "late" }; };
+    audioDiagSetPlayback("nativeClick", api);
+    await flush();                                                   // load が待っている
+    audioDiagSetPlayback("web", api);
+    api.load = async (o) => { calls.push(["load", o]); return {}; };
+    const again = audioDiagSetPlayback("nativeClick", api);
+    release();                                                       // 古い load が失敗で返る
+    await again; await flush();
+    expect(AUDIO_DIAG.native.silent).toBe("");
+    expect(AUDIO_DIAG.playback).toBe("nativeClick");
+  });
+  it("古い start の失敗も、世代が進んでいれば今の選びに silent を立てない", async () => {
+    silentSetup();
+    let release;
+    const slow = new Promise((r) => { release = r; });
+    api.start = async (o) => { calls.push(["start", o]); await slow; return { error: "late" }; };
+    audioDiagSetPlayback("nativeClick", api);
+    await flush();                                                   // start が待っている
+    audioDiagSetPlayback("web", api);
+    api.start = async (o) => { calls.push(["start", o]); return {}; };
+    const again = audioDiagSetPlayback("nativeClick", api);
+    release();                                                       // 古い start が失敗で返る
+    await again; await flush();
+    expect(AUDIO_DIAG.native.silent).toBe("");
+    expect(AUDIO_DIAG.playback).toBe("nativeClick");
+    expect(metro.ctx.__metroMasterGain.gain.value).toBe(0);
+  });
+  it("描き出した3段のどれかが無音(ピーク < 0.05)だったら native=silent(buf)・殻へ渡さない・nativeBuf のピークは残る", async () => {
+    silentSetup();
+    AUDIO_DIAG.renderClicks = async (sr) => ({ sampleRate: sr, accent: new Float32Array([0.8]), beat: new Float32Array([0.4]), sub: new Float32Array([0.01]) });
+    await audioDiagSetPlayback("nativeClick", api);
+    await afterSilent("buf");
+    expect(calls).toEqual([]);
+    expect(AUDIO_DIAG.native.bufPeaks).toEqual({ rate: 48000, accent: Math.fround(0.8), beat: Math.fround(0.4), sub: Math.fround(0.01) });
+  });
+  it("選び直すと silent は消え、また Web のマスターは 0 に戻る(殻が直っていれば鳴らす)", async () => {
+    silentSetup();
+    let fail = true;
+    api.start = async (o) => { calls.push(["start", o]); return fail ? { error: "x" } : {}; };
+    await audioDiagSetPlayback("nativeClick", api);
+    await afterSilent("start");
+    fail = false;
+    await audioDiagSetPlayback("nativeClick", api);
+    await flush();
+    expect(AUDIO_DIAG.native.silent).toBe("");
+    expect(metro.ctx.__metroMasterGain.gain.value).toBe(0);
+  });
+  it("予約が進まない: メトロノームが鳴っているのに ni.scheduled が3秒(下限)動かなければ native=silent(noSched)。進めば基準が動く・止まっている間は数えない", async () => {
+    silentSetup();
+    await audioDiagSetPlayback("nativeClick", api);
+    await flush();
+    expect(AUDIO_DIAG.native.silent).toBe("");
+    const t0 = 1_000_000;
+    AUDIO_DIAG.native.watchAt = t0; AUDIO_DIAG.native.watchSched = 5;                              // 1つ前の読みで 5 だった(基準は t0)
+    audioDiagCheckNativeSilence({ scheduled: 5 }, t0 + AUDIO_DIAG_NATIVE_SILENT_MS - 1);          // まだ
+    expect(AUDIO_DIAG.native.silent).toBe("");
+    audioDiagCheckNativeSilence({ scheduled: 6 }, t0 + AUDIO_DIAG_NATIVE_SILENT_MS + 500);        // 進んだ → 基準を取り直す
+    audioDiagCheckNativeSilence({ scheduled: 6 }, t0 + AUDIO_DIAG_NATIVE_SILENT_MS + 500 + AUDIO_DIAG_NATIVE_SILENT_MS - 1);
+    expect(AUDIO_DIAG.native.silent).toBe("");
+    metro.on = false;                                                                              // 止めている間は数えない
+    audioDiagCheckNativeSilence({ scheduled: 6 }, t0 + 20000);
+    audioDiagCheckNativeSilence({ scheduled: 6 }, t0 + 30000);
+    expect(AUDIO_DIAG.native.silent).toBe("");
+    metro.on = true;
+    audioDiagCheckNativeSilence({ scheduled: 6 }, t0 + 30100);                                    // 鳴らし直した: ここが基準
+    audioDiagCheckNativeSilence({ scheduled: 6 }, t0 + 30100 + AUDIO_DIAG_NATIVE_SILENT_MS);
+    await afterSilent("noSched");
+  });
+  it("予約の見張りの窓は最長の間隔の2倍(20 bpm = 3 秒の間隔でも誤って silent にしない)・殻の状態が読めない間は数えない・web では何もしない", async () => {
+    silentSetup();
+    await audioDiagSetPlayback("nativeClick", api);
+    await flush();
+    AUDIO_DIAG.getMetro = () => ({ ctx: metro.ctx, on: true, clickPattern: () => ({ stepSec: 3, kinds: ["accent"] }) });  // ♩=20
+    const t0 = 5_000_000;
+    audioDiagCheckNativeSilence({ scheduled: 1 }, t0);
+    audioDiagCheckNativeSilence({ scheduled: 1 }, t0 + 5999);
+    expect(AUDIO_DIAG.native.silent).toBe("");
+    audioDiagCheckNativeSilence({ error: "UNIMPLEMENTED" }, t0 + 8000);                           // 読めない間は基準を取り直すだけ
+    audioDiagCheckNativeSilence({ error: "UNIMPLEMENTED" }, t0 + 20000);
+    expect(AUDIO_DIAG.native.silent).toBe("");
+    audioDiagCheckNativeSilence({ scheduled: 1 }, t0 + 20000);
+    audioDiagCheckNativeSilence({ scheduled: 1 }, t0 + 26000);
+    expect(AUDIO_DIAG.native.silent).toBe("noSched");
+    await audioDiagSetPlayback("web", api);
+    audioDiagCheckNativeSilence({ scheduled: 1 }, t0 + 99000);                                    // web では何もしない(silent は web への切り替えで消えている)
+    expect(AUDIO_DIAG.native.silent).toBe("");
   });
   it("録音中は nativeBoth を選ばせない(殻を呼ばない・Web のマイクを止めない)", async () => {
     setup();

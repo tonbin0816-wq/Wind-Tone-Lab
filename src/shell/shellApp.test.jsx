@@ -13,7 +13,7 @@ import { createFakeIndexedDb } from "../backup/fakeIndexedDb.testutil.js";
 // 【守っていないもの】実機で KeepAwake が画面を点け続けること・出口が実際にスピーカー / イヤホンへ替わること・
 //   止めたマイクが戻ったときに固まらないこと(どれも実機待ち。仕様 §8.4)。メトロノームのゲインの値は policy.test.js と pitch-test が見る。
 // ------------------------------------------------------------------
-const cap = vi.hoisted(() => ({ log: [], factories: [], session: null, native: [], nativeInfo: null, onInStart: null }));
+const cap = vi.hoisted(() => ({ log: [], factories: [], session: null, native: [], nativeInfo: null, onInStart: null, failStart: false }));
 vi.mock("@capacitor-community/keep-awake", () => {
   cap.factories.push("keep-awake");
   return { KeepAwake: { keepAwake: async () => { cap.log.push("keepAwake"); }, allowSleep: async () => { cap.log.push("allowSleep"); } } };
@@ -36,7 +36,7 @@ vi.mock("@capacitor/core", () => {
     },
     // 【便CU】試し口「鳴らし方」: 殻の AVAudioEngine の6つ。呼ばれた順と引数を cap.native に控える。nativeAudioInfo は cap.nativeInfo が無ければ古い殻のビルド
     nativeClickLoad: async (o) => { cap.native.push(["load", o]); return { frames: {} }; },
-    nativeClickStart: async (o) => { cap.native.push(["start", o]); return { running: true }; },
+    nativeClickStart: async (o) => { cap.native.push(["start", o]); if (cap.failStart) throw new Error("engine not running"); return { running: true }; },
     nativeClickStop: async (...a) => { cap.native.push(["stop", ...a]); return {}; },
     nativeInputStart: async (...a) => { cap.native.push(["inStart", ...a]); cap.onInStart?.(); return { running: true }; },
     nativeInputStop: async (...a) => { cap.native.push(["inStop", ...a]); return {}; },
@@ -123,7 +123,7 @@ function installFakeMic() {
 beforeEach(() => {
   fake = createFakeIndexedDb();
   cap.log.length = 0; cap.factories.length = 0; cap.session = null; masterGains = [];
-  cap.native = []; cap.nativeInfo = null; cap.onInStart = null; // 配列ごと作り直す(試験が push を差し替えることがある)
+  cap.native = []; cap.nativeInfo = null; cap.onInStart = null; cap.failStart = false; // 配列ごと作り直す(試験が push を差し替えることがある)
   window.localStorage.clear();
   if (!window.matchMedia) window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
   if (!window.SVGElement.prototype.getComputedTextLength) {
@@ -901,7 +901,7 @@ describe("【便CU】診断の板の試し口「鳴らし方」(殻の AVAudioEn
     category: "AVAudioSessionCategoryPlayAndRecord", mode: "AVAudioSessionModeDefault", options: 0x28, routeSharingPolicy: 0,
     outputs: ["Speaker"], inputs: ["MicrophoneBuiltIn"], outputVolume: 0.05, otherAudioPlaying: true,
   };
-  const INFO = { engineRunning: true, clickOn: true, inputOn: false, lastError: "", configChanges: 0, activated: true };
+  const INFO = { engineRunning: true, clickOn: true, inputOn: false, lastError: "", configChanges: 0, activated: true, scheduled: 12, played: 10, playing: true, lastRender: true, tick: "ok", rebuilds: 1 };
   // 作り物の OfflineAudioContext: 鎖は組めるだけ。描いた結果は、助走(0.12 秒)の後ろに決まった標本(末尾の 0 は落ちる)
   const RENDERED = [0, 0.5, -0.25, 0, 0];
   const installOffline = () => {
@@ -954,6 +954,7 @@ describe("【便CU】診断の板の試し口「鳴らし方」(殻の AVAudioEn
     expect(metroToggle().getAttribute("aria-pressed")).toBe("true");
     await waitFor(() => val("playback") === "nativeClick" && val("nativeEngine") === "running=yes act=yes click=yes in=no cfg=0 err=—", "板の行", 5000);
     expect(val("nativeBuf")).toBe("0.500/0.500/0.500 @48000");
+    expect(val("nativeSched")).toBe("sched=12 played=10 play=yes lrt=yes cfg=0 rb=1 tick=ok");
     expect(val("outputVolume")).toBe("0.05");
     expect(val("nativeIn")).toBe(undefined);                                 // nativeBoth のときだけ
     // メトロノームを止める → 殻のクリックも止める
@@ -1114,6 +1115,52 @@ describe("【便CU】診断の板の試し口「鳴らし方」(殻の AVAudioEn
     expect(diag.AUDIO_DIAG.lastMicRecover.reason).toBe("track-muted");     // recoverMic は断った(走っていれば diag-playback-web になる)
     await tick(300);
     expect(gum.n).toBe(n1 + 1);
+  }, 40000);
+
+  // 【便CV】殻の音が出ていないままミュートを続けない。nativeClickStart が失敗したら、Web のマスターを戻し、板に native=silent と出す
+  it("殻: nativeClickStart が reject されると、Web のマスターは基の値へ戻り、板に native=silent(start) と出る(選びは nativeClick のまま)", async () => {
+    asShell();
+    installOffline();
+    cap.session = { ...SESSION };
+    cap.nativeInfo = { ...INFO };
+    cap.failStart = true;
+    mod = await loadApp();
+    await render();
+    const ctx = await openMetroAndStart();
+    await press(500);
+    await waitFor(() => panel() && val("playback") === "web", "板", 5000);
+    await click(pbBtn("nativeClick"));
+    await waitFor(() => /native=silent\(start\)/.test(val("nativeEngine") || ""), "native=silent", 5000);
+    expect(ctx.master.gain.value).toBe(1);
+    expect(val("playback")).toBe("nativeClick");
+    expect(val("nativeEngine")).toMatch(/js=start: engine not running/);
+    // 起動し直した新しい ctx も無音にしない(止めて鳴らし直す = 本番の START と同じ道)
+    await click(metroToggle());
+    await click(metroToggle());
+    await settle();
+    const now = masterGains.filter((c) => c.master).at(-1);
+    expect(now.master.gain.value).toBe(1);
+    // 選び直すと silent は消え、また 0 になる
+    cap.failStart = false;
+    await click(pbBtn("nativeClick"));
+    await waitFor(() => !/native=silent/.test(val("nativeEngine") || "") && now.master.gain.value === 0, "選び直し", 5000);
+  }, 40000);
+  it("殻: 予約が進まない(nativeAudioInfo の scheduled が動かない)と、3秒ほどで native=silent(noSched)・Web のマスターが戻る", async () => {
+    asShell();
+    installOffline();
+    cap.session = { ...SESSION };
+    cap.nativeInfo = { ...INFO, scheduled: 0, tick: "noRender", lastRender: false };
+    mod = await loadApp();
+    await render();
+    const ctx = await openMetroAndStart();
+    await press(500);
+    await waitFor(() => panel() && val("playback") === "web", "板", 5000);
+    await click(pbBtn("nativeClick"));
+    await waitFor(() => names().includes("start"), "殻のクリックの開始", 5000);
+    await waitFor(() => val("nativeSched") === "sched=0 played=10 play=yes lrt=no cfg=0 rb=1 tick=noRender", "予約の様子の行", 5000);
+    expect(ctx.master.gain.value).toBe(0);
+    await waitFor(() => /native=silent\(noSched\)/.test(val("nativeEngine") || ""), "native=silent(noSched)", 9000);
+    expect(ctx.master.gain.value).toBe(1);
   }, 40000);
 
   it("殻のビルドが古い(新しいメソッドが無い)と nativeEngine は「要ビルド」", async () => {

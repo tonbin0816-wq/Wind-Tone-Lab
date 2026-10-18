@@ -45,7 +45,8 @@ export const AUDIO_DIAG = {
   playback: "web",       // "web" | "nativeClick" | "nativeBoth"
   webMic: null,          // 根が置く: { recording(), stop(), restore() }(nativeBoth の Web のマイクの止めと戻し)
   renderClicks: null,    // 根が置く: (sampleRate) => Promise<{ sampleRate, accent, beat, sub }>(App.jsx の renderMetroClickSamples)
-  native: { clickKey: null, loadedRate: null, bufPeaks: null, info: undefined, error: "", chain: Promise.resolve() },
+  // 【便CV】silent = 殻の音が出ていないと見なした理由("" = 出ている/まだ分からない)・gen = 鳴らし方を選ぶたびに進む世代(古い処理の失敗を今の選びに掛けない)・watchAt/watchSched = 予約が進んでいるかの見張りの基準・renderTimeoutMs = 描き出しの待ちの上限
+  native: { clickKey: null, loadedRate: null, bufPeaks: null, info: undefined, error: "", silent: "", gen: 0, watchAt: 0, watchSched: null, renderTimeoutMs: 5000, chain: Promise.resolve() },
 };
 
 // 【便CU 2026-10-17】試し口「鳴らし方」(本人の実機: 殻のセッションのモード 5種も ×1/1.3/1.6 も、聞こえる音量が変わらなかった)。
@@ -78,19 +79,83 @@ export function audioDiagFloat32ToBase64(f32) {
   return btoa(s);
 }
 const absPeak = (d) => { let p = 0; for (let i = 0; i < d.length; i++) p = Math.max(p, Math.abs(d[i])); return p; };
-// クリックの3段を描き出して殻へ渡す(sampleRate が替わったときだけ描き直す)。描いた3段のピークは板の nativeBuf に出す
-async function nativeEnsureLoaded(sampleRate, api) {
+// 【便CV 2026-10-18】本人の実機「web 以外で鳴らすと音が消える」。殻の音が出ていないのに Web のマスターを 0 のまま続けると、聞き比べができない。
+// 次のどれかになったら「殻の音が出ていない」と見なし(native.silent に理由)、Web のマスターを戻して板に native=silent と出す(playback の選びはそのまま。選び直すと消える):
+//   start  … nativeClickStart が失敗した(reject・失敗を返す)
+//   load   … nativeClickLoad が失敗した
+//   render … 描き出しが AUDIO_DIAG_RENDER_TIMEOUT_MS 終わらない・失敗した
+//   buf    … 描き出した3段のどれかのピークが AUDIO_DIAG_MIN_CLICK_PEAK 未満(実機の WebKit で無音に描かれた)
+//   noSched… メトロノームが鳴っているのに、殻の予約の累計が一定時間(AUDIO_DIAG_NATIVE_SILENT_MS 以上・クリックの最長の間隔の2倍)1つも進まない
+export const AUDIO_DIAG_RENDER_TIMEOUT_MS = 5000;
+export const AUDIO_DIAG_MIN_CLICK_PEAK = 0.05;
+export const AUDIO_DIAG_NATIVE_SILENT_MS = 3000;
+// 【便CV 審査】gen = その処理を始めたときの世代。選び直したあと(世代が進んだあと)に古い処理が時間切れ・失敗しても、今の選びには silent を立てない。
+function nativeMarkSilent(reason, gen = AUDIO_DIAG.native.gen) {
+  const st = AUDIO_DIAG.native;
+  if (gen !== st.gen) return;
+  if (AUDIO_DIAG.playback === "web" || st.silent) return;
+  st.silent = reason;
+  const m = AUDIO_DIAG.getMetro ? AUDIO_DIAG.getMetro() : null;
+  audioDiagApplyMetroGain(m ? m.ctx : null, AUDIO_DIAG.metroGainX); // Web のマスターを戻す(silent の間は倍率を当てる)
+}
+function withTimeout(promise, ms, label) {
+  let t;
+  const timeout = new Promise((_, reject) => { t = setTimeout(() => reject(new Error(label)), ms); });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(t));
+}
+// クリックの3段を描き出して殻へ渡す(sampleRate が替わったときだけ描き直す)。描いた3段のピークは板の nativeBuf に出す。
+// 失敗・無音は native.silent にして false を返す(呼び手は始めない)。
+async function nativeEnsureLoaded(sampleRate, api, gen) {
   const st = AUDIO_DIAG.native;
   if (st.loadedRate === sampleRate) return true;
-  if (!AUDIO_DIAG.renderClicks) { st.error = "load: no renderer"; return false; }
-  const r = await AUDIO_DIAG.renderClicks(sampleRate);
+  if (!AUDIO_DIAG.renderClicks) { st.error = "load: no renderer"; nativeMarkSilent("render", gen); return false; }
+  let r;
+  try {
+    r = await withTimeout(Promise.resolve(AUDIO_DIAG.renderClicks(sampleRate)), st.renderTimeoutMs ?? AUDIO_DIAG_RENDER_TIMEOUT_MS, "render timeout");
+  } catch (e) {
+    st.error = `render: ${e?.message || e}`;
+    nativeMarkSilent("render", gen);
+    return false;
+  }
   st.bufPeaks = { rate: sampleRate, accent: absPeak(r.accent), beat: absPeak(r.beat), sub: absPeak(r.sub) };
-  const res = await api.load({
-    sampleRate, accent: audioDiagFloat32ToBase64(r.accent), beat: audioDiagFloat32ToBase64(r.beat), sub: audioDiagFloat32ToBase64(r.sub),
-  });
-  if (!res || res.error) { st.error = `load: ${nativeErr(res) || "?"}`; return false; }
+  if (Math.min(st.bufPeaks.accent, st.bufPeaks.beat, st.bufPeaks.sub) < AUDIO_DIAG_MIN_CLICK_PEAK) {
+    st.error = "render: silent buffer";
+    nativeMarkSilent("buf", gen);
+    return false;
+  }
+  let res;
+  try {
+    res = await api.load({
+      sampleRate, accent: audioDiagFloat32ToBase64(r.accent), beat: audioDiagFloat32ToBase64(r.beat), sub: audioDiagFloat32ToBase64(r.sub),
+    });
+  } catch (e) { res = { error: String(e?.message || e) }; }
+  if (!res || res.error) { st.error = `load: ${nativeErr(res) || "?"}`; nativeMarkSilent("load", gen); return false; }
   st.loadedRate = sampleRate;
   return true;
+}
+// 殻の予約が進んでいるかの見張り(板が1秒ごとに殻の状態を読むたびに呼ぶ)。メトロノームが鳴っていて、殻の予約の累計(ni.scheduled)が
+// 最長の間隔の2倍(下限 AUDIO_DIAG_NATIVE_SILENT_MS)のあいだ進まなければ、silent("noSched")。止まっている間・殻の状態が読めない間は基準を取り直すだけ。
+export function audioDiagCheckNativeSilence(ni, now = Date.now()) {
+  const st = AUDIO_DIAG.native;
+  if (AUDIO_DIAG.playback === "web" || st.silent) return;
+  const m = AUDIO_DIAG.getMetro ? AUDIO_DIAG.getMetro() : null;
+  const sched = ni && !ni.error && typeof ni.scheduled === "number" ? ni.scheduled : null;
+  const pat = m && m.on && typeof m.clickPattern === "function" ? m.clickPattern() : null;
+  if (!pat || sched === null) { st.watchAt = now; st.watchSched = sched; return; }
+  if (sched !== st.watchSched) { st.watchSched = sched; st.watchAt = now; return; }
+  if (now - st.watchAt >= Math.max(AUDIO_DIAG_NATIVE_SILENT_MS, nativeMaxGapMs(pat) * 2)) nativeMarkSilent("noSched");
+}
+// 1小節の並び(巡回)で、鳴らす音("silent" でない)と次の音の間の最長(ミリ秒)。鳴らす音が無ければ 0。
+function nativeMaxGapMs(pat) {
+  const idx = [];
+  pat.kinds.forEach((k, i) => { if (k !== "silent") idx.push(i); });
+  if (!idx.length) return 0;
+  let gap = 0;
+  for (let j = 0; j < idx.length; j++) {
+    const next = j + 1 < idx.length ? idx[j + 1] : idx[0] + pat.kinds.length;
+    gap = Math.max(gap, next - idx[j]);
+  }
+  return gap * pat.stepSec * 1000;
 }
 // 殻のクリックをメトロノームに合わせる(板が開いている間、ピークの読み取りと同じ間隔で呼ぶ)。
 // 鳴っていれば今の設定の1小節の並びで開始(設定が変わったら渡し直す)、止まれば停止。計測タブを離れた・裏へ行ったら web に戻す。
@@ -104,6 +169,8 @@ export function audioDiagSyncNativeClick(api = SHELL_NATIVE) {
   const key = want ? JSON.stringify([rate, want.stepSec, want.kinds]) : null;
   if (key === st.clickKey) return;
   st.clickKey = key;
+  const gen = st.gen; // この処理を始めたときの世代(選び直したあとの古い失敗を今の選びに掛けない)
+  st.watchAt = Date.now(); st.watchSched = null; // 新しく始める(設定が変わった)ので、予約が進んでいるかの見張りの基準を取り直す
   nativeEnqueue(async () => {
     if (st.clickKey !== key) return; // 列で待っている間に替わった(鳴らし方を戻した等)
     if (!want) {
@@ -111,13 +178,14 @@ export function audioDiagSyncNativeClick(api = SHELL_NATIVE) {
       if (nativeErr(r)) st.error = `stop: ${nativeErr(r)}`;
       return;
     }
-    if (!(await nativeEnsureLoaded(rate, api))) return;
+    if (!(await nativeEnsureLoaded(rate, api, gen))) return;
     if (st.clickKey !== key) return; // 描いている間に替わった(止めた・web に戻した)
-    const r = await api.start({ stepSec: want.stepSec, kinds: want.kinds });
-    if (nativeErr(r)) st.error = `start: ${nativeErr(r)}`;
+    let r;
+    try { r = await api.start({ stepSec: want.stepSec, kinds: want.kinds }); } catch (e) { r = { error: String(e?.message || e) }; }
+    if (nativeErr(r)) { st.error = `start: ${nativeErr(r)}`; nativeMarkSilent("start", gen); }
   });
 }
-// 鳴らし方を選ぶ。同じものをもう一度押すと開き直す(殻のエンジンが止まった〈configurationChange〉ときの再開)。
+// 鳴らし方を選ぶ。同じものをもう一度押すと開き直す(殻は構成の変化・中断の終わりでは自分で作り直す〈便CV〉。ここは、作り直しを諦めた〈err=rebuild: loop・失敗 5 回〉ときの手動の再開)。
 // 【便CU 審査】戻す道(web)は**殻のクリックを先に止めてから** Web の音を戻す(二重に鳴らさない): 列の先頭で nativeClickStop →
 // 殻の取り込みを止める(nativeInputStop。殻はクリックが止まっているので鳴らし直さない)→ Web のマイクを戻す → Web のマスターを戻す。
 // 戻すと決めた時点の ctx はその場でマスター 0 にし、殻のクリックを止め終わった時点で(そのときの ctx に)基の値 × 倍率を当て直す。
@@ -136,6 +204,9 @@ export function audioDiagSetPlayback(mode, api = SHELL_NATIVE, opts = {}) {
   AUDIO_DIAG.playback = mode;
   st.clickKey = null;
   st.error = "";
+  st.silent = ""; // 選び直すと、また殻の音が出ているかを見る(Web のマスターは 0 に戻る)
+  st.gen = (st.gen || 0) + 1; // 古い処理(描き出しの時間切れ・load/start の失敗)が、この選びに silent を立てないようにする
+  st.watchAt = Date.now(); st.watchSched = null;
   const applyGain = () => {
     const m = AUDIO_DIAG.getMetro ? AUDIO_DIAG.getMetro() : null;
     audioDiagApplyMetroGain(m ? m.ctx : null, AUDIO_DIAG.metroGainX);
@@ -189,7 +260,8 @@ export function audioDiagSetPlayback(mode, api = SHELL_NATIVE, opts = {}) {
 // 【便CU】試し口「鳴らし方」が native の間は倍率の代わりに 0 を当てる(Web Audio のメトロノームのミュート。止めない)。web(既定)なら x のまま = 今までどおり。
 export function audioDiagApplyMetroGain(ctx, x) {
   if (!ctx) return;
-  const eff = AUDIO_DIAG.playback === "web" ? x : 0;
+  // 【便CV】殻の音が出ていないと見なしたとき(native.silent)は、native のままでも Web のマスターを戻す(聞き比べができなくなるのを避ける)
+  const eff = AUDIO_DIAG.playback === "web" || AUDIO_DIAG.native.silent ? x : 0;
   ctx.__metroDiagGainX = eff;
   const m = ctx.__metroMasterGain;
   if (m && ctx.__metroMasterBase > 0) m.gain.value = ctx.__metroMasterBase * eff;
@@ -371,7 +443,13 @@ export function audioDiagRows(session, now = Date.now()) {
     rows.push(["nativeEngine", (ni === undefined ? "…"
       : !ni || ni.error ? `n/a (要ビルド: ${ni?.error ?? "?"})`
       : `running=${yn(ni.engineRunning)} act=${yn(ni.activated)} click=${yn(ni.clickOn)} in=${yn(ni.inputOn)} cfg=${ni.configChanges ?? 0} err=${ni.lastError || "—"}`)
+      + (st.silent ? ` native=silent(${st.silent})` : "")
       + (st.error ? ` js=${st.error}` : "")]);
+    // 【便CV】予約の様子: sched = 予約した累計個数・played = そのうち再生し終わった(.dataPlayedBack)累計個数(sched だけ増えて played が増えない = 予約したが再生されていない)・play = player.isPlaying・lrt = player.lastRenderTime が有効か・cfg = 構成の変化と中断の終わりの回数・
+    // rb = 作り直しに成功した回数・tick = 直近の clickTick が早く返った理由(ok / idle / noEngine / notRunning / noPlayer / replay / noRender / noPlayerTime / badRate)
+    rows.push(["nativeSched", ni && !ni.error
+      ? `sched=${ni.scheduled ?? "—"} played=${ni.played ?? "—"} play=${yn(ni.playing)} lrt=${yn(ni.lastRender)} cfg=${ni.configChanges ?? 0} rb=${ni.rebuilds ?? 0} tick=${ni.tick ?? "—"}`
+      : "—"]);
     const bp = st.bufPeaks;
     rows.push(["nativeBuf", bp ? `${bp.accent.toFixed(3)}/${bp.beat.toFixed(3)}/${bp.sub.toFixed(3)} @${bp.rate}` : "—"]);
     if (AUDIO_DIAG.playback === "nativeBoth") {
@@ -426,7 +504,7 @@ export function AudioDiagPanel({ onClose }) {
     const read = () => {
       // 【便CU】殻では殻の AVAudioEngine の状態も読む(読むだけ)。Web は読まない
       const nat = isNativeShell()
-        ? shellNativeAudioInfo().then((ni) => { AUDIO_DIAG.native.info = ni; })
+        ? shellNativeAudioInfo().then((ni) => { AUDIO_DIAG.native.info = ni; audioDiagCheckNativeSilence(ni); })
         : Promise.resolve();
       Promise.all([shellAudioSessionInfo(), nat]).then(([session]) => { if (alive) setRows(audioDiagRows(session)); });
     };

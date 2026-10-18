@@ -32907,10 +32907,48 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
         // 【便CU 審査】活性にした印(setActive(true) の成功・エンジンの start の成功の3か所で立て、nativeAudioInfo で返す = 板の act=)
         && /"activated": self\.testActivated/.test(sc) && (sc.match(/\n\s*testActivated = true\n/g) || []).length === 3
         // 【便CU 審査】プレーヤーの play() の前にエンジンが動いているかを見る(動いていないエンジンのプレーヤーに呼ぶと例外で落ちる)
-        && /\n\s*guard let engine = testEngine, engine\.isRunning else \{[^}]*\}\n\s*player\.play\(\)/.test(sc) && (sc.match(/player\.play\(\)/g) || []).length === 1
+        && /\n\s*guard let engine = testEngine, engine\.isRunning else \{[^}]*\}\n\s*player\.play\(\)/.test(sc) && (sc.match(/player\.play\(\)/g) || []).length === 2
         && Number.isFinite(webLook) && webLook === natLook && Number.isFinite(webTick) && webTick === natTick
         && /function shellNativeCall\(name, arg\) \{\n  if \(!isNativeShell\(\)\) return Promise\.resolve\(null\);\n  return import\("\.\/audioSession\.native\.js"\)/.test(audio),
         `先読み Web ${webLook} / 殻 ${natLook} · 間隔 Web ${webTick} / 殻 ${natTick} · installTap ${(sc.match(/installTap\(/g) || []).length}`);
+    }
+    // 【便CV 2026-10-18】本人の実機「web 以外で鳴らすと音が消える」。構成の変化(WebKit が音のセッションを立て直すたびに飛ぶ)と中断の終わりでエンジンを作り直して鳴らし直す。
+    // Swift はここでは走らない(鳴るか・直ったかは実機待ち)。綴りだけを守る:
+    //   ・構成の変化と中断の終わりのどちらも scheduleTestRebuild を呼び、回数 testConfigChanges を増やす
+    //   ・作り直しの予約は1つだけ・遅れは max(settle, 1 秒 − 前の作り直しからの経過)= 連続は 1 秒に 1 回まで・時が来たとき動いているエンジンがあれば何もしない・失敗は上限まで
+    //   ・clickTick は早く返った理由を lastTickReason に残し、予約したら testScheduled を増やす・止まっているプレーヤーは play し直す・時計が有効にならなければ無音のバッファで動かす
+    //   ・nativeAudioInfo が返す名前(Swift)と、板が読む名前(audioDiag.jsx の ni.xxx)が過不足なく一致
+    {
+      const sc = swift.split("\n").map((l) => l.replace(/\/\/.*$/, "")).join("\n");
+      const diagJs = codeOf(readS("src/audioDiag.jsx"));
+      const cfg = (/@objc func handleTestEngineConfigChange\(_ notification: Notification\) \{[\s\S]*?\n    \}\n/.exec(sc) || [""])[0];
+      const intr = (/@objc func handleTestInterruption\(_ notification: Notification\) \{[\s\S]*?\n    \}\n/.exec(sc) || [""])[0];
+      const reb = (/private func scheduleTestRebuild\(\) \{[\s\S]*?\n    \}\n/.exec(sc) || [""])[0];
+      const tick = (/private func clickTick\(\) \{[\s\S]*?\n    \}\n/.exec(sc) || [""])[0];
+      const info = (/@objc func nativeAudioInfo\(_ call: CAPPluginCall\) \{[\s\S]*?\n    \}\n/.exec(sc) || [""])[0];
+      const swiftInfoKeys = [...new Set([...info.matchAll(/\n\s*"(\w+)": /g), ...info.matchAll(/info\["(\w+)"\]/g)].map((m) => m[1]))].sort();
+      const jsInfoKeys = [...new Set([...diagJs.matchAll(/\bni\.(\w+)/g)].map((m) => m[1]).filter((k) => k !== "error"))].sort();
+      check("K.14 AppDelegate.swift: 【便CV】構成の変化と中断の終わりでエンジンを作り直して鳴らし直す(1 秒に 1 回まで・失敗は上限まで)・clickTick は早く返った理由と予約の個数を残す・nativeAudioInfo の名前が板と一致",
+        /\n\s*self\.testConfigChanges \+= 1\n/.test(cfg) && /\n\s*self\.teardownTestEngine\(\)\n\s*self\.scheduleTestRebuild\(\)\n/.test(cfg)
+        && /name: AVAudioSession\.interruptionNotification/.test(sc) && /AVAudioSessionInterruptionTypeKey/.test(intr) && /type == \.began/.test(intr)
+        && /guard self\.clickOn \|\| self\.inputOn else \{ return \}\n\s*self\.testConfigChanges \+= 1\n/.test(intr) && /\n\s*self\.teardownTestEngine\(\)\n\s*self\.scheduleTestRebuild\(\)\n/.test(intr)
+        && /static let rebuildMinIntervalSec: Double = 1\.0\n/.test(sc) && /static let rebuildMaxFailures: Int = \d+\n/.test(sc)
+        && /guard clickOn \|\| inputOn, !rebuildScheduled else \{ return \}/.test(reb) && /FicusAudioSessionPlugin\.rebuildMinIntervalSec - since/.test(reb) && /testQueue\.asyncAfter\(deadline: \.now\(\) \+ delay\)/.test(reb)
+        && /if let engine = self\.testEngine, engine\.isRunning \{ return \}/.test(reb) && /self\.rebuildFailures < FicusAudioSessionPlugin\.rebuildMaxFailures/.test(reb)
+        && (sc.match(/lastTickReason = /g) || []).length >= 9 && /\n\s*testScheduled \+= 1\n/.test(tick) && /if !player\.isPlaying \{\s*player\.play\(\)/.test(tick) && /scheduleBuffer\(buffer, at: nil/.test(sc)
+        // 【便CV 審査】中断の終わりは前の失敗の数を引き継がない(rebuildFailures を 0 にしてから作り直す)
+        && /self\.testLastError = "interruption ended"\n\s*self\.rebuildFailures = 0[^\n]*\n\s*self\.teardownTestEngine\(\)\n\s*self\.scheduleTestRebuild\(\)/.test(intr)
+        // 【便CV 審査】作り直しの歯止め(10 秒に 10 回まで。超えたら諦めて err=rebuild: loop・板の同じボタン〈nativeClickStart / nativeInputStart〉で空に戻す)
+        && /static let rebuildWindowSec: Double = 10\.0\n/.test(sc) && /static let rebuildMaxInWindow: Int = 10\n/.test(sc)
+        && /self\.rebuildTimes\.count >= FicusAudioSessionPlugin\.rebuildMaxInWindow \{\s*self\.testLastError = "rebuild: loop"\s*return\s*\}\s*self\.rebuildTimes\.append\(nowTime\)/.test(reb)
+        && (sc.match(/self\.rebuildTimes\.removeAll\(\)/g) || []).length === 2
+        // 【便CV 審査】再生し終わったクリックの数(.dataPlayedBack)。止めた・作り直した後の通知は世代(testEpoch)で捨てる
+        && /completionCallbackType: \.dataPlayedBack\) \{ \[weak self\] _ in\s*self\?\.noteClickPlayed\(epoch\)/.test(tick) && /epoch == self\.testEpoch \{?/.test(sc) && /self\.testPlayed \+= 1/.test(sc)
+        && (sc.match(/\n\s*testEpoch \+= 1\n/g) || []).length === 2 && /"played": self\.testPlayed/.test(info)
+        // JS の数値は getDouble が整数(48000 など)を拾わない恐れがあるので、numberArg(getDouble → getInt)で読む(call.getDouble は numberArg の中の1か所だけ)
+        && /numberArg\(call, "sampleRate"\)/.test(sc) && /numberArg\(call, "stepSec"\)/.test(sc) && (sc.match(/call\.getDouble\(/g) || []).length === 1 && /if let i = call\.getInt\(key\) \{ return Double\(i\) \}/.test(sc)
+        && swiftInfoKeys.length >= 12 && JSON.stringify(swiftInfoKeys) === JSON.stringify(jsInfoKeys),
+        `Swift ${swiftInfoKeys.join(",")} / JS ${jsInfoKeys.join(",")}`);
     }
   }
 

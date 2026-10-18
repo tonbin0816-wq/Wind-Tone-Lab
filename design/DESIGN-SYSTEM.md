@@ -1482,10 +1482,34 @@ iPad との分岐を2か所に持つより上限を1つにしておくほうが�
       **聞き比べは、アプリを起動し直した直後に `web` を先に聞く**（`act=no` のうちに聞く）→ それから `nativeClick` / `nativeBoth`。
       プレーヤーの `play()` はエンジンが動いているときだけ呼ぶ（動いていないエンジンのプレーヤーに呼ぶと例外で落ちる。`err=engine not running`）。
       取り込み: `inputNode.inputFormat(forBus: 0)`（ハードウェアの形式）で、付ける直前に `removeTap`・片付けでも外す。入力のレベルは RMS の dBFS。入力を足す・外すときはエンジンを作り直す（鳴らしていれば始め直す）。
-      エンジンの構成の変化（`AVAudioEngineConfigurationChange`）ではエンジンを捨てて回数と理由を控える（自分では始め直さない。板で同じボタンをもう一度押すと始め直す）。
+      【便CV 2026-10-18 本人の実機「web 以外で鳴らすと音が消えて、聞き比べができない」】エンジンの構成の変化（`AVAudioEngineConfigurationChange`）と、音のセッションの中断の終わり
+      （`AVAudioSession.interruptionNotification` の `.ended`）では、エンジンを捨てて回数を `configChanges`（板の `cfg=`）に数え、**`clickOn` / `inputOn` が真なら作り直して鳴らし直す**
+      （`scheduleTestRebuild`。便CU は捨てるだけで始め直さなかった）。**根拠は推測**: WebKit が音の出来事のたびにセッションを立て直す（上の「モードは .default」の調べ）と、殻のエンジンに
+      構成の変化が飛ぶ。Web のマイクを止める（nativeBoth の `stopListening`）ことも WebKit の取り込みを替える。便CU はそこで殻の音が消え、Web のマスターは 0 のままだったので無音になったと読んだ
+      （実機の板で確かめるまでは読み）。作り直しは **1 秒に 1 回まで**（通知から 0.2 秒は経路が落ち着くのを待つ。作り直しの遅れ = max(0.2 秒, 1 秒 − 前の作り直しからの経過)）・時が来たとき
+      止められていた（`clickOn` も `inputOn` も偽）かもう動いているエンジンがあれば何もしない・失敗は 5 回まで（`err=rebuild: …`。中断の終わりは数を 0 に戻してから作り直す）・
+      **10 秒に 10 回まで**（作り直しに成功しても構成の変化が飛び続ける場合の歯止め。超えたら諦めて `err=rebuild: loop`。板の同じボタン〈`nativeClickStart` / `nativeInputStart`〉で履歴が空になり再開できる）。nativeBoth では入力のタップも付け直す（エンジンを作るたびに
+      `ensureTestEngine` が付ける）。作り直しに成功した回数は `rb=`。板で同じボタンをもう一度押すと始め直すのは今まで通り。
+      **ほかに音が消える道を洗い直した（便CV）**: ①プレーヤーの時計（`player.lastRenderTime` → `playerTime`）が有効にならず `clickTick` が何も予約しない → 早く返った理由を `tick=` に出し
+      （idle / noEngine / notRunning / noPlayer / replay / noRender / noPlayerTime / badRate / ok）、時計が 0.2 秒（25ms × 8）有効にならなければ無音の短いバッファを1つ `at: nil` で予約して動かす
+      （`tick=noRender+primed`）。エンジンが動いているのにプレーヤーが止まっていれば `play()` し直す（`tick=replay`）。②JS の数値（48000・0.5）を Swift が拾えない恐れ →
+      `getDouble` が拾わなければ `getInt` へ落とす（`numberArg`）。③描き出した標本が実機の WebKit で無音 → ピークを `nativeBuf` に出し、3段のどれかが 0.05 未満なら殻へ渡さず `native=silent(buf)`。
+      ④`nativeClickStart` / `nativeClickLoad` が失敗しても JS が黙って Web のマスター 0 のまま → 下の `native=silent`。⑤描き出しが終わらないと列が詰まる → 5 秒で打ち切り（`native=silent(render)`）。
+      ⑥既存の除外処理（`isNearScheduledClick`・`scheduledClicksRef`）と Web のマスター 0 の掛け方（`audioDiagApplyMetroGain` が `ctx.__metroDiagGainX` と鎖のマスターに 基の値 × 倍率）は
+      読んで、音を消す道ではないと確かめた（除外はライブ計測のフレームを飛ばすだけ・マスターは鎖が後からできても `getMetroMasterInput` が `__metroDiagGainX` を読む）。
+    - **無音のまま mute を続けない（便CV の保険）**: 次のどれかで「殻の音が出ていない」と見なし（`native.silent` に理由）、**Web のマスターを基の値 × 倍率に戻し**、板の `nativeEngine` に
+      `native=silent(理由)` と出す（`playback` の選びはそのまま。選び直すと消えて、また Web は 0 になる）: `start`（`nativeClickStart` が失敗・reject）/ `load`（`nativeClickLoad` が失敗）/
+      `render`（描き出しが 5 秒終わらない・失敗）/ `buf`（描き出した3段のどれかのピークが 0.05 未満）/ `noSched`（メトロノームが鳴っているのに、殻の予約の累計 `sched` が、
+      クリックの最長の間隔の2倍（下限 3 秒。♩=20 でも誤って判定しない）のあいだ1つも進まない。板が1秒ごとに読むたびに見る）。0.05 と 3 秒は便CV で置いた判定の値（音量の規範ではない）。
+      **世代**（便CV 審査）: 鳴らし方を選ぶたびに `native.gen` が進み、描き出し・load・start の処理は始めたときの世代を控え、`nativeMarkSilent` は控えた世代が今と同じときだけ印を立てる
+      （選び直したあと、古い描き出しが時間切れになっても、今の選びの正常な殻に silent を立てない）。
       エンジンの操作はすべて直列の列（testQueue）の上・タップの中は入力のレベルを鍵の中で書くだけ。
     - 板の行（殻だけ）: `playback`（web / nativeClick / nativeBoth）/ `nativeEngine`（`running=` エンジンが動いているか・`act=` このプロセスで活性にしたことがあるか・`click=`・`in=`・`cfg=` 構成の変化の回数・`err=` 殻の最後のエラー・`js=` JS 側の失敗）/
       `nativeBuf`（殻へ渡した3段のピーク @sampleRate）/ `nativeIn`（nativeBoth のとき。殻の取り込みの入力レベル `-xx.x dBFS`）。`outputVolume` は今どおり。殻のビルドが古いと `nativeEngine` は `n/a (要ビルド…)`。
+      【便CV】`nativeEngine` に `native=silent(理由)` が付くことがある（上）。新しい行 `nativeSched`: `sched=`（予約した累計個数）`played=`（そのうち再生し終わった〈`.dataPlayedBack`〉累計個数。止めた・作り直した後の通知は世代で数えない。
+      `sched` だけ増えて `played` が増えない = 予約したが再生されていない / 両方増えているのに聞こえない = 再生はされているが出口・音量の側）`play=`（`player.isPlaying`）`lrt=`（`player.lastRenderTime` が有効か）
+      `cfg=`（構成の変化と中断の終わりの回数）`rb=`（作り直しに成功した回数）`tick=`（直近の `clickTick` が早く返った理由）。スクリーンショット1枚で、音が出ない原因を
+      「エンジンが落ちた（`running=no`・`cfg` が増える）/ 時計が無効（`lrt=no`・`tick=noRender`）/ 予約が進まない（`sched` が止まる）/ 描き出しが無音（`nativeBuf`）/ 殻の呼び出しの失敗（`js=`）」に切り分ける。
     - 新しいメソッド（`FicusAudioSession`）: `nativeClickLoad` / `nativeClickStart` / `nativeClickStop` / `nativeInputStart` / `nativeInputStop` / `nativeAudioInfo`（読むだけ）。JS の呼び口は `src/shell/audio.js` の `shellNative*`（Web では null）。
   - 殻の値は自前の部品の読み出し口 `FicusAudioSession.sessionInfo`（`AppDelegate.swift`。読むだけ）。**ios-dev を建て直すまでは `n/a (要ビルド…)`** と出る。Web は `n/a (web)`。
   - 1秒に1回読み直す。読むだけで、音・マイク・セッションには何もしない（【便CT】例外は上の試し口のボタンを押したときだけ。【便CU】殻では `nativeAudioInfo` も読む）。置き場と部品は `src/audioDiag.jsx`（`position: fixed`・z 50・字は `--fs-xs` 以上）。
