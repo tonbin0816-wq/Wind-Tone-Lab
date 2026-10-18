@@ -243,7 +243,7 @@ describe("【便CU】鳴らし方の切り替え(殻への呼び出しの順と�
       return { sampleRate: sr, accent: new Float32Array([0.5]), beat: new Float32Array([0.25]), sub: new Float32Array([0.125]) };
     };
     AUDIO_DIAG.webMic = { recording: () => false, stop: () => calls.push(["webMic.stop"]), restore: async () => { calls.push(["webMic.restore"]); return true; } };
-    AUDIO_DIAG.native = { clickKey: null, loadedRate: null, bufPeaks: null, info: undefined, error: "", silent: "", gen: 0, watchAt: 0, watchSched: null, renderTimeoutMs: 5000, chain: Promise.resolve() };
+    AUDIO_DIAG.native = { clickKey: null, loadedRate: null, bufPeaks: null, info: undefined, error: "", silent: "", gen: 0, watchAt: 0, watchSched: null, renderTimeoutMs: 5000, held: [], soloHeld: false, releasing: null, chain: Promise.resolve() };
   };
   afterEach(() => {
     AUDIO_DIAG.playback = "web"; AUDIO_DIAG.metroGainX = 1;
@@ -555,5 +555,230 @@ describe("【便CU】鳴らし方の切り替え(殻への呼び出しの順と�
     await flush();
     expect(AUDIO_DIAG.playback).toBe("web");
     expect(calls.at(-1)).toEqual(["stop"]);
+  });
+});
+
+// ------------------------------------------------------------------
+// 【便CW 2026-10-18】nativeSolo = nativeBoth + Web の AudioContext をすべて suspend + navigator.audioSession.type を "auto"。
+// 【守っているもの】選ぶと(殻の取り込みが始まり Web のマイクを止めたあとで)ctx を止め・殻の「止まったら resume」の手当てを外し・type を auto /
+//   戻すと resume と type の戻し(AUDIO_SESSION_TYPE)がその場で(殻のクリックの停止より前・Web のマスターは止め終わるまで 0)、そのあと殻の停止 → 取り込みの停止 → マイクの戻し /
+//   resume で戻らなければメトロノームを止める(次の START が作り直す)/ 失敗の道(殻の取り込みが始まらない)では Web を止めない / 古い世代は止めない /
+//   止めている間に作られた・resume された ctx を止め直す / silent になったら resume と type を戻してからマスターを戻す / マイクの解析の ctx があればそれも止める。
+// 【守っていないもの】WebKit の GPU プロセスの音のセッションが本当に非活性になり、音量の段が通話から外れるか(実機待ち)。
+// ------------------------------------------------------------------
+describe("【便CW】nativeSolo(Web の AudioContext を止め、audioSession.type を auto に)", () => {
+  let calls; let metro; let api; let micCtx; let handler; let gateIn;
+  const flush = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); await new Promise((r) => setTimeout(r, 0)); for (let i = 0; i < 20; i++) await Promise.resolve(); };
+  const makeCtx = (name, state = "running") => {
+    const master = { gain: { value: 1 } };
+    const c = {
+      name, state, sampleRate: 48000, __metroMasterGain: master, __metroMasterBase: 1, resumeTo: "running",
+      suspend() { calls.push([`${name}.suspend`]); if (this.state !== "closed") this.state = "suspended"; return Promise.resolve(); },
+      resume() { calls.push([`${name}.resume`]); if (this.state !== "closed") this.state = this.resumeTo; return Promise.resolve(); },
+    };
+    return c;
+  };
+  const setup = () => {
+    calls = [];
+    gateIn = null;
+    const ok = (name) => async (arg) => { calls.push(arg === undefined ? [name] : [name, arg]); return {}; };
+    api = { load: ok("load"), start: ok("start"), stop: ok("stop"), inStart: async () => { calls.push(["inStart"]); if (gateIn) await gateIn; return {}; }, inStop: ok("inStop"), info: ok("info") };
+    handler = () => {};
+    metro = { on: true, stopped: 0, ctx: makeCtx("metro") };
+    metro.ctx.onstatechange = handler;
+    micCtx = null;
+    AUDIO_DIAG.getMetro = () => ({ ctx: metro.ctx, on: metro.on, stop: () => { metro.stopped++; metro.on = false; }, clickPattern: () => ({ stepSec: 0.5, kinds: ["accent", "beat"] }) });
+    AUDIO_DIAG.renderClicks = async (sr) => ({ sampleRate: sr, accent: new Float32Array([0.5]), beat: new Float32Array([0.25]), sub: new Float32Array([0.125]) });
+    AUDIO_DIAG.webMic = { recording: () => false, ctx: () => micCtx, stop: () => calls.push(["webMic.stop"]), restore: async () => { calls.push(["webMic.restore"]); return true; } };
+    AUDIO_DIAG.applyAudioSessionType = () => { calls.push(["applyType"]); navigator.audioSession.type = "play-and-record"; };
+    Object.defineProperty(navigator, "audioSession", { value: { type: "play-and-record" }, configurable: true });
+    AUDIO_DIAG.native = { clickKey: null, loadedRate: null, bufPeaks: null, info: undefined, error: "", silent: "", gen: 0, watchAt: 0, watchSched: null, renderTimeoutMs: 5000, held: [], soloHeld: false, releasing: null, chain: Promise.resolve() };
+    AUDIO_DIAG.metroGainX = 1.3;
+  };
+  afterEach(() => {
+    AUDIO_DIAG.playback = "web"; AUDIO_DIAG.metroGainX = 1;
+    AUDIO_DIAG.getMetro = null; AUDIO_DIAG.renderClicks = null; AUDIO_DIAG.webMic = null; AUDIO_DIAG.applyAudioSessionType = null;
+    try { delete navigator.audioSession; } catch { /* */ }
+  });
+  const names = () => calls.map((c) => c[0]);
+
+  it("選ぶと: 殻の取り込み → Web のマイクを止める → ctx を suspend(殻の resume の手当ては外す)・type は auto。そのあと殻のクリック・Web のマスター 0", async () => {
+    setup();
+    await audioDiagSetPlayback("nativeSolo", api);
+    await flush();
+    expect(names().slice(0, 3)).toEqual(["inStart", "webMic.stop", "metro.suspend"]);
+    expect(names()).toContain("start");
+    expect(metro.ctx.state).toBe("suspended");
+    expect(metro.ctx.onstatechange).toBe(null);
+    expect(navigator.audioSession.type).toBe("auto");
+    expect(metro.ctx.__metroMasterGain.gain.value).toBe(0);
+  });
+  it("戻すと: resume と type の戻しがその場で(殻のクリックの停止より前)→ 殻の停止 → 取り込みの停止 → マイクの戻し → マスターが基の値 × 倍率・手当ても付け直す", async () => {
+    setup();
+    await audioDiagSetPlayback("nativeSolo", api);
+    await flush();
+    calls.length = 0;
+    const back = audioDiagSetPlayback("web", api);
+    expect(names()).toEqual(["metro.resume", "applyType"]);         // ボタンを押したその場(タップの中)
+    expect(metro.ctx.__metroMasterGain.gain.value).toBe(0);          // 殻を止め終わるまで Web は鳴らさない
+    await back; await flush();
+    expect(names()).toEqual(["metro.resume", "applyType", "stop", "inStop", "webMic.restore"]);
+    expect(metro.ctx.state).toBe("running");
+    expect(metro.ctx.onstatechange).toBe(handler);
+    expect(navigator.audioSession.type).toBe("play-and-record");
+    expect(metro.ctx.__metroMasterGain.gain.value).toBeCloseTo(1.3, 12);
+    expect(metro.stopped).toBe(0);
+  });
+  it("resume で running に戻らない ctx は、メトロノームを止める(次の START が既存の道で作り直す)・板に js= で出る", async () => {
+    setup();
+    await audioDiagSetPlayback("nativeSolo", api);
+    await flush();
+    metro.ctx.resumeTo = "suspended";                                // iOS がタップの外で resume を断った形
+    await audioDiagSetPlayback("web", api);
+    await flush();
+    expect(metro.stopped).toBe(1);
+    expect(AUDIO_DIAG.native.error).toMatch(/^webCtx: resume → suspended/);
+  });
+  it("失敗の道: 殻の取り込みが始まらなければ、Web のマイクも ctx も止めず・type も変えず、web に戻る", async () => {
+    setup();
+    api.inStart = async () => { calls.push(["inStart"]); return { error: "not playAndRecord" }; };
+    await audioDiagSetPlayback("nativeSolo", api);
+    await flush();
+    expect(names()).toEqual(["inStart"]);
+    expect(AUDIO_DIAG.playback).toBe("web");
+    expect(metro.ctx.state).toBe("running");
+    expect(navigator.audioSession.type).toBe("play-and-record");
+    expect(metro.ctx.__metroMasterGain.gain.value).toBeCloseTo(1.3, 12);
+  });
+  it("押し直し(nativeSolo → nativeSolo)で殻の取り込みが失敗したら、止めていた ctx と type を戻し、Web のマイクも戻して nativeClick に", async () => {
+    setup();
+    await audioDiagSetPlayback("nativeSolo", api);
+    await flush();
+    calls.length = 0;
+    api.inStart = async () => { calls.push(["inStart"]); return { error: "x" }; };
+    await audioDiagSetPlayback("nativeSolo", api);
+    await flush();
+    expect(AUDIO_DIAG.playback).toBe("nativeClick");
+    expect(names().slice(0, 4)).toEqual(["inStart", "metro.resume", "applyType", "webMic.restore"]);
+    expect(metro.ctx.state).toBe("running");
+    expect(navigator.audioSession.type).toBe("play-and-record");
+  });
+  it("古い世代は止めない: 殻の取り込みを待っている間に web へ戻したら、その後に取り込みが返っても ctx も type も止めない", async () => {
+    setup();
+    let release;
+    gateIn = new Promise((r) => { release = r; });
+    audioDiagSetPlayback("nativeSolo", api);
+    await flush();
+    const back = audioDiagSetPlayback("web", api);
+    release();
+    await back; await flush();
+    expect(names()).not.toContain("metro.suspend");
+    expect(names()).not.toContain("webMic.stop");
+    expect(metro.ctx.state).toBe("running");
+    expect(navigator.audioSession.type).toBe("play-and-record");
+    expect(AUDIO_DIAG.playback).toBe("web");
+  });
+  it("古い世代は止めない(選び直し): nativeSolo → web → nativeSolo で、古い取り込みが後から成功しても、新しい取り込みが返るまで Web を止めない", async () => {
+    setup();
+    const gates = [];
+    api.inStart = () => { calls.push(["inStart"]); return new Promise((r) => { gates.push(() => r({})); }); };
+    audioDiagSetPlayback("nativeSolo", api);
+    await flush();                                                   // 1回目の取り込みが待っている
+    audioDiagSetPlayback("web", api);
+    const again = audioDiagSetPlayback("nativeSolo", api);
+    gates[0]();                                                      // 古い取り込みが成功で返る
+    await flush();                                                   // 新しい取り込み(2回目)が待っている
+    expect(gates.length).toBe(2);
+    audioDiagSyncNativeClick(api);                                   // 板の 20ms ごとの合わせ
+    expect(names()).not.toContain("metro.suspend");                  // 新しい取り込みが返る前に Web を止めない
+    expect(metro.ctx.state).toBe("running");
+    gates[1]();                                                      // 新しい取り込みが返る
+    await again; await flush();
+    expect(metro.ctx.state).toBe("suspended");
+    expect(navigator.audioSession.type).toBe("auto");
+  });
+  it("止めている間に START で作られた ctx・resume された ctx・戻された type は、板の 20ms ごとの合わせで止め直す", async () => {
+    setup();
+    await audioDiagSetPlayback("nativeSolo", api);
+    await flush();
+    const fresh = makeCtx("fresh");                                  // START が作った新しい ctx(running)
+    fresh.onstatechange = () => {};
+    metro.ctx = fresh;
+    navigator.audioSession.type = "play-and-record";                // startMetronome の applyAudioSessionType
+    audioDiagSyncNativeClick(api);
+    expect(fresh.state).toBe("suspended");
+    expect(fresh.onstatechange).toBe(null);
+    expect(navigator.audioSession.type).toBe("auto");
+    fresh.state = "running";                                         // 誰かが resume した
+    audioDiagSyncNativeClick(api);
+    expect(fresh.state).toBe("suspended");
+  });
+  it("マイクの解析の ctx があれば、それも止め・戻す", async () => {
+    setup();
+    micCtx = makeCtx("mic");
+    await audioDiagSetPlayback("nativeSolo", api);
+    await flush();
+    expect(micCtx.state).toBe("suspended");
+    await audioDiagSetPlayback("web", api);
+    await flush();
+    expect(micCtx.state).toBe("running");
+  });
+  it("nativeSolo で殻の音が出ていない(start の失敗)と見なしたら、ctx を resume し type も戻してからマスターを戻す・その後は止め直さない", async () => {
+    setup();
+    api.start = async (o) => { calls.push(["start", o]); return { error: "engine not running" }; };
+    await audioDiagSetPlayback("nativeSolo", api);
+    await flush();
+    expect(AUDIO_DIAG.native.silent).toBe("start");
+    expect(AUDIO_DIAG.playback).toBe("nativeSolo");
+    expect(metro.ctx.state).toBe("running");
+    expect(navigator.audioSession.type).toBe("play-and-record");
+    expect(metro.ctx.__metroMasterGain.gain.value).toBeCloseTo(1.3, 12);
+    const i = names().indexOf("metro.resume");
+    expect(i).toBeGreaterThan(names().indexOf("metro.suspend"));
+    audioDiagSyncNativeClick(api);                                   // silent の間は止め直さない
+    expect(metro.ctx.state).toBe("running");
+  });
+  // 【便CW 審査】silent はタップの外で立つ。resume が効かなければメトロノームを止める(ON のまま無音で残さない)
+  it("silent(start の失敗)で resume が戻らなければ、メトロノームを止めて js=webCtx に出す", async () => {
+    setup();
+    metro.ctx.resumeTo = "suspended";
+    api.start = async (o) => { calls.push(["start", o]); return { error: "engine not running" }; };
+    await audioDiagSetPlayback("nativeSolo", api);
+    await flush();
+    expect(AUDIO_DIAG.native.silent).toBe("start");
+    expect(metro.stopped).toBe(1);
+    expect(AUDIO_DIAG.native.error).toMatch(/^webCtx: resume → suspended/);
+  });
+  it("silent(noSched)で resume が戻らなければ、メトロノームを止めて js=webCtx に出す(列が詰まっていても)", async () => {
+    setup();
+    await audioDiagSetPlayback("nativeSolo", api);
+    await flush();
+    expect(metro.ctx.state).toBe("suspended");
+    metro.ctx.resumeTo = "suspended";
+    AUDIO_DIAG.native.chain = new Promise(() => {});                // 列が詰まっている
+    const t0 = 1_000_000;
+    AUDIO_DIAG.native.watchAt = t0; AUDIO_DIAG.native.watchSched = 3;
+    audioDiagCheckNativeSilence({ scheduled: 3 }, t0 + 5000);
+    await flush();
+    expect(AUDIO_DIAG.native.silent).toBe("noSched");
+    expect(metro.stopped).toBe(1);
+    expect(AUDIO_DIAG.native.error).toMatch(/^webCtx: resume → suspended/);
+  });
+  it("silent で resume が戻ったときはメトロノームを止めない", async () => {
+    setup();
+    api.start = async (o) => { calls.push(["start", o]); return { error: "x" }; };
+    await audioDiagSetPlayback("nativeSolo", api);
+    await flush();
+    expect(AUDIO_DIAG.native.silent).toBe("start");
+    expect(metro.ctx.state).toBe("running");
+    expect(metro.stopped).toBe(0);
+  });
+  it("録音中は nativeSolo も選ばせない", async () => {
+    setup();
+    AUDIO_DIAG.webMic.recording = () => true;
+    await audioDiagSetPlayback("nativeSolo", api);
+    await flush();
+    expect(calls).toEqual([]);
+    expect(AUDIO_DIAG.native.error).toBe("nativeSolo: recording");
   });
 });

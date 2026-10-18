@@ -1458,6 +1458,28 @@ iPad との分岐を2か所に持つより上限を1つにしておくほうが�
         （`js=inStart: …` に出る。前も nativeBoth〈押し直し〉だったときは Web のマイクがもう止まっているので戻し、nativeClick にする）。
         nativeBoth の間に録音を始めたら（録音のボタンが `startListening` を直に呼ぶ道）、鳴らし方を `web` に戻す（殻のクリックと取り込みを止める。Web のマイクは録音の開始が
         そのタップの中で取るので、板の側では戻さない = 二重に取らない）。板の表示と実際の状態をずらさないため。
+      - `nativeSolo`（【便CW 2026-10-18】）: `nativeBoth` に加えて **Web の AudioContext をすべて suspend**（メトロノームの ctx と、あればマイクの解析の ctx。マイクは
+        `stopListening` で閉じているので普段は無い）し、**`navigator.audioSession.type` を `"auto"`** にする。
+        - きっかけ（本人の実機）: 便CV で殻（nativeClick / nativeBoth）は鳴るようになったが、**音量は web と同じ**・nativeBoth で mode 5種を替えても変わらない。参考のネイティブのアプリは
+          メトロノームとチューナーを同時に動かすとオレンジの点（録音中）が出るのに Ficus より大きく、アプリを切り替えると iPhone の音量の段が違った（Ficus は MAX・参考は半分）。
+          Google のメトロノーム（Web）も同じ症状で、中は 10 分の MP3 を `<audio loop>` で鳴らすだけ（統括の調べ）。
+        - **仮説（統括の読み）**: nativeBoth で Web のマイクを止めても、Web Audio のメトロノームの ctx はマスター 0 のまま動き続け、`audioSession.type` も `"play-and-record"` のまま。
+          そのため WebKit の GPU プロセスの音のセッションが PlayAndRecord + videoChat で生き残り、アプリ全体が通話の音量の段に縛られている（便CU の懸念と同じ）。
+          WebKit 側の音のセッションを非活性にして、アプリのプロセスの PlayAndRecord（mode は desiredMode）だけが残る状態を作って聞き比べる。**当たっているかは実機待ち**。
+        - 止める順: 殻の取り込みを始める（`nativeInputStart`）→ Web のマイクを止める → ctx を suspend・type を auto（古い世代〈待っている間に選び直した〉では止めない）。
+          殻では ctx に「止まったら resume する」手当て（`onstatechange`）が付いているので、止めている間は外し、戻すときに付け直す。
+          止めている間に START で作られた ctx・誰かが resume した ctx・戻された type は、板の 20ms ごとの合わせで止め直す（`native.silent` の間はしない）。
+          拍の表示などの見た目が止まるのは試しなので構わない。止めている間は ctx の時計も止まるので、Web のスケジューラ（`metroSchedulerTick` の `ctx.currentTime + LOOKAHEAD`）は予約を溜めず、
+          戻しても一気に鳴らない。
+        - 戻す（web へ・閉じる・タブを離れる・裏・録音の開始）: 止めた ctx の **resume と type の戻し**（既存の `applyAudioSessionType` = `AUDIO_SESSION_TYPE`）は**ボタンを押したその場**
+          （iOS は resume にタップの中を求める。Web のマスターは殻のクリックを止め終わるまで 0 なので二重には鳴らない）。そのあとは nativeBoth と同じ順
+          （殻のクリックの停止 → 殻の取り込みの停止 → Web のマイクの戻し → Web のマスターの戻し）。resume で running に戻らない ctx（0.5 秒待つ）は、メトロノームを止める
+          （次の START が既存の道〈`startMetronome` の「running でなければ作り直す」〉で ctx を作り直す。板の `js=webCtx: resume → …`）。
+        - 失敗の道: 殻の取り込みが始まらなければ、Web のマイクも ctx も止めず type も変えず、前の鳴らし方に戻る（押し直しで失敗したときは、止めていたものを戻して nativeClick）。
+        - `native.silent`（便CV の保険）は nativeSolo にも効く: silent になったら、ctx を resume し type も戻してから Web のマスターを戻す。
+        - 板の行（殻だけ）: `webCtx`（`metro=` メトロノームの ctx の state・`mic=` マイクの解析の ctx の state〈無ければ none〉）と、今の `web.audioSession`（既存の行）。`outputVolume` は今どおり。
+        - App.jsx に入れたもの（どれも試し口を選んだときだけ働く）: recoverMic の門と録音の開始の判定を `audioDiagWebMicStopped()`（nativeBoth・nativeSolo）にした・
+          `webMic.ctx`（マイクの解析の ctx を読む口）・`AUDIO_DIAG.applyAudioSessionType`・`getMetro().stop`（stopMetronome の最新を ref で持つ）。
     - **戻す**: 板を閉じる・計測タブを離れる（MeasureView が外れる）・裏へ行く、で `web` に戻す。【便CU 審査】**二重に鳴らさない順**: 殻のクリックを先に止める（`nativeClickStop`）
       → 殻の取り込みを止める（`nativeInputStop`。殻はクリックが止まっているので鳴らし直さない）→ Web のマイクを既存の `recoverMic`（タップの再試行と同じ短いクールダウン）で取り直す
       （断られてマイクが無いままなら既存の `startListening`。計測タブで画面が見えているときだけ）→ Web のマスターを基の値 × 倍率へ戻す。戻すと決めた時点の ctx は

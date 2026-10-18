@@ -42,11 +42,12 @@ export const AUDIO_DIAG = {
   testMode: { requested: "default", result: "—" }, // 板で選んだモードと、殻の答え
   peak: { at: [], max: 0 }, // 直近のクリックのピーク: at = [時刻, ピーク] の並び(窓の中だけ)・max = 板を開いてから(倍率・モードを替えたら数え直す)
   // 【便CU】試し口「鳴らし方」(殻だけ・保存しない)
-  playback: "web",       // "web" | "nativeClick" | "nativeBoth"
+  playback: "web",       // "web" | "nativeClick" | "nativeBoth" | "nativeSolo"
   webMic: null,          // 根が置く: { recording(), stop(), restore() }(nativeBoth の Web のマイクの止めと戻し)
   renderClicks: null,    // 根が置く: (sampleRate) => Promise<{ sampleRate, accent, beat, sub }>(App.jsx の renderMetroClickSamples)
+  applyAudioSessionType: null, // 【便CW】根が置く: App.jsx の applyAudioSessionType(navigator.audioSession.type = AUDIO_SESSION_TYPE。nativeSolo から戻すとき)
   // 【便CV】silent = 殻の音が出ていないと見なした理由("" = 出ている/まだ分からない)・gen = 鳴らし方を選ぶたびに進む世代(古い処理の失敗を今の選びに掛けない)・watchAt/watchSched = 予約が進んでいるかの見張りの基準・renderTimeoutMs = 描き出しの待ちの上限
-  native: { clickKey: null, loadedRate: null, bufPeaks: null, info: undefined, error: "", silent: "", gen: 0, watchAt: 0, watchSched: null, renderTimeoutMs: 5000, chain: Promise.resolve() },
+  native: { clickKey: null, loadedRate: null, bufPeaks: null, info: undefined, error: "", silent: "", gen: 0, watchAt: 0, watchSched: null, renderTimeoutMs: 5000, held: [], soloHeld: false, releasing: null, chain: Promise.resolve() },
 };
 
 // 【便CU 2026-10-17】試し口「鳴らし方」(本人の実機: 殻のセッションのモード 5種も ×1/1.3/1.6 も、聞こえる音量が変わらなかった)。
@@ -59,7 +60,75 @@ export const AUDIO_DIAG = {
 // **保存しない**(メモリだけ)。板を閉じる・計測タブを離れる(MeasureView が外れて getMetro が消える)・裏へ行く、で web に戻す
 // (殻の取り込みとクリックを止め、Web のマイクは既存の recoverMic / startListening で戻す)。殻も裏へ行けば自分で止める(AppDelegate.swift)。
 // Web(殻でない)では試し口を出さない(殻の新しいメソッドが無い)。殻のクリックと拍の表示のズレはこの試しでは問わない。
-export const AUDIO_DIAG_PLAYBACKS = ["web", "nativeClick", "nativeBoth"];
+//   nativeSolo  … 【便CW 2026-10-18】nativeBoth + Web の AudioContext をすべて suspend(メトロノームの ctx と、あればマイクの解析の ctx)+ navigator.audioSession.type を "auto"。
+//                 本人の実機: 殻で鳴らしても(nativeClick / nativeBoth)音量は web と同じ・nativeBoth で mode 5種も変わらない。参考のネイティブアプリは録音中(オレンジの点)でも大きく、
+//                 音量の段も違った。統括の読み: nativeBoth でも Web Audio のメトロノームの ctx がマスター 0 で動き続け、type も "play-and-record" のままなので、
+//                 WebKit の GPU プロセスのセッションが PlayAndRecord + videoChat で生き残り、アプリ全体が通話の段に縛られている。WebKit 側の音のセッションを
+//                 非活性にして、アプリのプロセスの PlayAndRecord(mode は desiredMode)だけを残す試し。拍の表示などは止まってよい(試し)。
+//                 止めている間に START で作られた ctx・誰かが resume した ctx も、板が 20ms ごとに止め直す(type も auto へ)。
+//                 戻す(web へ・閉じる・タブを離れる・裏・録音の開始)と、ctx の resume と type の戻し(AUDIO_SESSION_TYPE)はボタンを押したその場で
+//                 (iOS は resume にタップの中を求める。Web のマスターは殻のクリックを止め終わるまで 0 なので二重には鳴らない)、殻のクリックの停止 → 殻の取り込みの停止 →
+//                 Web のマイクの戻し → Web のマスターの戻し、は nativeBoth と同じ順。resume で running に戻らない ctx はメトロノームを止める(次の START が既存の道で作り直す)。
+//                 止めている間は ctx の時計も止まるので、スケジューラは予約を溜めない(戻しても一気に鳴らない)。
+export const AUDIO_DIAG_PLAYBACKS = ["web", "nativeClick", "nativeBoth", "nativeSolo"];
+// Web のマイクを止める鳴らし方(nativeBoth・nativeSolo)。App.jsx の recoverMic の門と録音の開始が読む
+export function audioDiagWebMicStopped(p = AUDIO_DIAG.playback) { return p === "nativeBoth" || p === "nativeSolo"; }
+// Web の AudioContext を止め、type を auto にする鳴らし方
+const holdsWebAudio = (p) => p === "nativeSolo";
+// 【便CW】resume のあと running に戻るのを待つ上限(超えて戻らなければメトロノームを止める)
+export const AUDIO_DIAG_RESUME_WAIT_MS = 500;
+// 止めた ctx の onstatechange(殻では「止まったら resume する」手当てが付いている。止めている間は外し、戻すときに付け直す)
+const heldStateHandlers = new WeakMap();
+// 今の Web の AudioContext(メトロノーム・マイクの解析。無いものは除く)
+function webAudioContexts() {
+  const m = AUDIO_DIAG.getMetro ? AUDIO_DIAG.getMetro() : null;
+  const mic = AUDIO_DIAG.webMic && typeof AUDIO_DIAG.webMic.ctx === "function" ? AUDIO_DIAG.webMic.ctx() : null;
+  return [m ? m.ctx : null, mic].filter((c) => c && c.state !== "closed");
+}
+// Web の音のセッションを非活性にする(nativeSolo)。何度呼んでもよい(新しい ctx・running に戻った ctx を止め直す・type を auto に戻す)
+function webAudioHold() {
+  const st = AUDIO_DIAG.native;
+  st.held = (st.held || []).filter((c) => c.state !== "closed");
+  for (const ctx of webAudioContexts()) {
+    if (!st.held.includes(ctx)) {
+      heldStateHandlers.set(ctx, ctx.onstatechange || null);
+      ctx.onstatechange = null;
+      st.held.push(ctx);
+    } else if (ctx.state !== "running") continue;
+    try { const r = ctx.suspend(); if (r && typeof r.catch === "function") r.catch(() => {}); } catch { /* noop */ }
+  }
+  try {
+    if (typeof navigator !== "undefined" && navigator.audioSession && navigator.audioSession.type !== "auto") navigator.audioSession.type = "auto";
+  } catch { /* noop */ }
+}
+// 止めた ctx を resume し(onstatechange も付け直す)、type を AUDIO_SESSION_TYPE に戻す。resume の終わりは native.releasing に置く(戻す道が待って確かめる)
+function webAudioRelease() {
+  const st = AUDIO_DIAG.native;
+  const ctxs = (st.held || []).filter((c) => c.state !== "closed");
+  const waits = ctxs.map((ctx) => {
+    if (heldStateHandlers.has(ctx)) { ctx.onstatechange = heldStateHandlers.get(ctx); heldStateHandlers.delete(ctx); }
+    try { return Promise.resolve(ctx.resume()).catch(() => {}); } catch { return Promise.resolve(); }
+  });
+  st.held = [];
+  st.soloHeld = false;
+  if (AUDIO_DIAG.applyAudioSessionType) AUDIO_DIAG.applyAudioSessionType();
+  st.releasing = ctxs.length ? { ctxs, done: Promise.all(waits) } : null;
+}
+// 戻したあと(列の中)、止めていたメトロノームの ctx が running に戻ったかを確かめる。戻らなければメトロノームを止める(次の START が既存の道で作り直す)
+async function webAudioCheckReleased() {
+  const st = AUDIO_DIAG.native;
+  const rel = st.releasing;
+  st.releasing = null;
+  if (!rel) return;
+  let t;
+  await Promise.race([rel.done, new Promise((r) => { t = setTimeout(r, AUDIO_DIAG_RESUME_WAIT_MS); })]);
+  clearTimeout(t);
+  const m = AUDIO_DIAG.getMetro ? AUDIO_DIAG.getMetro() : null;
+  if (m && m.on && m.ctx && rel.ctxs.includes(m.ctx) && m.ctx.state !== "running" && m.ctx.state !== "closed") {
+    if (typeof m.stop === "function") m.stop();
+    st.error = `webCtx: resume → ${m.ctx.state}(メトロノームを止めた。START で作り直す)`;
+  }
+}
 const SHELL_NATIVE = {
   load: shellNativeClickLoad, start: shellNativeClickStart, stop: shellNativeClickStop,
   inStart: shellNativeInputStart, inStop: shellNativeInputStop, info: shellNativeAudioInfo,
@@ -95,6 +164,13 @@ function nativeMarkSilent(reason, gen = AUDIO_DIAG.native.gen) {
   if (gen !== st.gen) return;
   if (AUDIO_DIAG.playback === "web" || st.silent) return;
   st.silent = reason;
+  // 【便CW】nativeSolo なら、Web の ctx を resume し type も戻してから(止め直しは silent の間しない)。
+  // 【便CW 審査】silent はタップの外で立つので resume が効かないことがある。戻ったかをすぐに確かめ、running に戻らなければメトロノームを止める
+  // (ON の表示のまま無音で残さない。次の START が既存の道で作り直す。板に js=webCtx: …)。列には積まない(列が詰まっていても確かめる)
+  if ((st.held && st.held.length) || st.soloHeld) {
+    webAudioRelease();
+    webAudioCheckReleased().catch(() => {});
+  }
   const m = AUDIO_DIAG.getMetro ? AUDIO_DIAG.getMetro() : null;
   audioDiagApplyMetroGain(m ? m.ctx : null, AUDIO_DIAG.metroGainX); // Web のマスターを戻す(silent の間は倍率を当てる)
 }
@@ -164,6 +240,8 @@ export function audioDiagSyncNativeClick(api = SHELL_NATIVE) {
   const st = AUDIO_DIAG.native;
   const m = AUDIO_DIAG.getMetro ? AUDIO_DIAG.getMetro() : null;
   if (!m || (typeof document !== "undefined" && document.hidden)) { audioDiagSetPlayback("web", api); return; }
+  // 【便CW】nativeSolo の間は Web の音のセッションを非活性に保つ(START で作られた ctx・resume された ctx を止め直す・type を auto に)。silent の間はしない
+  if (AUDIO_DIAG.playback === "nativeSolo" && st.soloHeld && !st.silent) webAudioHold();
   const want = m.on && m.ctx && typeof m.clickPattern === "function" ? m.clickPattern() : null;
   const rate = m.ctx ? m.ctx.sampleRate : null;
   const key = want ? JSON.stringify([rate, want.stepSec, want.kinds]) : null;
@@ -196,8 +274,8 @@ export function audioDiagSyncNativeClick(api = SHELL_NATIVE) {
 export function audioDiagSetPlayback(mode, api = SHELL_NATIVE, opts = {}) {
   if (!AUDIO_DIAG_PLAYBACKS.includes(mode)) return Promise.resolve();
   const st = AUDIO_DIAG.native;
-  if (mode === "nativeBoth" && (!AUDIO_DIAG.webMic || AUDIO_DIAG.webMic.recording())) {
-    st.error = AUDIO_DIAG.webMic ? "nativeBoth: recording" : "nativeBoth: no web mic";
+  if (audioDiagWebMicStopped(mode) && (!AUDIO_DIAG.webMic || AUDIO_DIAG.webMic.recording())) {
+    st.error = AUDIO_DIAG.webMic ? `${mode}: recording` : `${mode}: no web mic`;
     return Promise.resolve();
   }
   const prev = AUDIO_DIAG.playback;
@@ -206,7 +284,11 @@ export function audioDiagSetPlayback(mode, api = SHELL_NATIVE, opts = {}) {
   st.error = "";
   st.silent = ""; // 選び直すと、また殻の音が出ているかを見る(Web のマスターは 0 に戻る)
   st.gen = (st.gen || 0) + 1; // 古い処理(描き出しの時間切れ・load/start の失敗)が、この選びに silent を立てないようにする
+  const gen = st.gen;
   st.watchAt = Date.now(); st.watchSched = null;
+  // 【便CW】nativeSolo から離れるなら、止めた ctx の resume と type の戻しはその場で(iOS は resume にタップの中を求める)。Web のマスターは下で 0 のまま
+  const leavingHold = holdsWebAudio(prev) && !holdsWebAudio(mode);
+  if (leavingHold) webAudioRelease();
   const applyGain = () => {
     const m = AUDIO_DIAG.getMetro ? AUDIO_DIAG.getMetro() : null;
     audioDiagApplyMetroGain(m ? m.ctx : null, AUDIO_DIAG.metroGainX);
@@ -225,16 +307,17 @@ export function audioDiagSetPlayback(mode, api = SHELL_NATIVE, opts = {}) {
       const r = await api.stop();
       if (nativeErr(r)) st.error = `stop: ${nativeErr(r)}`;
     }
-    if (prev === "nativeBoth" && mode !== "nativeBoth") {
+    if (audioDiagWebMicStopped(prev) && !audioDiagWebMicStopped(mode)) {
       const r = await api.inStop();
       if (nativeErr(r)) st.error = `inStop: ${nativeErr(r)}`;
       if (AUDIO_DIAG.webMic && !opts.skipRestore) await AUDIO_DIAG.webMic.restore();
     }
+    if (leavingHold) await webAudioCheckReleased(); // 【便CW】止めていた ctx が戻ったか(戻らなければメトロノームを止める)
     if (mode === "web") {
       if (AUDIO_DIAG.playback === "web") applyGain(); // 殻のクリックを止め終わってから Web のマスターを戻す
       return;
     }
-    if (mode === "nativeBoth") {
+    if (audioDiagWebMicStopped(mode)) {
       // 殻の取り込みを先に始める(Web の取り込みが動いている = 種別が playAndRecord の間に)。それから Web のマイクを止める。
       // 【便CU 審査】殻の取り込みが始められなかった(失敗を返した・投げた)ら、Web のマイクは止めず、鳴らし方を前の値に戻し、Web のマスターも戻す。
       // 開き直し(前も nativeBoth)で失敗したときは、Web のマイクはもう止まっているので戻し、殻のクリックだけの nativeClick にする
@@ -242,15 +325,20 @@ export function audioDiagSetPlayback(mode, api = SHELL_NATIVE, opts = {}) {
       try { err = nativeErr(await api.inStart()); } catch (e) { err = String(e?.message || e); }
       if (err) {
         st.error = `inStart: ${err}`;
-        if (AUDIO_DIAG.playback === "nativeBoth") {
-          AUDIO_DIAG.playback = prev === "nativeBoth" ? "nativeClick" : prev;
+        if (AUDIO_DIAG.playback === mode && st.gen === gen) {
+          AUDIO_DIAG.playback = audioDiagWebMicStopped(prev) ? "nativeClick" : prev;
           st.clickKey = null; // 列で待っているクリックの開始は捨てる(戻した鳴らし方で合わせ直す)
+          if ((st.held && st.held.length) || st.soloHeld) webAudioRelease(); // 【便CW】押し直しの nativeSolo で失敗したら、止めていた Web の ctx も戻す
           applyGain();
-          if (prev === "nativeBoth" && AUDIO_DIAG.webMic) await AUDIO_DIAG.webMic.restore();
+          if (audioDiagWebMicStopped(prev) && AUDIO_DIAG.webMic) await AUDIO_DIAG.webMic.restore();
+          await webAudioCheckReleased();
         }
         return;
       }
-      if (AUDIO_DIAG.playback === "nativeBoth" && AUDIO_DIAG.webMic) AUDIO_DIAG.webMic.stop();
+      if (AUDIO_DIAG.playback === mode && st.gen === gen && AUDIO_DIAG.webMic) AUDIO_DIAG.webMic.stop();
+      // 【便CW】nativeSolo: 殻の取り込みが始まり Web のマイクを止めたあとで、Web の AudioContext を止め type を auto にする(古い世代では止めない)。
+      // 止めるのは、この列のすぐあとの audioDiagSyncNativeClick(.then)と、板の 20ms ごとの合わせ(どちらも soloHeld を見て webAudioHold)
+      if (mode === "nativeSolo" && AUDIO_DIAG.playback === "nativeSolo" && st.gen === gen) st.soloHeld = true;
     }
   }).then(() => { audioDiagSyncNativeClick(api); });
 }
@@ -452,7 +540,10 @@ export function audioDiagRows(session, now = Date.now()) {
       : "—"]);
     const bp = st.bufPeaks;
     rows.push(["nativeBuf", bp ? `${bp.accent.toFixed(3)}/${bp.beat.toFixed(3)}/${bp.sub.toFixed(3)} @${bp.rate}` : "—"]);
-    if (AUDIO_DIAG.playback === "nativeBoth") {
+    // 【便CW】Web の AudioContext の state(nativeSolo で止まっているか)。web.audioSession の行は上(今の navigator.audioSession.type)
+    const micInfo = AUDIO_DIAG.getMic ? AUDIO_DIAG.getMic() : null;
+    rows.push(["webCtx", `metro=${ctx ? ctx.state : "none"} mic=${micInfo ? micInfo.ctxState : "n/a"}`]);
+    if (audioDiagWebMicStopped()) {
       rows.push(["nativeIn", ni && typeof ni.inputDb === "number" ? `${ni.inputDb.toFixed(1)} dBFS` : "—"]);
     }
   }

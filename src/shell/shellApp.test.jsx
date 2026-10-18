@@ -928,7 +928,27 @@ describe("【便CU】診断の板の試し口「鳴らし方」(殻の AVAudioEn
     return Array.from(new Float32Array(bytes.buffer));
   };
   const names = () => cap.native.map((c) => c[0]);
-  afterEach(() => { delete window.OfflineAudioContext; });
+  afterEach(() => { delete window.OfflineAudioContext; try { delete window.navigator.audioSession; } catch { /* */ } });
+  // 【便CW】作り物の ctx を本物に寄せる: suspend すると state が suspended になり、時計(currentTime)も止まる(resume で続きから進む)
+  const freezeClocks = () => {
+    const P = window.AudioContext.prototype;
+    P.suspend = function () { if (this.state !== "closed" && this._susAt == null) { this._susAt = performance.now(); this.state = "suspended"; } return Promise.resolve(); };
+    const origResume = P.resume;
+    P.resume = function () {
+      if (this._susAt != null) { this._paused = (this._paused || 0) + performance.now() - this._susAt; this._susAt = null; }
+      return origResume.call(this);
+    };
+    Object.defineProperty(P, "currentTime", { configurable: true, get() { const now = this._susAt != null ? this._susAt : performance.now(); return (now - this._t0 - (this._paused || 0)) / 1000; } });
+  };
+  // type を置いた順を控える([値, その時の cap.native の長さ])
+  let typeLog = [];
+  const withAudioSession = () => {
+    typeLog = [];
+    let v = "auto";
+    const as = {};
+    Object.defineProperty(as, "type", { get() { return v; }, set(x) { v = x; typeLog.push([x, cap.native.length]); }, configurable: true });
+    Object.defineProperty(window.navigator, "audioSession", { value: as, configurable: true });
+  };
 
   it("殻: nativeClick は描いた3段を渡して今の並びで始め、Web のマスターは 0・止めると停止・web でマスターが戻る・閉じると殻の停止", async () => {
     asShell();
@@ -1161,6 +1181,90 @@ describe("【便CU】診断の板の試し口「鳴らし方」(殻の AVAudioEn
     expect(ctx.master.gain.value).toBe(0);
     await waitFor(() => /native=silent\(noSched\)/.test(val("nativeEngine") || ""), "native=silent(noSched)", 9000);
     expect(ctx.master.gain.value).toBe(1);
+  }, 40000);
+
+  // 【便CW】nativeSolo: 加えて Web の AudioContext を止め、navigator.audioSession.type を auto に
+  it("殻: nativeSolo は殻の取り込みのあと Web のマイクを止め、メトロノームの ctx を suspend・type を auto(板に webCtx / web.audioSession)・止めている間は予約しない。戻すと resume・type・マイクが戻り、予約は一気に鳴らない", async () => {
+    asShell();
+    installOffline();
+    freezeClocks();
+    countClickStarts();
+    withAudioSession();
+    cap.session = { ...SESSION };
+    cap.nativeInfo = { ...INFO };
+    const gum = countGetUserMedia();
+    mod = await loadApp();
+    await render();
+    const ctx = await openMetroAndStart();
+    await waitFor(() => gum.n >= 1 && track.readyState === "live", "Web のマイク");
+    expect(navigator.audioSession.type).toBe("play-and-record");    // START と取り込みが置く(既存)
+    const shellHandler = ctx.onstatechange;
+    expect(typeof shellHandler).toBe("function");
+    await press(500);
+    await waitFor(() => panel() && val("playback") === "web", "板", 5000);
+    expect(pbBtn("nativeSolo")).toBeTruthy();
+    const live = track;
+    await click(pbBtn("nativeSolo"));
+    await waitFor(() => ctx.state === "suspended", "メトロノームの ctx を止める", 5000);
+    expect(names().slice(0, 1)).toEqual(["inStart"]);
+    expect(live.readyState).toBe("ended");                          // Web のマイクも止める
+    expect(navigator.audioSession.type).toBe("auto");
+    expect(ctx.onstatechange).toBe(null);                            // 殻の「止まったら resume」は外す
+    await waitFor(() => val("playback") === "nativeSolo" && val("webCtx") === "metro=suspended mic=none" && val("web.audioSession") === "auto", "板の行", 5000);
+    expect(val("outputVolume")).toBe("0.05");
+    expect(val("nativeIn")).toBeDefined();
+    // 止めている間は時計が止まるので、Web のスケジューラは予約しない(溜めない)
+    const held = ctx.started || 0;
+    await tick(700);
+    expect(ctx.started || 0).toBe(held);
+    // その間、画面のタップ(既存の復旧の入口 recoverMic)でも Web のマイクを取り直さない(nativeBoth と同じ門)
+    const g0 = gum.n;
+    await mod.act(async () => { document.body.dispatchEvent(new Event("pointerdown", { bubbles: true })); });
+    await tick(300);
+    expect(gum.n).toBe(g0);
+    // 戻す: resume と type はその場で。予約は一気に鳴らない(150ms で高々2つ。♩=120 なら0か1)
+    gum.n = 0;
+    const before = cap.native.length;
+    const typeMark = typeLog.length;
+    await click(pbBtn("web"));
+    expect(ctx.state).toBe("running");
+    expect(navigator.audioSession.type).toBe("play-and-record");
+    // type はボタンを押したその場で戻す(殻のクリックの停止より前。あとの Web のマイクの取り直しが置くのを待たない)
+    expect(typeLog.slice(typeMark)[0]).toEqual(["play-and-record", before]);
+    const s1 = ctx.started || 0;
+    await tick(150);
+    expect((ctx.started || 0) - s1).toBeLessThanOrEqual(2);
+    await waitFor(() => names().slice(before).includes("inStop"), "殻の取り込みを止める", 5000);
+    expect(names().slice(before)).toEqual(["stop", "inStop"]);
+    await waitFor(() => gum.n >= 1 && track !== live && track.readyState === "live", "Web のマイクが戻る", 5000);
+    await waitFor(() => ctx.master.gain.value === 1, "マスターが戻る", 3000);
+    expect(ctx.onstatechange).toBe(shellHandler);
+    await waitFor(() => val("webCtx") === "metro=running mic=running", "板の行(戻った)", 5000);
+  }, 40000);
+
+  it("殻: nativeSolo の間に録音を始めると web に戻る(止めていた ctx を resume・殻を止める)", async () => {
+    asShell();
+    installOffline();
+    freezeClocks();
+    withAudioSession();
+    cap.session = { ...SESSION };
+    cap.nativeInfo = { ...INFO };
+    const gum = countGetUserMedia();
+    mod = await loadApp();
+    await render();
+    const ctx = await openMetroAndStart();
+    await waitFor(() => gum.n >= 1, "Web のマイク");
+    await press(500);
+    await waitFor(() => panel() && val("playback") === "web", "板", 5000);
+    await click(pbBtn("nativeSolo"));
+    await waitFor(() => ctx.state === "suspended" && track.readyState === "ended", "nativeSolo", 5000);
+    const before = cap.native.length;
+    await click(recButton());
+    await waitFor(() => document.querySelector('button[aria-label="録音を停止"]'), "録音が始まる", 5000);
+    expect(ctx.state).toBe("running");
+    await waitFor(() => names().slice(before).includes("inStop"), "殻の取り込みを止める", 5000);
+    expect(names().slice(before)).toEqual(["stop", "inStop"]);
+    await waitFor(() => val("playback") === "web", "板も web", 3000);
   }, 40000);
 
   it("殻のビルドが古い(新しいメソッドが無い)と nativeEngine は「要ビルド」", async () => {

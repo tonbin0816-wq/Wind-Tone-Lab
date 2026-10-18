@@ -62,7 +62,7 @@ import { shellRouteToSpeaker, shellAvailableInputs } from "./shell/audio.js";
 // 【便CS】マイクはいつも端末の内蔵マイク(Bluetooth のイヤホン・有線のヘッドセットのマイクは使わない)
 import { preferBuiltInMicStream, trackLeftBuiltInMic } from "./builtInMic.js";
 // 【便CQ】音の診断の板(普段は見えない。計測タブで下部タブの「計測」を長押し)
-import { AUDIO_DIAG, AudioDiagPanel, useAudioDiagLongPress, installAudioDiagClock, audioDiagNoteStart, audioDiagNoteMicRecover, audioDiagApplyMetroGain, audioDiagSetPlayback } from "./audioDiag.jsx";
+import { AUDIO_DIAG, AudioDiagPanel, useAudioDiagLongPress, installAudioDiagClock, audioDiagNoteStart, audioDiagNoteMicRecover, audioDiagApplyMetroGain, audioDiagSetPlayback, audioDiagWebMicStopped } from "./audioDiag.jsx";
 // 【殻 S3】広告の帯(AdMob)の呼び口。Web では何もしない(部品は ads.native.js を動的 import)。
 import { shellStartAdsOnce, shellSetAdsHidden } from "./shell/ads.js";
 // 【便BZ 2026-10-07 統括の裁定】殻が --ad-h を後から置いたときの知らせ(環の縮み・計測タブの枠を測り直す)。
@@ -4997,7 +4997,8 @@ export default function WindToneLabPhaseMode() {
     if (!streamRef.current) {
       // 【便CU 審査】診断の板の試し口 nativeBoth の間(Web のマイクを止めている)に録音を始めたら、鳴らし方を web に戻す
       // (殻のクリックと取り込みを止める。Web のマイクはこのあとの startListening がこのタップの中で取るので、板の側では戻さない)。選んでいなければ素通り
-      if (AUDIO_DIAG.playback === "nativeBoth") audioDiagSetPlayback("web", undefined, { skipRestore: true });
+      // 【便CW】nativeSolo(加えて Web の AudioContext を止め、audioSession.type を auto にしている)も同じ。戻すと ctx の resume と type も戻る
+      if (audioDiagWebMicStopped()) audioDiagSetPlayback("web", undefined, { skipRestore: true });
       const ok = await startListening();
       if (ok !== true) return; // 【便CS 再審査】失敗(false)も置き換え(MIC_START_SUPERSEDED)も録音を始めない
     }
@@ -5037,7 +5038,8 @@ export default function WindToneLabPhaseMode() {
     if (isRecordingRef.current) return false;
     // 【便CU】診断の板の試し口 nativeBoth の間は取り直さない(Web のマイクを止め、殻がマイクを取っている。ここで取り直すと WebKit の取り込みが戻り、
     // 試しにならない)。板を閉じる・web に戻すと、板が playback を web にしてからここを呼んで戻す。試し口を選んでいなければ素通り
-    if (AUDIO_DIAG.playback === "nativeBoth") return false;
+    // 【便CW】nativeSolo(Web のマイクも止める)も同じ
+    if (audioDiagWebMicStopped()) return false;
     // 【便CS 再審査】計測タブで、画面が見えているときだけ(他のタブ・裏でマイクを開かない)
     if (document.hidden || topTabRef.current !== "measure") return false;
     if (micRecoveringRef.current) return false;
@@ -5107,6 +5109,8 @@ export default function WindToneLabPhaseMode() {
     //   restore: 既存の復旧の入口 recoverMic(タップの再試行と同じ短いクールダウン)。断られて(クールダウン等)マイクが無いままなら、既存の開始処理 startListening
     const webMic = {
       recording: () => isRecordingRef.current,
+      // 【便CW】nativeSolo が止める・板が state を出す、マイクの解析の ctx(無ければ null)
+      ctx: () => audioCtxRef.current,
       stop: () => { stopListeningRef.current(); },
       restore: async () => {
         const ok = await recoverMicRef.current("diag-playback-web", true);
@@ -5117,6 +5121,8 @@ export default function WindToneLabPhaseMode() {
     };
     AUDIO_DIAG.webMic = webMic;
     AUDIO_DIAG.renderClicks = renderMetroClickSamples;
+    // 【便CW】nativeSolo から戻すときの audioSession.type(既存の applyAudioSessionType = AUDIO_SESSION_TYPE の1か所)
+    AUDIO_DIAG.applyAudioSessionType = applyAudioSessionType;
     const uninstall = installAudioDiagClock();
     return () => {
       uninstall();
@@ -9758,12 +9764,16 @@ function MeasureView(props) {
   // 【D-18b】診断の④⑤が読む音声時計。**診断が持つのは読む口だけ**で、
   // 生成は startMetronome、破棄はアンマウントと【便CQ】戻ったときの dropIdleMetroCtx(診断は触っていない)。
   const getMetroCtx = useCallback(() => metroCtxRef.current, []);
+  // 【便CW】診断の板(getMetro().stop)が呼ぶ stopMetronome の最新(下の effect が入れる。板が呼ばなければ何もしない)
+  const stopMetronomeRef = useRef(null);
   // 【便CQ】音の診断の板が読むメトロノームの状態(読むだけ)。作り直し(key)で新旧が入れ替わっても、自分が置いたものだけ片付ける
   useEffect(() => {
     // 【便CU】clickPattern は診断の板の試し口「鳴らし方」だけが読む(殻の AVAudioEngine に渡す1小節ぶんの並び。今のメトロノームの設定値から作る)
     const getMetro = () => ({
       ctx: metroCtxRef.current, on: metroOnRef.current,
       clickPattern: () => metroNativeClickPattern(metroTempoRef.current, metroSigRef.current, metroSubdivRef.current, metroAccentRef.current, metroGroupingRef.current),
+      // 【便CW】nativeSolo から戻したとき、止めていた ctx が resume で running に戻らなければ、メトロノームを止める(次の START が既存の道で ctx を作り直す)
+      stop: () => { if (stopMetronomeRef.current) stopMetronomeRef.current(); },
     });
     AUDIO_DIAG.getMetro = getMetro;
     return () => { if (AUDIO_DIAG.getMetro === getMetro) AUDIO_DIAG.getMetro = null; };
@@ -9851,6 +9861,7 @@ function MeasureView(props) {
     // 【便CQ】画面へ戻ったとき(dropIdleMetroCtx・殻では作り直しのアンマウントも)だけ)。
     if (!isRecording) releaseWakeLock(); // 録音中はWake Lockを維持
   }, [isRecording, metroActiveRef, scheduledClicksRef, releaseWakeLock, markMetroClock]);
+  useEffect(() => { stopMetronomeRef.current = stopMetronome; }, [stopMetronome]);
 
   // アンマウント(=計測タブを離れた)時は完全に停止して音を止める
   // 【殻 S2 審査】殻では KeepAwake が自動で解けないので、ここでも解く(録音中は除く。録音は stopListening が
