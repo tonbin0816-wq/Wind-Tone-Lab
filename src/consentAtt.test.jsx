@@ -23,7 +23,30 @@ import { migrateOnboardingDone } from "./onboarding.jsx";
 // ------------------------------------------------------------------
 const cap = vi.hoisted(() => ({ log: [], statuses: [], statusThrows: false, requestHangs: false, requestGate: null, consentAtRequest: [] }));
 vi.mock("@capacitor-community/keep-awake", () => ({ KeepAwake: { keepAwake: async () => {}, allowSleep: async () => {} } }));
-vi.mock("@capacitor/core", () => ({ registerPlugin: () => ({ routeToSpeaker: async () => ({}) }) }));
+// 【便CX 2026-10-19】殻の計測のマイクは殻の micStart(OS のマイクの許可の画面もここで出る)。殻では getUserMedia を呼ばない。
+// 作り物の殻は cap.log に "micStart" を控え、始めたら 40ms ごとに小さな雑音の塊を "micData" で送る(本物の殻と同じく止めるまで。送らないと解析が無音と読み、
+// 既存の無音の見張りが取り直しを始める)。MICCTL は門(gate)と失敗(fails)。
+const nat = vi.hoisted(() => ({ listeners: {}, feedId: null, timer: null, gate: null, fails: false }));
+vi.mock("@capacitor/core", () => ({ registerPlugin: () => {
+  const emit = (ev, d) => { for (const fn of [...(nat.listeners[ev] || [])]) fn(d); };
+  const chunk = () => { const f = new Float32Array(1024); for (let i = 0; i < f.length; i++) f[i] = (Math.random() - 0.5) * 2e-3; const b = new Uint8Array(f.buffer); let s = ""; for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]); return btoa(s); };
+  return {
+    sessionInfo: async () => { throw Object.assign(new Error("not implemented"), { code: "UNIMPLEMENTED" }); },
+    micStart: async (o) => {
+      cap.log.push("micStart");
+      if (nat.gate) await nat.gate.promise;
+      if (nat.fails) throw Object.assign(new Error("denied"), { code: "DENIED" });
+      nat.feedId = o.id;
+      if (!nat.timer) nat.timer = setInterval(() => { if (nat.feedId) emit("micData", { id: nat.feedId, pcm: chunk(), sample: 0, host: performance.now() / 1000, rate: 48000, frames: 1024 }); }, 40);
+      return { sampleRate: 48000 };
+    },
+    micStop: async (o) => { if (nat.feedId === o.id) nat.feedId = null; return { stopped: true }; },
+    metroLoad: async () => ({}), metroStart: async () => ({ running: true }), metroUpdate: async () => ({ running: true }), metroStop: async () => ({ stopped: true }),
+    audioClock: async () => ({ host: performance.now() / 1000, sampleRate: 48000 }),
+    audioInfo: async () => ({}),
+    addListener: async (ev, fn) => { (nat.listeners[ev] ||= []).push(fn); return { remove: async () => { nat.listeners[ev] = (nat.listeners[ev] || []).filter((f) => f !== fn); } }; },
+  };
+} }));
 vi.mock("@capacitor-community/admob", async (importOriginal) => {
   const real = await importOriginal();
   const rec = (name, ret) => async () => { cap.log.push(name); return ret?.(); };
@@ -173,6 +196,8 @@ afterEach(async () => {
   document.documentElement.removeAttribute("data-ad-hold");
   document.documentElement.removeAttribute("data-tutorial-preview");
   delete cap.peekConsent;
+  if (nat.timer) { clearInterval(nat.timer); nat.timer = null; }
+  nat.feedId = null; nat.listeners = {}; nat.gate = null; nat.fails = false;
   delete document.visibilityState;   // 上の1つの検査が置いた見え方を個別に外す(置いていなければ何もしない)
   vi.restoreAllMocks();
 });
@@ -197,11 +222,12 @@ describe("殻: 「次へ」→ 記録 → ATT → 答えのあとアプリ", () 
     expect(step()).toBe("terms");
     expect(navBar()).toBe(null);
     expect(gum).toBe(0);
+    expect(count("micStart")).toBe(0);
     await mod.act(async () => { answer({}); });
     await waitFor(() => navBar(), "答えのあとアプリ");
     expect(screen()).toBe(null);
     expect(cap.log.slice(0, 3)).toEqual(["trackingAuthorizationStatus", "requestTrackingAuthorization", "trackingAuthorizationStatus"]);
-    await waitFor(() => gum > 0, "マイク");
+    await waitFor(() => count("micStart") > 0, "マイク");
   }, 30000);
 
   it("未決定でない(拒否済み)なら尋ねない。状態を読んだらアプリへ", async () => {
@@ -268,7 +294,7 @@ describe("殻: 広告を始めるとき(案内が全部済んだ既存の利用�
     await waitFor(() => count("showBanner") === 1, "帯");
     expect(cap.log).toEqual([
       "trackingAuthorizationStatus", "requestTrackingAuthorization", "trackingAuthorizationStatus",   // 同意の画面
-      "getUserMedia", "initialize", "trackingAuthorizationStatus", "showBanner",                       // 帯(尋ねない)
+      "micStart", "initialize", "trackingAuthorizationStatus", "showBanner",                       // 帯(尋ねない)
     ]);
   }, 30000);
 
@@ -296,7 +322,7 @@ describe("殻: 広告を始めるとき(案内が全部済んだ既存の利用�
     await launch();
     expect(screen()).toBe(null);
     await waitFor(() => count("showBanner") === 1, "帯");
-    expect(cap.log).toEqual(["getUserMedia", "initialize", "trackingAuthorizationStatus", "requestTrackingAuthorization", "trackingAuthorizationStatus", "showBanner"]);
+    expect(cap.log).toEqual(["micStart", "initialize", "trackingAuthorizationStatus", "requestTrackingAuthorization", "trackingAuthorizationStatus", "showBanner"]);
   }, 30000);
 });
 
@@ -333,7 +359,7 @@ describe("【便CJ】広告の帯を始める時機(根から)", () => {
     await launch();
     await agreeAndNext();
     await waitFor(() => navBar(), "アプリ");
-    await waitFor(() => count("getUserMedia") >= 1, "マイク");
+    await waitFor(() => count("micStart") >= 1, "マイク");
     // jsdom は的の矩形を持たないので、穴なしの到着カード(リードタブの「ここはリードタブ」)で「案内のカードが出た」を作る
     await click(document.querySelector('button[aria-label="リード"]'));
     await waitFor(() => document.querySelector('[data-coach-layer="arriveReeds"]'), "到着「ここはリードタブ」");
@@ -349,7 +375,7 @@ describe("【便CJ】広告の帯を始める時機(根から)", () => {
     await launch();
     expect(screen()).toBe(null);   // 同意の記録があるので同意の画面は出ない
     await waitFor(() => count("showBanner") === 1, "2回目の起動の帯");
-    expect(cap.log.slice(0, 2)).toEqual(["getUserMedia", "initialize"]);
+    expect(cap.log.slice(0, 2)).toEqual(["micStart", "initialize"]);
     expect(kv("onboardingDone").finish).toBeUndefined();   // 案内は終わっていない
     expect(document.documentElement.getAttribute("data-ad-hold")).toBe(null);
   }, 40000);
@@ -377,7 +403,7 @@ describe("【便CJ】広告の帯を始める時機(根から)", () => {
       await launch();
       await agreeAndNext();
       await waitFor(() => navBar(), "アプリ");
-      await waitFor(() => count("getUserMedia") >= 1, "マイク");
+      await waitFor(() => count("micStart") >= 1, "マイク");
       // 案内のカードがまだ出ていない(jsdom は ① の的を測れない)うちに 31 分裏に回っても、数えない
       expect(kv("onboardingShown")).toBeUndefined();
       await away(31);

@@ -4,7 +4,7 @@ import { createFakeIndexedDb } from "../backup/fakeIndexedDb.testutil.js";
 
 // ------------------------------------------------------------------
 // 【殻 S3 2026-10-06】アプリ全体(WindToneLabPhaseMode)を描いて、広告の帯の**配線**を確かめる。凍結仕様 shell-spec.md §5.3・§8.1-S3。
-//   ・始める時機: 最初のマイクの試み(getUserMedia)が終わった直後に1回(成功でも失敗でも)。ATT の画面をマイクの許可の画面と重ねない
+//   ・始める時機: 最初のマイクの試み(Web は getUserMedia・【便CX】殻は殻の micStart)が終わった直後に1回(成功でも失敗でも)。ATT の画面をマイクの許可の画面と重ねない
 //   ・ShellAdBannerSync: BottomSheet を開くと hideBanner・閉じると resumeBanner(殻)。--ad-h は戻さない
 //   ・殻では見本の帯(AdPreviewStrip)を <html data-ad-preview="1"> でも描かない(Web では描く = 対照)
 //   ・Web: プラグインに何も渡らない・--ad-h に触らない
@@ -20,7 +20,30 @@ import { createFakeIndexedDb } from "../backup/fakeIndexedDb.testutil.js";
 import { migrateOnboardingDone } from "../onboarding.jsx";
 const cap = vi.hoisted(() => ({ log: [], handlers: {}, att: [] }));
 vi.mock("@capacitor-community/keep-awake", () => ({ KeepAwake: { keepAwake: async () => {}, allowSleep: async () => {} } }));
-vi.mock("@capacitor/core", () => ({ registerPlugin: () => ({ routeToSpeaker: async () => ({}) }) }));
+// 【便CX 2026-10-19】殻の計測のマイクは殻の micStart(OS のマイクの許可の画面もここで出る)。殻では getUserMedia を呼ばない。
+// 作り物の殻は cap.log に "micStart" を控え、始めたら 40ms ごとに小さな雑音の塊を "micData" で送る(本物の殻と同じく止めるまで。送らないと解析が無音と読み、
+// 既存の無音の見張りが取り直しを始める)。MICCTL は門(gate)と失敗(fails)。
+const nat = vi.hoisted(() => ({ listeners: {}, feedId: null, timer: null, gate: null, fails: false }));
+vi.mock("@capacitor/core", () => ({ registerPlugin: () => {
+  const emit = (ev, d) => { for (const fn of [...(nat.listeners[ev] || [])]) fn(d); };
+  const chunk = () => { const f = new Float32Array(1024); for (let i = 0; i < f.length; i++) f[i] = (Math.random() - 0.5) * 2e-3; const b = new Uint8Array(f.buffer); let s = ""; for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]); return btoa(s); };
+  return {
+    sessionInfo: async () => { throw Object.assign(new Error("not implemented"), { code: "UNIMPLEMENTED" }); },
+    micStart: async (o) => {
+      cap.log.push("micStart");
+      if (nat.gate) await nat.gate.promise;
+      if (nat.fails) throw Object.assign(new Error("denied"), { code: "DENIED" });
+      nat.feedId = o.id;
+      if (!nat.timer) nat.timer = setInterval(() => { if (nat.feedId) emit("micData", { id: nat.feedId, pcm: chunk(), sample: 0, host: performance.now() / 1000, rate: 48000, frames: 1024 }); }, 40);
+      return { sampleRate: 48000 };
+    },
+    micStop: async (o) => { if (nat.feedId === o.id) nat.feedId = null; return { stopped: true }; },
+    metroLoad: async () => ({}), metroStart: async () => ({ running: true }), metroUpdate: async () => ({ running: true }), metroStop: async () => ({ stopped: true }),
+    audioClock: async () => ({ host: performance.now() / 1000, sampleRate: 48000 }),
+    audioInfo: async () => ({}),
+    addListener: async (ev, fn) => { (nat.listeners[ev] ||= []).push(fn); return { remove: async () => { nat.listeners[ev] = (nat.listeners[ev] || []).filter((f) => f !== fn); } }; },
+  };
+} }));
 vi.mock("@capacitor-community/admob", async (importOriginal) => {
   const real = await importOriginal();
   const rec = (name, ret) => async () => { cap.log.push(name); return ret?.(); };
@@ -118,6 +141,7 @@ function installFakeMic() {
 beforeEach(() => {
   fake = createFakeIndexedDb();
   cap.log.length = 0; cap.handlers = {}; cap.att = []; micFails = false; micGate = null;
+  nat.gate = null; nat.fails = false; nat.feedId = null; nat.listeners = {};
   window.localStorage.clear();
   if (!window.matchMedia) window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
   if (!window.SVGElement.prototype.getComputedTextLength) {
@@ -151,6 +175,8 @@ afterEach(async () => {
   document.documentElement.removeAttribute("data-ad-preview");
   document.documentElement.removeAttribute("data-ad-hold");   // 【便CG】(App が外すが、念のため個別に)
   document.documentElement.removeAttribute("data-tutorial-preview");
+  if (nat.timer) { clearInterval(nat.timer); nat.timer = null; }
+  nat.feedId = null;
   vi.restoreAllMocks();
 });
 const asShell = () => { window.Capacitor = { isNativePlatform: () => true, getPlatform: () => "ios" }; };
@@ -162,40 +188,40 @@ describe("殻: 帯を始める時機(最初のマイクの試みの直後に1回
     await seedKv({ onboardingDone: EXISTING });
     await render();
     await waitFor(() => cap.log.includes("showBanner"), "showBanner");
-    expect(cap.log).toEqual(["getUserMedia", "initialize", "trackingAuthorizationStatus", "showBanner"]);
+    expect(cap.log).toEqual(["micStart", "initialize", "trackingAuthorizationStatus", "showBanner"]);
     expect(adH()).toBe("50px");   // 来るまでの仮の高さ
     await settle();
     await go("リード"); await settle();
     await go("計測");
-    await waitFor(() => cap.log.filter((x) => x === "getUserMedia").length === 2, "戻って取り直す");
+    await waitFor(() => cap.log.filter((x) => x === "micStart").length === 2, "戻って取り直す");
     await settle();
     expect(cap.log.filter((x) => x === "initialize").length).toBe(1);
     expect(cap.log.filter((x) => x === "showBanner").length).toBe(1);
   }, 30000);
 
   // 【殻 S3 審査 軽4】OS のマイクの許可の画面が出ている間(getUserMedia が終わっていない間)は、ATT も帯も始めない
-  it("getUserMedia を門で止めている間は initialize が来ない。門を開けた直後に来る", async () => {
+  it("殻のマイクの開始(micStart。OS の許可の画面)を門で止めている間は initialize が来ない。門を開けた直後に来る", async () => {
     asShell();
     let open;
-    micGate = { promise: new Promise((r) => { open = r; }) };
+    micGate = { promise: new Promise((r) => { open = r; }) }; nat.gate = micGate;
     mod = await loadApp();
     await seedKv({ onboardingDone: EXISTING });
     await render();
-    await waitFor(() => cap.log.includes("getUserMedia"), "getUserMedia の呼び出し");
+    await waitFor(() => cap.log.includes("micStart"), "micStart の呼び出し");
     for (let i = 0; i < 30; i++) await tick(10);   // 門を閉じたまま 300ms 以上
-    expect(cap.log).toEqual(["getUserMedia"]);
+    expect(cap.log).toEqual(["micStart"]);
     await mod.act(async () => { open(); });
     await waitFor(() => cap.log.includes("showBanner"), "門を開けた後の showBanner");
-    expect(cap.log.slice(0, 2)).toEqual(["getUserMedia", "initialize"]);
+    expect(cap.log.slice(0, 2)).toEqual(["micStart", "initialize"]);
   }, 30000);
 
-  it("マイクが許可されなかった(getUserMedia が失敗)ときも、その直後に帯を始める", async () => {
-    asShell(); micFails = true;
+  it("マイクが許可されなかった(殻の micStart が断った)ときも、その直後に帯を始める", async () => {
+    asShell(); micFails = true; nat.fails = true;
     mod = await loadApp();
     await seedKv({ onboardingDone: EXISTING });
     await render();
     await waitFor(() => cap.log.includes("showBanner"), "失敗の後の showBanner");
-    expect(cap.log.slice(0, 2)).toEqual(["getUserMedia", "initialize"]);
+    expect(cap.log.slice(0, 2)).toEqual(["micStart", "initialize"]);
   }, 30000);
 });
 
@@ -280,7 +306,7 @@ describe("【便CG】殻: 案内の間は initialize / showBanner を呼ばな�
     asShell();
     mod = await loadApp();
     await render();
-    await waitFor(() => cap.log.includes("getUserMedia"), "マイク");
+    await waitFor(() => cap.log.includes("micStart"), "マイク");
     for (let i = 0; i < 30; i++) await tick(10);
     expect(adsCalls()).toEqual([]);
     expect(adH()).toBe("");
@@ -301,7 +327,7 @@ describe("【便CG】殻: 案内の間は initialize / showBanner を呼ばな�
     mod = await loadApp();
     await seedKv({ onboardingDone: BEFORE_FINISH });
     await render();
-    await waitFor(() => cap.log.includes("getUserMedia"), "マイク");
+    await waitFor(() => cap.log.includes("micStart"), "マイク");
     await waitFor(() => layerId() === "finish", "⑱ 終わり");
     for (let i = 0; i < 30; i++) await tick(10);
     expect(adsCalls()).toEqual([]);
@@ -311,7 +337,7 @@ describe("【便CG】殻: 案内の間は initialize / showBanner を呼ばな�
     await waitFor(() => kv("onboardingDone")?.finish === true, "finish の印");
     await waitFor(() => cap.log.includes("showBanner"), "⑱ のあとの showBanner");
     expect(adsCalls()).toEqual(["initialize", "trackingAuthorizationStatus", "requestTrackingAuthorization", "trackingAuthorizationStatus", "showBanner"]);
-    expect(cap.log.indexOf("getUserMedia")).toBeLessThan(cap.log.indexOf("initialize"));
+    expect(cap.log.indexOf("micStart")).toBeLessThan(cap.log.indexOf("initialize"));
     // 【便CO 2026-10-12】⑱ のカードが溶けて消えたあと、戻す待ち(useCoachAdHold)のあいだは止めたまま: 帯は隠した状態で始まり(hideBanner)、--ad-h は 0px
     await waitFor(() => cap.log.includes("hideBanner"), "止めている間に始めた帯を隠す");
     expect(cap.log.indexOf("hideBanner")).toBeGreaterThan(cap.log.indexOf("showBanner"));
@@ -327,7 +353,7 @@ describe("【便CG】殻: 案内の間は initialize / showBanner を呼ばな�
     await seedKv({ onboardingDone: GATES, onboardingShown: true });
     await render();
     await waitFor(() => cap.log.includes("showBanner"), "showBanner");
-    expect(cap.log.slice(0, 4)).toEqual(["getUserMedia", "initialize", "trackingAuthorizationStatus", "showBanner"]);
+    expect(cap.log.slice(0, 4)).toEqual(["micStart", "initialize", "trackingAuthorizationStatus", "showBanner"]);
     expect(hold()).toBe(null);
     await toReedsArrival();   // 案内は残っている
     expect(kv("onboardingDone").finish).toBeUndefined();
@@ -338,7 +364,7 @@ describe("【便CG】殻: 案内の間は initialize / showBanner を呼ばな�
     asShell();
     mod = await loadApp();
     await render();
-    await waitFor(() => cap.log.includes("getUserMedia"), "1回目のマイク");
+    await waitFor(() => cap.log.includes("micStart"), "1回目のマイク");
     await toReedsArrival();
     await waitFor(() => kv("onboardingShown") === true, "印");
     await settle();
@@ -349,7 +375,7 @@ describe("【便CG】殻: 案内の間は initialize / showBanner を呼ばな�
     mod = await loadApp();   // 開き直す(モジュールごと作り直す。kv は同じ作り物)
     await render();
     await waitFor(() => cap.log.includes("showBanner"), "2回目の showBanner");
-    expect(cap.log.slice(0, 2)).toEqual(["getUserMedia", "initialize"]);
+    expect(cap.log.slice(0, 2)).toEqual(["micStart", "initialize"]);
     expect(kv("onboardingDone").finish).toBeUndefined();
   }, 40000);
 

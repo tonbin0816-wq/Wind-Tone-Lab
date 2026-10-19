@@ -1280,8 +1280,115 @@ iPad との分岐を2か所に持つより上限を1つにしておくほうが�
     （便CQ までの「実機でまだ小さければ殻も 2.6」は、便CT の正規化で意味が無くなった。【便CQ 実測】正規化の前は、2.6 で強拍が最大 1.548 = 割れていた。）
     仕様の綴り（`master.gain.value = metroMasterGain(isNativeShell());`）からは外した: Web の 2.6 の行を見る既存の検査と、`getMetroMasterInput` を単独で回す検査を壊さないため、
     殻の値は `startMetronome` が ctx に置き、`getMetroMasterInput` が読む。`policy.js` に Web の 2.6 の写しは持たない。
+    【便CX 2026-10-19】殻はメトロノームを殻の AVAudioEngine で鳴らすので、殻の値（1.0）を置くのは殻へ渡すクリックの描き出し（`renderMetroClickSamples` の OfflineAudioContext）だけになった。
   - **Web 版の記録の移し方**: 殻だけ・記録が 0 件の間だけ、すべての計測（AllSessionsPage）の「まだ記録がありません」の下に1行。
     記録の保存（BackupPanel）の説明の下にも殻だけ1行（Web 版で書き出す → ここで読み戻す）。
+- **殻の計測の音は殻（アプリのプロセス）が扱う（【便CX 2026-10-19】本人「これで進めて」）**。Web（殻でない）は今のまま（Web の枝は綴りを変えず、殻の枝を足しただけ）。
+  - **なぜ殻へ移したか（本人の実機で確定）**: WebKit の `getUserMedia` と、play-and-record の Web AudioContext が動いている間、WebKit の **GPU プロセス側**の音のセッションが
+    通話（videoChat）の段になり、アプリ全体の音量がその段に縛られる（MAX でも普段の段の 1/4 ほど）。下の「音の診断の板」の試し口 `nativeSolo`（メトロノームを殻の
+    AVAudioEngine で鳴らし、マイクも殻の inputNode のタップで取り、Web の AudioContext をすべて suspend・`navigator.audioSession.type` を `"auto"`）で、
+    **はっきり大きく鳴り、音量ボタンも効いた**（板: `outputVolume` 0.70・`otherAudio` no・`nativeSched` sched=played・`nativeIn` -45.8 dBFS）。
+    便CQ〜便CT の手当て（mode・routeToSpeaker・×倍率）が効かなかったのは、どれも WebKit のセッションで鳴っていたから。
+  - **決まり（殻）**: 計測タブで **`getUserMedia` を呼ばない・Web の AudioContext を作らない・`navigator.audioSession.type` を置かない**（`"auto"` のまま。
+    `applyAudioSessionType` の先頭が `if (isNativeShell()) return;`）。メトロノームの音とマイクは殻（`ios/App/App/AppDelegate.swift` の `FicusAudioSessionPlugin`）の
+    1つの AVAudioEngine（AVAudioPlayerNode → mainMixer・inputNode のタップ）が扱う。JS 側は `src/shell/nativeAudio.js`（Capacitor に触れない。呼び口は `src/shell/audio.js` の `shellNativeAudio`）。
+  - **セッション（殻）**: `playAndRecord`・モード `.default`（`sessionMode`）・選択肢 `sessionOptions`（defaultToSpeaker + allowBluetoothA2DP）。殻がエンジンを始める前に
+    `configureSession` が1か所で用意する（違っていれば `setCategory` → IO の長さの希望 `preferredIOBufferSec` 0.005 秒（失敗しても続ける）→ **`setActive(true)`** →
+    入力の規則 `applyInputRule`（本体のマイク）→ 出口の規則 `applyOutputRule`（受話口のときだけスピーカー））。非活性（`setActive(false)`）にはしない。
+    経路の変化（イヤホンの抜き差し）では、殻の音が動いている間（micOn / metroOn）・playAndRecord のときだけ同じ規則を当て直す（`needsSessionReset` は念のための当て直し）。
+    出力は今つながっている所（A2DP・有線・スピーカー）、入力はいつも本体のマイク（便CS の決まり。`setPreferredInput(builtInMic)`・同じ経路では1回）。
+    **消したもの**: JS から呼んでいた `routeToSpeaker`（マイクの直後・メトロノームの開始・鳴り始めた後・機器の一覧の変化の4か所）と、録音中に見送る印（`shellRoutePendingRef`）。
+    理由: どれも「WebKit が取り込みのたびに立て直したセッションを寄せ直す」ためのもので、殻ではもう WebKit が取り込まず、殻のセッションは殻がエンジンを始める前に用意し、
+    経路の変化は殻が自分で当て直すから。Web では元から何もしない呼び出しだった。
+  - **マイク（殻）**: `micStart({ id })` が許可を確かめ（`AVAudioSession.recordPermission`。未決定なら `requestRecordPermission` = OS の許可の画面。断られていれば
+    `reject("denied")`）、エンジン（入力つき）を始めて **inputNode → `AVAudioSinkNode`** を**ハードウェアの形式**（`inputFormat(forBus: 0)`）でつなぐ（【便CX 審査】）。
+    sink の受け手は **I/O の周期ごと**（`preferredIOBufferSec` 0.005 秒を希望。48kHz で約 256 フレーム）に**音のスレッド**で呼ばれる。受け手の中では確保も鍵もしない:
+    前もって確保した輪（`MicRing`。標本 65536・受け手の回数 1024。プロパティは let のポインタだけ）にモノラル（全チャンネルの平均）で写し、その回の情報
+    （フレーム数・host time の生の値・sample time・標本化周波数）を書いてから、`micQueue` のユーザデータの知らせに「回数 << 32 | フレーム数」を足すだけ
+    （dispatch の知らせは足し算でまとまる）。**【根拠なし・実機で見る】** 音のスレッドから `dispatch_source_merge_data`（`add(data:)`）を呼んでよいか（確保・鍵が無いか）と、
+    足し算が書いた中身を読み手に見せる順序（メモリの順序）を保証するかは、一次情報で確かめられていない。実機の板の `nativeIn`（`cb` / `send` / `ovr`）と音の途切れで見る。`micQueue` の読み手（`drainMic`）が届いた回数ぶんを読み、塊を組み立て、
+    **`micChunkFrames` = 1024 フレーム以上**たまったら Float32 の base64 を `"micData"` で送る（`{ id, pcm, sample, host, rate, frames }`。`sample` = 入力の sample time・
+    `host` = その最初の標本の host time〈秒〉）。読み手が遅れて輪が回り切った恐れがあれば、その分は捨てる（板の `ovr`）。
+    **`installTap` に戻る**のは、実際に効く2つの条件のとき: **sink のエンジンが始まらない**（`start` が投げる）・**始めて `sinkCheckSec` 1 秒のあいだ受け手が1回も来ない**
+    （`connect` は失敗を返さないので、つなげたかを前もって確かめる手は使わない）。付ける直前に `removeTap`・受け手は同じ輪へ写す。【便CX 再審査】tap に戻った印
+    （`sinkUnavailable`）は、作り直しの最中はそのまま、**JS から `micStart` が来るたびに戻して sink をもう一度試す**（tap で取っているエンジンは作り直す）。
+    どちらで取っているかは板の `nativeIn` の `via`。
+    - **知らせと受け手の登録（【便CX 再審査】）**: 殻の `notifyListeners` は `emit` の1か所から、それを呼ぶ列（`micData` は micQueue・ほかは audioQueue）の上でそのまま送る
+      （main で JSON にしない）。JS の受け手の登録の書き換え（`addListener` / `removeListener`）は Capacitor の bridge の列で行われ、この知らせとは同期しない。
+      そのため JS は殻の受け手を**殻の部品ごとに1回だけ**（3つの知らせ `micData` / `metroClicks` / `audioState` をまとめて、マイクを始める前に）登録して付けっぱなしにし、
+      流している間は書き換えない（`src/shell/nativeAudio.js` の `nativeEvents`）。計測を始める・止めるたびに足し外しするのは JS の中の受け手だけで、古い知らせは
+      マイクの id・メトロノームの run で捨てる。
+    - **塊の大きさの理由（一次情報）**: Apple の文書（`installTap(onBus:bufferSize:format:block:)`）ではタップの塊は **[100, 400] ms**（48kHz で 4800〜19200 フレーム）で、
+      実機でも 100ms 級（4800 フレーム）の例が多い ── メーターの更新が 10 回/秒に落ちる。sink の受け手は I/O の周期（約 5ms）ごとに来るので、ここで 1024 フレーム
+      （48kHz で約 21ms）まで溜めて送る: 解析は画面の1コマ（約 17ms）に1回、直近 8192 点（約 170ms）の窓で回るので、これより細かく送っても見え方は変わらず、
+      ブリッジ（Capacitor の知らせ = JSON + evaluateJavaScript）の往復だけが増える（約 47 回/秒・1回 約 5.5KB）。tap に戻ったときは、頼む大きさ（`micTapFrames`）を
+      下限の 4800（100ms）にし、1回の塊（100〜400ms）をそのまま1つで送る。標本が途切れた・標本化周波数が替わったら溜めた分を先に送る（途切れをまたいで1つにしない）。
+      **実機での値（受け手1回のフレーム数・送る間隔）は板の `nativeIn` の `cb=` / `send=` で読む（実機待ち）。**
+    - JS: startListening が Web の AudioContext の代わりに **`NativeMicContext`**（`createNativeMicContext()`）を作る。これは AudioContext と同じ形の口
+      （`createMediaStreamSource` / `createAnalyser` / `createBiquadFilter`・`state`・`sampleRate`・`resume`・`close`）で、startListening の配線
+      （source → analyser・source → bandpass → gateAnalyser）と tick は **Web と同じ綴りのまま**通る。`start()` は MediaStream と同じ形（トラックは `label` native:builtInMic・
+      `getSettings` は ec / ns / agc とも false）を返す。届いた PCM は輪のバッファ（`NATIVE_MIC_RING_MIN` 16384 = 窓の2倍）に溜め、`getFloatTimeDomainData` は
+      AnalyserNode と同じく直近 min(配列の長さ, fftSize) 個を写す。**バンドパスは BiquadFilterNode（bandpass）と同じ式**（RBJ。`applyBandpassRBJ` と同じ式・同じ演算の順）を
+      状態を持ったまま塊ごとに回し、中心周波数（楽器の切り替え）が替わっても状態はそのまま（Web Audio と同じ）。**解析（ピッチ MPM・音色・ゲート）の数値は変えていない**
+      ── 同じ波形を Web の口（アップロード解析の作り物）と殻の口に通すと、窓ごとの波形とフレームが1標本・1値も違わない（`src/shell/nativeAudio.test.js`）。
+      解析の `sampleRate` は殻の答え（`micStart` の `sampleRate` = ハードウェアの入力の標本化周波数）。【便CX 再審査】途中で**違う標本化周波数の塊**が来たら
+      （経路の変化で殻が作り直した等）、**トラックは終わらせない**（録音中は recoverMic が走らないので、終わらせると無音が続く）。`sampleRate` を新しい値にし
+      （tick は毎フレーム `audioCtx.sampleRate` を読む）、2つの輪とバンドパスの状態を捨て（係数は新しい周波数で作り直す）、その塊からそのまま続ける。
+    - **途切れ**: 塊が `NATIVE_MIC_STALE_MS` = **1000ms** 届かない・トラックを止めた / 無効にした間は、解析に 0 を渡す（Web で死んだマイクの解析バッファが 0 になるのと同じ形）。
+      既存の無音の見張り（`SILENCE_WATCHDOG_DB` / `SUSTAIN`）→ 既存の復旧の入口（`recoverMic`）がそのまま取り直す。1000 の理由: sink なら約 21ms ごとに届くが、tap に戻ったときは
+      1回の塊が最長 400ms（Apple の文書）で、それが1つ遅れても（2倍の 800ms）誤って 0 にしないよう、ブリッジの揺れを足した値。死んだ入力に気づくのは約 2.5 秒後（無音の見張りの 1.5 秒を足す）。
+    - 取り直し・置き換え: `micStart` / `micStop` は id で結ぶ（古い取得の片付けが新しい取得を止めない）。待っている間に止められた（stopListening・タブを離れた・裏へ）なら、
+      殻のマイクを止めてから「置き換え」（`MIC_START_SUPERSEDED`）として返す。録音（toggleRecording）は殻のマイクを取り直さない。計測タブを離れる・隠れると `micStop`
+      （メトロノームも止まっていればエンジンを捨てる = 橙の印が消える）、戻ると新しい id で `micStart`（便CQ の決定A の手順のまま。取り直しは1回）。
+      `recoverMic` は殻で Web の AudioContext を作り直さない（`recoverAudioContext` に回さない）。
+    - **権限**: 許可の画面は殻の `requestRecordPermission` が出す。断られた・殻が始められないときは startListening の失敗の枝（今と同じ見出し
+      「マイクの使用が許可されていません」と設定の案内 `MIC_DENIED_HOWTO`・`setMicTried(true)` で ATT と重ねない）。見た目と文言は変えていない。
+  - **メトロノーム（殻）**: クリックは**今の Web のクリックと同じ音**（`renderMetroClickSamples`。OfflineAudioContext は音の出口を使わない。マスターの基の値は
+    `METRO_MASTER_GAIN_SHELL` = 1.0・出口のピーク 0.862 / 0.564 / 0.317 @48k）。殻の時計の答え（`audioClock` の `sampleRate` = セッションの出力の標本化周波数）で
+    1回描き、`metroLoad` で渡す（同じ周波数なら描き直さない。殻はアプリが動いている間バッファを持つ）。予約は殻（`clickTick`。25ms ごと・0.12 秒先まで・1回 512 個まで =
+    Web の `metroSchedulerTick` と同じ値）が **host time で数えて、プレーヤーの sample time に直して** `scheduleBuffer` する。小節の頭は START から 0.12 秒後
+    （`clickLeadSec` = Web の `currentTime + 0.12`）。
+    - **拍の格子を途切れさせない（【便CX 審査】）**: エンジンを作り直す（構成の変化・メトロノームだけのエンジンへ `micStart` が来た 等）とき、予約したがまだ来ていない
+      最初のクリックの host time・並びの位置・通し番号（n）を引き継ぎ、次のエンジンで同じ時刻に予約し直す（`teardownEngine`）。作り直しの間に過ぎてしまった拍は、
+      鳴らさずに格子の上で数だけ進め（`gridSkip`〈殻〉= `nativeGridSkip`〈JS〉= ⌈(今 − 次) / 刻み⌉）、`"skipped"` として知らせる（振り子の拍には数える・除外と小節線には入れない）。
+      JS は同じ run で既に受けた通し番号の知らせを捨てる（予約し直しで振り子の拍を二重に数えない）。
+    - 変更の反映（Web の `metroSchedulerTick` が ref を読むのと同じ）: **テンポ・アクセント・まとまり**は `metroUpdate`（restart なし）= まだ予約していない次の拍から
+      （並びの位置と次の時刻はそのまま）。**拍子・分割**は新しい run で小節の頭を 0.08 秒後に置き直す（Web の「拍子・分割の変更時は小節の頭から仕切り直す」）。
+      予約済みのクリックは取り消さない（Web と同じ）。止める（`metroStop`）と予約済みは鳴り切る（Web がスケジューラを止めるのと同じ）: マイクも止まっていても、
+      エンジンを捨てるのは `metroStopTeardownSec` = 0.25 秒（先読み 0.12 秒 + クリックの長さ 0.09 秒 + 余裕）待ってから（そのときもまだ両方止まっていれば捨てる）。
+    - **Web の `metroSchedulerTick`・Web Audio のクリック・`navigator.audioSession.type` は殻では使わない**（startMetronome の先頭が殻の枝で、そこで戻る）。
+      殻の枝の MeasureView は `createNativeMetronome` の時計の口（`ctx.currentTime` = 殻の host time の秒）を `metroCtxRef` に入れるので、
+      振り子・拍の表示（環の下弧の●）・診断の読み手（getMetroPhase）は今の式のまま殻の時計で動く。
+    - 殻は予約したクリックを `"metroClicks"`（`{ run, clicks: [{ h, s, k, i, v, n }] }`。h = host time〈秒〉・s = プレーヤーの sample time・k = 強さ〈飛ばした拍は skipped〉・
+      i = 小節の中の位置・v = どの設定で予約したか・n = その run の通し番号）で知らせる。JS はそこから Web の `metroSchedulerTick` が置くのと同じ3つを置く: **振り子の錨**（`metroBeatInfo` で拍頭なら
+      `{ time: h, gBeat, dur }`）・**除外の予定**（`scheduledClicksRef` に h のミリ秒）・**小節線**（アクセントの h を performance.now() に直して `metroBarPerfTimesRef`）。
+      今の run でない知らせ（止めた後・拍子を替える前の予約）は捨てる。
+    - 殻が鳴らせなかった（描き出し・`metroStart` の失敗・作り直しを諦めた）ら、メトロノームを止める（ON のまま無音で残さない。次の START で殻が始め直す）。
+  - **時計の合わせ方**: 殻の host time（mach の時計 = マイクの塊の `host`・クリックの `h` と同じ時計）と performance.now() の対応を `audioClock` の往復で合わせる
+    （往復の真ん中を殻が時刻を読んだ時と見なす。**往復が最も短い標本**〈直近 `NATIVE_CLOCK_KEEP` = 8 個から〉を使う = ずれは往復の半分以下）。
+    メトロノームが鳴っている間、**`NATIVE_CLOCK_SYNC_MS` = 2 秒ごとに合わせ直す**（始めにも1回・計測タブを開いたときにも1回）。【便CX 審査】往復が 20ms
+    （`NATIVE_CLOCK_MAX_RTT_MS`）を越える標本は使わない（ずれ 10ms 以内を保つ）。全部が越えたときは仕方なく最短の標本を使い、板の `nativeClock` に `rtt>20` と出す。
+    板の `nativeClock` に今のずれの上限と往復を出す。拍の表示に使うのは対応だけで、拍の時刻そのものは殻の予約の値（h）。
+  - **除外（メトロノームの音を解析から除く）**: 窓（`isNearScheduledClick` の前 30ms・後 90ms）は変えていない。「今」を `metroClickClockMs(audioCtx)` にした:
+    Web は今までどおり performance.now()、殻はマイクの口の `clickClockMs()` = **いちばん新しい入力の標本の host time**、クリックの予定も殻の h（同じ時計）。
+    入力の sample time とプレーヤーの sample time は起点が違うので、どちらにも付いている host time（同じプロセスの同じ時計）で突き合わせる ── ブリッジの遅れが混ざらない。
+  - **作り直し（便CV の仕組みを本番用に）**: エンジンの構成の変化（`AVAudioEngineConfigurationChange`）・中断（電話・Siri など）の終わり・メディアサービスのリセットで、
+    エンジンを捨てて作り直す（マイクの入力もつなぎ直し、メトロノームは拍の格子を続けて鳴らし直す）。**1 秒に 1 回まで**（通知から 0.2 秒は経路が落ち着くのを待つ）・
+    **10 秒に 5 回まで**・**失敗は 5 回まで**・中断の終わりは失敗の数を 0 に戻す。【便CX 審査】前の「10 秒に 10 回」は、間隔の下限が 1 秒なので 10 秒の窓に
+    入るのが最大 9 件で、発動しなかった（成功が続く嵐で諦めない）。窓に必ず届く 5 にした。判定は純関数（殻 `rebuildDecision` / `rebuildDelay`・JS `nativeRebuildDecision` /
+    `nativeRebuildDelay`。値と式は pitch-test K.14 が突き合わせる）で、JS の側で「成功が続く嵐でも約 5.2 秒で諦める」ことを試験している。諦めたら `"audioState"`（failed）を知らせ、JS はマイクを既存の復旧の入口
+    （トラックの onended → `recoverMic`）で取り直し、メトロノームは止める。JS の `micStart` / `metroStart` は数え直して始め直す。中断の始まり（interrupted）では JS は取り直さない
+    （殻が終わりに作り直す。隠れていれば戻ったときの既存の取り直し）。裏へ行けば（didEnterBackground）殻も止める（JS も visibilitychange で止める）。
+  - **他の場面（洗い出し）**: 殻で Web Audio を鳴らす・マイクを取る所は、計測タブのマイクとメトロノームのほかに、データタブの録音ファイルの取り込みの解析だけ。
+    `decodeAudioData` の AudioContext は鳴らさずに閉じ、`extractAudioViaWebCodecs` / `analyzeAudioBuffer` は OfflineAudioContext で、どちらも出口を使わないのでそのまま。
+    `analyzeMediaFile`（動画で WebCodecs も decodeAudioData も失敗したときの実時間の道）は、`<video>` を音量 0 の鎖で鳴らす AudioContext を作る（play-and-record ではなく、
+    マイクも取らない）。データタブで始まり、殻ではデータタブにいる間マイクは止まっているので計測とは重ならないが、解析中に計測タブへ移ると並んで動く。殻へ移すほどの頻度ではないので
+    手当てはしていない（実機で計測の音量に響くかは実機待ち）。オンボーディング・広告・コミュニティは音を鳴らさない。
+  - **古い殻のビルド**: 殻のメソッドが無い（ios-dev を建て直していない）と `micStart` が UNIMPLEMENTED で断られ、マイクは拒否の案内になる（メトロノームは鳴らない）。
+    **ネイティブの変更なので ios-dev の再ビルドが要る**（本番版は JS も殻に入るので食い違わない）。
+  - 検査: `src/shell/nativeAudio.test.js`（同じ波形の比べ・途切れ・時計・除外・拍頭・呼び出しの順）・`src/shell/shellApp.test.jsx` の【便CX】（殻で getUserMedia を呼ばない・
+    AudioContext を作らない・type を置かない・拍の表示が殻の時計に合う・録音・裏・タブ・中断・権限の拒否・作り直しの諦め）・pitch-test K.6 / K.12 / K.14（Swift の綴り）。
+    **実機待ち**: 殻のエンジンが本当に鳴る・取れる・大きく聞こえること・タップの実際の大きさ・ブリッジの往復の長さ・作り直しが実機の出来事で正しく走ること・Bluetooth の遅れ。
 - **音の出口と Bluetooth（【本人裁定 2026-10-05】イヤホンから出す）**。殻の音のセッションは `playAndRecord` + `defaultToSpeaker` + `allowBluetoothA2DP`
   （`ios/App/App/AppDelegate.swift` の `FicusAudioSessionPlugin.sessionOptions`。値の唯一の答え）。有線・Bluetooth のイヤホンがつながっていればそちらから、
   無ければ本体のスピーカーから鳴り、受話口には出さない。**マイクは本体のまま**（`allowBluetoothHFP` = 旧名 `allowBluetooth` は付けない。
@@ -1292,7 +1399,11 @@ iPad との分岐を2か所に持つより上限を1つにしておくほうが�
   WebKit が AudioContext を一度止めるので、こちらで再開する: メトロノームは殻の枝でだけ ctx の `onstatechange` で（鳴らしている間・画面が見えている間）、
   計測側は tick が毎フレーム `resume()` を試みる既存の道で戻る。途切れずに戻るかは実機で確かめる。
   Bluetooth の出力は機器によって 100ms 級の遅れがあり、メトロノームの音は拍より遅れて聞こえうる（承知の上の裁定）。
+  【便CX 2026-10-19】殻の計測の音は殻の AVAudioEngine が扱うようになったので、この項の `shellRouteToSpeaker()`（JS からの routeToSpeaker）と、
+  メトロノームの ctx の `onstatechange` での再開は消した。選択肢・出口の規則・経路の変化での当て直しは、殻の `configureSession` と経路の変化（上の「殻の計測の音は殻が扱う」）に残る。
   - **モードは `.default`（【便CQ 2026-10-12】本人の実機報告「マイクが入っているとメトロノームが明らかに小さい」）**。
+    【便CX 2026-10-19】原因は確定した（WebKit の取り込みと play-and-record の Web AudioContext が通話の段に縛る。上の「殻の計測の音は殻が扱う」）。以下は便CQ〜便CT の調べの記録。
+    試し口のモード（`desiredMode`・`setTestMode`）は消し、モードはいつも `.default`（`sessionMode`）。
     - **原因は仮説**: WebKit は取り込み中、音の出来事のたびに（`MediaSessionManagerCocoa::updateSessionState`）セッションを `playAndRecord` + `videoChat`
       （受話口が既定なら `voiceChat`）に立て直す。WebKit 自身が「マイクを取ると音量が VC（通話）の音量に替わる」と書いている（WebKit bug 271305。
       直し 276988@main は「playAndRecord のときは常に videoChat」にそろえただけ）。
@@ -1391,6 +1502,8 @@ iPad との分岐を2か所に持つより上限を1つにしておくほうが�
       失敗で新しい取得の成功（errorMsg・isListening）を上書きしない。置き換えられたときも `setMicTried(true)` は立てる（OS の許可の画面はもう出ていないので
       ATT と重ならない。呼び手は 成功の直後・失敗の枝・置き換え〈成功の側と失敗の側〉の4か所。広告・ATT を始める条件は変えていない）。
       `recoverMic` は、画面が見えていて（`document.hidden` でない）今のタブが計測のときだけ取り直す。
+  - 【便CX 2026-10-19】殻は `getUserMedia` を呼ばなくなった（殻のマイクは殻の inputNode のタップ）。下の `applyInputRule` を呼ぶのは殻の `configureSession`（エンジンを始める前・
+    `setActive(true)` の後）と経路の変化の2か所になり、JS の機器の一覧の変化（devicechange）からの `shellRouteToSpeaker` は消した。Web の決まりは変えていない。
   - **殻（`AppDelegate.swift` の `applyInputRule`）**: `availableInputs` の `builtInMic` を `setPreferredInput` する。呼ぶのは routeToSpeaker と経路の変化
     （`setCategory` の後・出口の規則の前）。入力も優先の入力も本体のマイクなら何もしない。**同じ経路では1回しか呼ばない**（経路 = 入力・出力の portType・
     優先の入力・選択肢の生の値。判定と挿入は鍵の中で1つの式 `guard inputRuleTriedRoutes.insert(route).inserted`。時間の値は使わない）。入力が本体のマイクになったら・
@@ -1419,6 +1532,8 @@ iPad との分岐を2か所に持つより上限を1つにしておくほうが�
     録音中に隠れたときの決まり（`stopListening` が録音を終わらせ、保存の確認は根の `pendingSession`）は変えていない。隠れていない「見える」の知らせでは作り直さない。
     **残る違い**: タブで戻るときのマイクの取り直しは本人が押した後、裏から戻るときは見えるようになった瞬間。これが効いているかは実機の値（診断の板の
     `lastReturn` / `micRecover` / `mic`）で見る。
+  - 【便CX 2026-10-19】殻のメトロノームは殻の AVAudioEngine で鳴る。隠れたら `stopMetronome` が殻へ `metroStop`（殻も didEnterBackground で止める）、
+    戻ったら作り直した MeasureView の START が新しい run で `metroStart`（勝手には鳴らさない）。Web の ctx を捨てる手当て（`dropIdleMetroCtx`）は殻では時計の口を閉じるだけ。
   - 戻った瞬間に `resume()` も ctx の作り直しもしない: タップの外で作った ctx は suspended で生まれ、iOS ではタップの中で `resume()` を蹴らないと鳴らない
     （`startMetronome` の【iOS対策・重要】・BACKLOG D-24c）。戻った直後に鳴らし始める ctx が無音になる不具合も報告されている（WebKit bug 240646）。
   - 殻の `appStateChange`（`@capacitor/app`）は使わない: プラグインが入っていない（足すと殻の再ビルドが要る）。WKWebView は裏へ回る・戻るで `visibilitychange` を出す。
@@ -1429,6 +1544,20 @@ iPad との分岐を2か所に持つより上限を1つにしておくほうが�
     `otherAudio` / `metro`（鳴っているか・ctx の state と currentTime）/ `lastStart`（直近の START の時刻・作り直したか・それまでの ctx の state・F-52 の時計の停止）/
     `lastHidden` / `lastReturn`（戻った時刻・裏にいた秒数・戻った回数）/ `mic`（解析の ctx の state・トラックの readyState / muted / enabled・取り直し中か・
     再試行待ちか）/ `micSettings`（トラックの getSettings の echoCancellation / noiseSuppression / autoGainControl）/ 【便CS】`micTrack`（使っているマイクのトラックの label と、getSettings の deviceId の**先頭 8 文字**（`AUDIO_DIAG_ID_HEAD`。便CS の指示「先頭数文字」を 8 にした））/ `micRecover`（直近のマイクの取り直しの時刻と理由）/ `web.audioSession`（`navigator.audioSession.type`）。
+  - **【便CX 2026-10-19】試し口の整理**（本番の殻のメトロノームとマイクが殻になったので）:
+    - 鳴らし方（web / nativeClick / nativeBoth / nativeSolo）… **消した**（JS の `audioDiagSetPlayback` などと、殻の `nativeClick*` / `nativeInput*` / `nativeAudioInfo`）。聞き比べは済んだ。
+    - mode（殻のセッションのモード 5種）… **消した**（殻の `setTestMode`・`desiredMode` も）。殻のセッションは本番の値（`.default`）に固定で、動いているエンジンのモードを替えると
+      構成の変化 → エンジンの作り直しになり、板が見せる作り直しの回数（`cfg` / `rb`）を試しが汚す。WebKit のセッションで聞き比べた便CT の結果（どれも同じ）は無効だった。
+      Web の板からも mode のボタンと `testMode` の行が消えた（Web では元から `n/a (web)` を出すだけだった）。
+    - gain（×1 / ×1.3 / ×1.6）と `clickPeak` … **Web だけに残した**（Web Audio のメトロノームのマスターに掛けるもので、Web では今も意味がある。殻のクリックは殻で鳴るので
+      Web のマスターは届かず、殻のクリックの音は変えない決まり）。殻では出さない。閉じたら ×1 に戻すのは今まで通り。
+    - 板の行（殻だけ）: `nativeEngine`（`running` エンジンが動いているか・`act` 活性にしたことがあるか・`mic` / `metro` 殻が取り込み中か・鳴らし中か・
+      `cfg` 構成の変化と中断の終わりの回数・`rb` 作り直しに成功した回数・`err` 殻の最後のエラー・`js=` JS 側の失敗）/ `nativeSched`（`sched` 予約した累計・`played` 再生し終わった累計・
+      `play`・`lrt`・`tick`）/ `nativeIn`（直近の塊の入力レベル dBFS・入力の標本化周波数・【便CX 審査】`via` 取り方〈sink / tap〉・`cb=直近/最大` 1回の受け手のフレーム数・
+      `send=直近/最大ms` 塊を送る間隔・殻が送った塊の数・JS が受けた数・最後に受けてからの時間・`ovr` 輪を捨てた回数〈あるときだけ〉）/
+      `nativeClock`（時計の対応のずれの上限 = 往復の半分・往復・合わせた回数・上限を越える往復しか無ければ `rtt>20`）/ `nativeBuf`（殻へ渡したクリックの3段のピーク @標本化周波数）。
+      `metro` の行に殻だけ `phase`（振り子の位相 = 拍の表示が読む値）を足した。殻の値は `audioInfo`（読むだけ）。古い殻のビルドは `n/a (要ビルド…)`。
+    以下の便CT・便CU・便CV・便CW の記述は、その時点の試し口の記録として残す。
   - **試し口（【便CT 2026-10-13】聞き比べ用。ここだけは音を変える。どちらも保存しない = アプリを開き直せば default・×1）**: 板の下のボタン。
     **板を閉じたら元に戻す**（【便CT 審査 統括の裁定】）: gain は ×1、殻の mode は default（`setTestMode("default")`。取り込み中でなくても殻は既定へ戻す）。
     あわせてピークの読み取り（20ms）を止め、分析の節点を外す。戻し忘れると、その起動のあいだ割れが続き、計測の値も変わるため。開いている間の聞き比べは今のまま。
@@ -1534,7 +1663,7 @@ iPad との分岐を2か所に持つより上限を1つにしておくほうが�
       「エンジンが落ちた（`running=no`・`cfg` が増える）/ 時計が無効（`lrt=no`・`tick=noRender`）/ 予約が進まない（`sched` が止まる）/ 描き出しが無音（`nativeBuf`）/ 殻の呼び出しの失敗（`js=`）」に切り分ける。
     - 新しいメソッド（`FicusAudioSession`）: `nativeClickLoad` / `nativeClickStart` / `nativeClickStop` / `nativeInputStart` / `nativeInputStop` / `nativeAudioInfo`（読むだけ）。JS の呼び口は `src/shell/audio.js` の `shellNative*`（Web では null）。
   - 殻の値は自前の部品の読み出し口 `FicusAudioSession.sessionInfo`（`AppDelegate.swift`。読むだけ）。**ios-dev を建て直すまでは `n/a (要ビルド…)`** と出る。Web は `n/a (web)`。
-  - 1秒に1回読み直す。読むだけで、音・マイク・セッションには何もしない（【便CT】例外は上の試し口のボタンを押したときだけ。【便CU】殻では `nativeAudioInfo` も読む）。置き場と部品は `src/audioDiag.jsx`（`position: fixed`・z 50・字は `--fs-xs` 以上）。
+  - 1秒に1回読み直す。読むだけで、音・マイク・セッションには何もしない（【便CT】例外は上の試し口のボタンを押したときだけ。【便CX】殻では `audioInfo` も読む・試し口は Web の gain だけ）。置き場と部品は `src/audioDiag.jsx`（`position: fixed`・z 50・字は `--fs-xs` 以上）。
 - **PrivacyInfo.xcprivacy**: `@capacitor/filesystem` が使うファイルの時刻の API（`NSPrivacyAccessedAPICategoryFileTimestamp`・理由 `C617.1`）を
   `ios/App/App/PrivacyInfo.xcprivacy` で申告し、App ターゲットの Resources に入れてある（プラグインの README の求め）。プラグインを足したら、その README の申告を足す。
 - **Capacitor の部品だけのチャンクの名前**: `vite.config.js` の `chunkFileNames` で `capacitor-*.native-*.js` にする（@capacitor/core の共有分が

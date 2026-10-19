@@ -64,74 +64,264 @@ class FicusViewController: CAPBridgeViewController {
     }
 }
 
-// S2: 音の出口。マイクを開いている間、iOS は出力を受話口へ回す。playAndRecord + defaultToSpeaker で本体のスピーカーへ。
-// 【本人裁定 2026-10-05】Bluetooth のイヤホンへは出す(allowBluetoothA2DP = 出力だけ Bluetooth。マイクは本体のまま)。
-// HFP(.allowBluetoothHFP / 旧名 .allowBluetooth)は付けない ── マイクが Bluetooth 側へ替わり、音が電話の品質に落ちるため。
-// 有線・Bluetooth のイヤホンがつながっていればそちらへ、無ければスピーカーへ。受話口には出さない。
-// 【便CS】選択肢から HFP を外しても、WebKit がマイクを取るときに AllowBluetooth を付け直し、既定の機器(= イヤホンのマイク)で取る。
-// そこで入力は setPreferredInput で本体のマイクに固定する(applyInputRule)。有線のヘッドセットのマイクも使わない。
-// イヤホンをつなぐ・外す(経路の変化)たびに同じ規則を当て直す。外したとき(OldDeviceUnavailable)は WebKit が
-// AudioContext を一度止めるので、メトロノームは JS 側(App.jsx の onstatechange)で再開する(実機で確かめる)。
+// ============================================================
+// 【便CX 2026-10-19】殻の計測タブの音(メトロノームとマイク)は、このプロセス(アプリ)の AVAudioEngine で扱う。
+// 原因(本人の実機・診断の板の試し口 nativeSolo で確定): WebKit の getUserMedia と play-and-record の Web AudioContext が動いている間、
+// WebKit の GPU プロセス側の音のセッションが通話(videoChat)の段になり、アプリ全体の音量がその段に縛られる(MAX でも普段の段の 1/4 ほど)。
+// 殻ではメトロノームを殻の AVAudioPlayerNode で鳴らし、マイクも殻の inputNode から取り、WebKit には音もマイクも触らせない。
+//   セッション: playAndRecord・mode .default・options sessionOptions(defaultToSpeaker + allowBluetoothA2DP)。殻が自分で setActive(true) する。
+//   マイク: inputNode → AVAudioSinkNode(ハードウェアの形式。受け手は I/O の周期ごとに音のスレッドで呼ばれる)。エンジンが始まらない・始めて 1 秒
+//           受け手が来ないときは installTap に戻る(Apple の文書ではタップの塊は [100, 400] ms)。JS が micStart を呼ぶたびに sink をもう一度試す。
+//           受け手は前もって確保した輪(MicRing)にモノラルで写し、micQueue へ知らせるだけ。
+//           micQueue が塊を組み立てて Float32 の base64 を "micData" で JS へ送る(各塊に入力の sample time と host time)。許可は requestRecordPermission。
+//   メトロノーム: JS が描いた3段のクリック(metroLoad)を、プレーヤーの sample time で予約する(先読み 0.12 秒・25ms ごと・1回 512 個まで = Web の metroSchedulerTick と同じ値)。
+//           予約は host time(このプロセスの時計 = マイクの塊と同じ時計)で数え、予約したクリックを "metroClicks" で JS へ知らせる。作り直しても拍の格子は続ける。
+//   作り直し: エンジンの構成の変化・中断の終わり・メディアサービスのリセットで捨てて作り直す(1 秒に 1 回まで・10 秒に 5 回まで・失敗は 5 回まで・
+//           中断の終わりは失敗の数を 0 に戻す)。諦めたら "audioState"(failed)を JS へ知らせる(JS はマイクを既存の復旧の入口で取り直し、メトロノームは止める)。
+//   JS への知らせ(notifyListeners)は emit の1か所から、それを呼ぶ列(micData は micQueue・ほかは audioQueue)の上でそのまま送る(main で JSON にしない)。
+//           JS の受け手の登録の書き換え(addListener / removeListener)は Capacitor の bridge の列で行われ、この知らせとは同期しない。そのため JS は
+//           受け手を最初の1回だけ(3つの知らせをまとめて、マイクを始める前に)登録し、流している間は書き換えない(src/shell/nativeAudio.js の nativeEvents)。
+//   【便CX】WebKit がもう音のセッションを立て直さないので、JS から呼んでいた routeToSpeaker(マイクの直後・メトロノームの開始・鳴り始めた後・機器の一覧の変化)と
+//           診断の板の試し口(setTestMode・nativeClick* / nativeInput*)は消した。セッションの用意はエンジンを始める前の configureSession の1か所。
+// ============================================================
+
+// マイクの輪(1つの書き手 = sink の受け手かタップの受け手・1つの読み手 = micQueue の drainMic)。
+// 置き場はすべて作るときに1回だけ確保し、プロパティは let(受け手の中でクラスの var に触らない = 排他の確かめ・確保・鍵が無い)。
+// 書き手は標本と「その回の情報」(フレーム数・host time の生の値・sample time・標本化周波数)を書いてから、知らせ(ユーザデータ)に
+// 「回数 << 32 | フレーム数」を足す。dispatch の知らせは足し算でまとまり、読み手は届いた回数ぶんの情報を順に読む。
+// 【根拠なし・実機で見る】音のスレッドから dispatch_source_merge_data(add(data:))を呼んでよいか(確保・鍵が無いか)と、足し算が書いた中身を読み手に
+// 見せる順序(メモリの順序)を保証するかは、一次情報で確かめられていない。実機で板の nativeIn(cb・send・ovr)と音の途切れを見る。
+final class MicRing {
+    static let capacity = 1 << 16       // 標本(48kHz で約 1.4 秒)
+    static let mask = capacity - 1
+    static let metaCapacity = 1 << 10   // 受け手の回数
+    static let metaMask = metaCapacity - 1
+    let queue: DispatchQueue
+    let samples: UnsafeMutablePointer<Float>
+    let metaFrames: UnsafeMutablePointer<Int>
+    let metaHost: UnsafeMutablePointer<UInt64>
+    let metaSample: UnsafeMutablePointer<Double>
+    let metaRate: UnsafeMutablePointer<Double>
+    let writePos: UnsafeMutablePointer<Int>
+    let metaWrite: UnsafeMutablePointer<Int>
+    let signal: DispatchSourceUserDataAdd
+
+    init() {
+        samples = UnsafeMutablePointer<Float>.allocate(capacity: MicRing.capacity)
+        samples.initialize(repeating: 0, count: MicRing.capacity)
+        metaFrames = UnsafeMutablePointer<Int>.allocate(capacity: MicRing.metaCapacity)
+        metaFrames.initialize(repeating: 0, count: MicRing.metaCapacity)
+        metaHost = UnsafeMutablePointer<UInt64>.allocate(capacity: MicRing.metaCapacity)
+        metaHost.initialize(repeating: 0, count: MicRing.metaCapacity)
+        metaSample = UnsafeMutablePointer<Double>.allocate(capacity: MicRing.metaCapacity)
+        metaSample.initialize(repeating: 0, count: MicRing.metaCapacity)
+        metaRate = UnsafeMutablePointer<Double>.allocate(capacity: MicRing.metaCapacity)
+        metaRate.initialize(repeating: 0, count: MicRing.metaCapacity)
+        writePos = UnsafeMutablePointer<Int>.allocate(capacity: 1)
+        writePos.initialize(to: 0)
+        metaWrite = UnsafeMutablePointer<Int>.allocate(capacity: 1)
+        metaWrite.initialize(to: 0)
+        let q = DispatchQueue(label: "FicusAudioSession.mic")
+        queue = q
+        signal = DispatchSource.makeUserDataAddSource(queue: q)
+    }
+
+    deinit {
+        signal.cancel()
+        samples.deallocate()
+        metaFrames.deallocate()
+        metaHost.deallocate()
+        metaSample.deallocate()
+        metaRate.deallocate()
+        writePos.deallocate()
+        metaWrite.deallocate()
+    }
+
+    // 受け手(sink のときは音のスレッド)。確保・鍵・待ちをしない。モノラル(全チャンネルの平均)にして輪へ写し、知らせに足すだけ。
+    func write(_ timestamp: UnsafePointer<AudioTimeStamp>, _ frameCount: AVAudioFrameCount, _ bufferList: UnsafePointer<AudioBufferList>, _ rate: Double) {
+        let n = Int(frameCount)
+        if n <= 0 || n > MicRing.capacity / 2 { return }
+        let buffers = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: bufferList))
+        var channels = 0
+        for b in buffers { channels += Int(b.mNumberChannels) }
+        if channels <= 0 { return }
+        let scale = 1 / Float(channels)
+        let w = writePos.pointee
+        var first = true
+        for b in buffers {
+            guard let raw = b.mData else { continue }
+            let nc = Int(b.mNumberChannels)
+            if nc <= 0 { continue }
+            let src = raw.assumingMemoryBound(to: Float.self)
+            for i in 0..<n {
+                var s: Float = 0
+                for c in 0..<nc { s += src[i * nc + c] }
+                let idx = (w + i) & MicRing.mask
+                if first { samples[idx] = s * scale } else { samples[idx] += s * scale }
+            }
+            first = false
+        }
+        if first { return }
+        let m = metaWrite.pointee & MicRing.metaMask
+        let flags = timestamp.pointee.mFlags
+        metaFrames[m] = n
+        metaHost[m] = flags.contains(.hostTimeValid) ? timestamp.pointee.mHostTime : 0
+        metaSample[m] = flags.contains(.sampleTimeValid) ? timestamp.pointee.mSampleTime : -1
+        metaRate[m] = rate
+        metaWrite.pointee = metaWrite.pointee + 1
+        writePos.pointee = w + n
+        signal.add(data: (UInt(1) << 32) | UInt(n))
+    }
+}
+
 @objc(FicusAudioSessionPlugin)
 public class FicusAudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "FicusAudioSessionPlugin"
     public let jsName = "FicusAudioSession"
     public let pluginMethods: [CAPPluginMethod] = [
-        CAPPluginMethod(name: "routeToSpeaker", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "sessionInfo", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "setTestMode", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "nativeClickLoad", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "nativeClickStart", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "nativeClickStop", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "nativeInputStart", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "nativeInputStop", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "nativeAudioInfo", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "micStart", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "micStop", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "metroLoad", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "metroStart", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "metroUpdate", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "metroStop", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "audioClock", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "audioInfo", returnType: CAPPluginReturnPromise)
     ]
 
-    // 殻の音のセッションの選択肢(値の唯一の答え)。
+    // 殻の音のセッションの選択肢(値の唯一の答え)。【本人裁定 2026-10-05】Bluetooth のイヤホンへは出す(allowBluetoothA2DP = 出力だけ Bluetooth)。
+    // HFP は付けない ── マイクが Bluetooth 側へ替わり、音が電話の品質に落ちるため。有線・Bluetooth のイヤホンがつながっていればそちらへ、無ければスピーカーへ。
     static let sessionOptions: AVAudioSession.CategoryOptions = [.defaultToSpeaker, .allowBluetoothA2DP]
+    // モード(殻の仕様 §4.4・【便CQ】)。【便CX】診断の板の試し口(setTestMode)は消したので、いつも .default。
+    static let sessionMode: AVAudioSession.Mode = .default
+    // 入出力の I/O の長さの希望(秒)。sink の受け手はこの周期で呼ばれる(iOS は目安として扱う。48kHz で約 256 フレーム)。失敗しても続ける
+    static let preferredIOBufferSec: Double = 0.005
 
     // 【便CS】入力の規則で setPreferredInput を一度呼んだ経路(routeSignature)。同じ経路ではもう呼ばない ──
-    // 1回の取り込みの間は、WebKit や iOS と往復しても、呼ぶ回数は経路の種類の数までで止まる(時間の値は使わない)。
-    // 入力が本体のマイクになったら・取り込みが終わったら(playAndRecord でなくなったら)空にするので、**取り込みを始めるたびに1周し直す**
-    // (WebKit は既定の機器で取り込みを始めるたびに setPreferredInput(nil) を呼ぶ。CoreAudioCaptureUnit.cpp の captureDeviceChanged)。
-    // routeToSpeaker は Capacitor の部品の列、経路の変化は main で走るので、鍵で守る。
+    // iOS と往復しても、呼ぶ回数は経路の種類の数までで止まる(時間の値は使わない)。
+    // 入力が本体のマイクになったら・殻の音が止まったら(経路の変化で見る)空にするので、**エンジンを始めるたびに1周し直す**。
+    // configureSession(audioQueue)・経路の変化(audioQueue)が読み書きするが、念のため鍵で守る。
     private var inputRuleTriedRoutes = Set<String>()
     private let inputRuleLock = NSLock()
 
-    // 【便CT】診断の板の試し口で選んだモード(聞き比べ用)。nil = 既定の .default。**保存しない**(メモリだけ。アプリを開き直せば .default)。
-    // routeToSpeaker(Capacitor の部品の列)・経路の変化(main)・setTestMode が読み書きするので、鍵で守る。
-    private var testMode: AVAudioSession.Mode? = nil
-    private let testModeLock = NSLock()
-    // 試し口で選べるモード(板のボタンの名前 → モード)。これ以外の名前は断る。
-    static let testModes: [String: AVAudioSession.Mode] = [
-        "default": .default,
-        "videoRecording": .videoRecording,
-        "measurement": .measurement,
-        "spokenAudio": .spokenAudio,
-        "moviePlayback": .moviePlayback
-    ]
-    // いま求めるモード(試し口で選んでいればそれ、無ければ .default)。立て直しの setCategory の2か所(routeToSpeaker・経路の変化)と needsSessionReset が読む。
-    func desiredMode() -> AVAudioSession.Mode {
-        testModeLock.lock()
-        defer { testModeLock.unlock() }
-        return testMode ?? .default
-    }
+    // ---- エンジンの状態(すべて audioQueue の上だけで読み書きする) ----
+    private let audioQueue = DispatchQueue(label: "FicusAudioSession.engine")
+    // マイクの輪と、塊を組み立てて JS へ送る列(micQueue = 輪の知らせの列)
+    private let micRing = MicRing()
+    private var micQueue: DispatchQueue { return micRing.queue }
+    private var engine: AVAudioEngine? = nil
+    private var player: AVAudioPlayerNode? = nil
+    private var sinkNode: AVAudioSinkNode? = nil
+    private var engineHasInput = false
+    private var tapInstalled = false
+    private var sinkUnavailable = false   // sink のエンジンが始まらなかった・届かなかった(次の micStart まで installTap を使う。作り直しの最中はこのまま)
+    private var micOn = false
+    private var metroOn = false
+    // メトロノーム
+    private var clickFormat: AVAudioFormat? = nil
+    private var clickBuffers: [String: AVAudioPCMBuffer] = [:]
+    // プレーヤーをつないだ形式の標本化周波数(バッファはこの形式でないと予約できない。違えば作り直す)
+    private var playerRate: Double = 0
+    private var metroKinds: [String] = []
+    private var metroStepSec: Double = 0
+    private var metroVersion = 0
+    private var metroRun = 0
+    private var metroIndex = 0
+    private var metroTick = 0              // この run で数えた並びの通し番号(JS へ n として渡す。同じ番号の知らせは JS が捨てる)
+    private var metroNextHost: Double = -1
+    private var metroLeadSec: Double = 0.12
+    // 予約したがまだ鳴っていない(かもしれない)クリック。作り直しのとき、まだ来ていない最初のものから予約し直す(格子を途切れさせない)
+    private var metroPending: [(host: Double, index: Int, tick: Int)] = []
+    private var clickTimer: DispatchSourceTimer? = nil
+    // 再生し終わったクリックを数えるための世代(止めた・作り直したとき〈teardown・予約のやり直し〉に進める)
+    private var metroEpoch = 0
+    // 作り直し
+    private var rebuildScheduled = false
+    private var lastRebuildAt: CFAbsoluteTime = 0
+    private var rebuildFailures = 0
+    private var rebuildTimes: [Double] = []
+    // 診断の板に出す数
+    private var configChanges = 0
+    private var rebuilds = 0
+    private var scheduled = 0
+    private var played = 0
+    private var lastError = ""
+    private var lastTickReason = "idle"
+    private var noRenderTicks = 0
+    private var activated = false
+
+    // ---- マイクの id・入力の様子(micQueue・audioQueue から読むので鍵で守る。受け手の中では触らない) ----
+    private let micLock = NSLock()
+    private var micId = ""
+    private var micVia = "none"            // sink / tap / none(板の nativeIn)
+    private var micChunks = 0
+    private var micCallbacks = 0           // 読み手が読んだ受け手の回数
+    private var cbFramesLast = 0           // 1回の受け手のフレーム数(直近・最大)
+    private var cbFramesMax = 0
+    private var sendMsLast: Double = 0     // 塊を送る間隔(直近・最大)
+    private var sendMsMax: Double = 0
+    private var lastFlushAt: CFAbsoluteTime = 0
+    private var micOverruns = 0
+    private var inputLevelDb: Double? = nil
+    private var inputRate: Double = 0
+    // ---- 読み手(micQueue の上だけ) ----
+    private var micReadPos = 0
+    private var micMetaRead = 0
+    private var micScratch: [Float] = [Float](repeating: 0, count: MicRing.capacity / 2)
+    private var micPending: [Float] = []
+    private var micPendingId = ""
+    private var micPendingSample: Double = 0
+    private var micPendingHost: Double = 0
+    private var micPendingRate: Double = 0
+
+    // Web の metroSchedulerTick と同じ値(LOOKAHEAD 0.12 秒・setInterval 25ms・始めは今から 0.12 秒後・guard 512)
+    static let clickLookaheadSec: Double = 0.12
+    static let clickTimerMs: Int = 25
+    static let clickMaxPerTick: Int = 512
+    static let clickLeadSec: Double = 0.12
+    // メトロノームを止めてからエンジンを捨てるまでの待ち(先読み 0.12 秒 + クリックの長さ 0.09 秒 + 余裕)。予約済みのクリックを鳴り切らせる
+    static let metroStopTeardownSec: Double = 0.25
+    // 作り直し: 連続は 1 秒に 1 回まで(暴走防止)・通知から 0.2 秒は経路が落ち着くのを待つ・失敗は 5 回まで・10 秒に 5 回まで
+    // (間隔の下限が 1 秒なので 10 秒の窓に入るのは最大 9〜10 件。上限は窓に必ず届く 5)
+    static let rebuildMinIntervalSec: Double = 1.0
+    static let rebuildSettleSec: Double = 0.2
+    static let rebuildMaxFailures: Int = 5
+    static let rebuildWindowSec: Double = 10.0
+    static let rebuildMaxInWindow: Int = 5
+    // プレーヤーの時計が有効にならないまま続いたら(25ms × 8 = 0.2 秒)、無音の短いバッファを1つ予約して時計を動かす
+    static let primeAfterTicks: Int = 8
+    static let primeFrames: AVAudioFrameCount = 512
+    // installTap に戻ったときの塊の大きさの希望(フレーム)。Apple の文書ではタップの塊は [100, 400] ms(48kHz で 4800〜19200)なので、下限の 100ms を頼む
+    static let micTapFrames: AVAudioFrameCount = 4800
+    // JS へ送る塊の下限(フレーム)。sink の受け手は I/O の周期(約 5ms・約 256 フレーム)ごとに来るので、1024(48kHz で約 21ms)まで溜めて送る ──
+    // 解析は画面の1コマ(約 17ms)に1回、直近 8192 点(約 170ms)の窓で回るので、これより細かくしても見え方は変わらず、ブリッジの往復だけが増える。
+    // タップに戻ったときは1回の塊(100〜400ms)がこれより大きいので、そのまま1つで送る。
+    static let micChunkFrames: Int = 1024
+    // sink の受け手がこの時間 1 回も来なければ、installTap に戻して作り直す
+    static let sinkCheckSec: Double = 1.0
 
     @objc override public func load() {
+        micRing.signal.setEventHandler { [weak self] in self?.drainMic() }
+        micRing.signal.resume()
         NotificationCenter.default.addObserver(self,
                                                selector: #selector(handleRouteChange(_:)),
                                                name: AVAudioSession.routeChangeNotification,
                                                object: nil)
-        // 【便CU】診断の板の試し口「鳴らし方」: 裏へ行ったら殻のクリックと取り込みを止める(JS も板の側で web に戻す)
+        // 裏へ行ったらクリックも取り込みも止める(JS も visibilitychange で止める。戻っても勝手に鳴らさない)
         NotificationCenter.default.addObserver(self,
-                                               selector: #selector(handleTestEngineBackground(_:)),
+                                               selector: #selector(handleDidEnterBackground(_:)),
                                                name: UIApplication.didEnterBackgroundNotification,
                                                object: nil)
-        // 【便CV】中断(電話・Siri など)が終わったら、動いていた試しのエンジンを作り直して鳴らし直す
+        // 中断(電話・Siri など)が終わったら、動いていたエンジンを作り直す
         NotificationCenter.default.addObserver(self,
-                                               selector: #selector(handleTestInterruption(_:)),
+                                               selector: #selector(handleInterruption(_:)),
                                                name: AVAudioSession.interruptionNotification,
+                                               object: nil)
+        // メディアサービスのリセット(エンジンが使えなくなる)でも作り直す
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(handleMediaServicesReset(_:)),
+                                               name: AVAudioSession.mediaServicesWereResetNotification,
                                                object: nil)
     }
 
@@ -139,22 +329,10 @@ public class FicusAudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
         NotificationCenter.default.removeObserver(self)
     }
 
-    @objc func routeToSpeaker(_ call: CAPPluginCall) {
-        let session = AVAudioSession.sharedInstance()
-        do {
-            // 種別・モード・選択肢が既に同じなら立て直さない(取り込み中・再生中の経路を無駄に揺らさない)
-            if needsSessionReset(session) {
-                try session.setCategory(.playAndRecord, mode: desiredMode(), options: FicusAudioSessionPlugin.sessionOptions)
-            }
-            applyInputRule(session)
-            try applyOutputRule(session)
-            call.resolve([
-                "category": session.category.rawValue,
-                "outputs": session.currentRoute.outputs.map { $0.portType.rawValue }
-            ])
-        } catch {
-            call.reject("audio session: \(error.localizedDescription)")
-        }
+    // JS への知らせ(この1か所だけが notifyListeners を呼ぶ)。呼んだ列(micQueue / audioQueue)の上でそのまま送る(main で JSON にしない)。
+    // JS の受け手の登録の書き換えは bridge の列で行われ、この知らせとは同期しないので、JS は受け手を最初の1回だけ登録して書き換えない。
+    private func emit(_ event: String, _ data: [String: Any]) {
+        notifyListeners(event, data: data)
     }
 
     // 【便CQ】診断の板の読み出し口。音のセッションを読むだけで、何も変えない。
@@ -179,67 +357,800 @@ public class FicusAudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
         ])
     }
 
-    // 【便CT】診断の板の試し口: モードを替えて聞き比べる(default / videoRecording / measurement / spokenAudio / moviePlayback)。
-    // 選んだモードはメモリにだけ持ち(保存しない)、以後の立て直し(routeToSpeaker・経路の変化)もそのモードで行う。
-    // 取り込み中(playAndRecord)のときだけ受け、その場で setCategory する(種別と選択肢は sessionOptions のまま)。返すのは替えた後のモード(生の値)。
-    // **iOS が受け付けなかったら(投げた・替わらなかった)前のモードに戻して reject する**(Apple の文書では moviePlayback は playback 用)。
-    // 戻さないと、以後の立て直しが毎回 setCategory を投げて出口の規則まで届かない・替わらないモードを求め続けて経路の変化と往復する。
-    @objc func setTestMode(_ call: CAPPluginCall) {
-        guard let name = call.getString("mode"), let mode = FicusAudioSessionPlugin.testModes[name] else {
-            call.reject("unknown mode")
-            return
-        }
-        let session = AVAudioSession.sharedInstance()
-        guard session.category == .playAndRecord else {
-            // 【便CT 審査】板を閉じたときの戻し(default)は、取り込み中でなくても受けて既定へ戻す(次の立て直しは .default で行う)
-            if mode == .default {
-                storeTestMode(.default)
-                call.resolve(["mode": session.mode.rawValue])
-                return
-            }
-            call.reject("not playAndRecord")
-            return
-        }
-        let previous = desiredMode()
-        storeTestMode(mode)
-        do {
-            if session.mode != mode {
-                try session.setCategory(.playAndRecord, mode: mode, options: FicusAudioSessionPlugin.sessionOptions)
-            }
-            guard session.mode == mode else {
-                storeTestMode(previous)
-                call.reject("not accepted: \(session.mode.rawValue)")
-                return
-            }
-            call.resolve(["mode": session.mode.rawValue])
-        } catch {
-            storeTestMode(previous)
-            call.reject("set mode: \(error.localizedDescription)")
-        }
-    }
-
-    // 試し口のモードをメモリに置く(.default は nil = 選んでいない)。
-    func storeTestMode(_ mode: AVAudioSession.Mode) {
-        testModeLock.lock()
-        testMode = (mode == .default) ? nil : mode
-        testModeLock.unlock()
-    }
-
-    // 【便CS】port の portType(生の値)と名前。診断の板と、JS の内蔵マイクの見分け(src/builtInMic.js)が読む。
+    // 【便CS】port の portType(生の値)と名前。診断の板が読む。
     static func portInfo(_ port: AVAudioSessionPortDescription) -> [String: String] {
         return ["portType": port.portType.rawValue, "name": port.portName]
     }
 
-    // 経路の変化(イヤホンの抜き差し・Bluetooth の接続と切断・WebKit による種別の立て直し)。
-    // 通知は裏のスレッドで来るので main へ回す。当て直すのは「取り込み中(playAndRecord)」のときだけで、
-    // WebKit が再生だけの種別(playback など。受話口へは回らない)にしている間は触らない。
+    // ============================================================
+    // マイク
+    // ============================================================
+
+    // { id } でマイクを取り始める。許可は AVAudioSession の requestRecordPermission(まだ決まっていなければ OS の許可の画面が出る)。
+    // 断られていれば reject("denied")。JS は今の拒否の案内(「マイクの使用が許可されていません」)をそのまま出す。答えは { sampleRate }(ハードウェアの入力の標本化周波数)。
+    @objc func micStart(_ call: CAPPluginCall) {
+        let id = call.getString("id") ?? ""
+        let session = AVAudioSession.sharedInstance()
+        switch session.recordPermission {
+        case .granted:
+            startMicOnQueue(call, id)
+        case .denied:
+            call.reject("denied", "DENIED")
+        case .undetermined:
+            session.requestRecordPermission { [weak self] granted in
+                guard let self = self else { return }
+                if granted {
+                    self.startMicOnQueue(call, id)
+                } else {
+                    call.reject("denied", "DENIED")
+                }
+            }
+        @unknown default:
+            call.reject("denied", "DENIED")
+        }
+    }
+
+    private func startMicOnQueue(_ call: CAPPluginCall, _ id: String) {
+        audioQueue.async {
+            self.micOn = true
+            self.setMicId(id)
+            self.rebuildFailures = 0
+            self.rebuildTimes.removeAll()
+            // JS から micStart が来るたびに sink をもう一度試す(前に tap へ戻っていても。作り直しの最中は戻したまま)
+            self.sinkUnavailable = false
+            if let err = self.ensureMic() {
+                self.micOn = false
+                self.setMicId("")
+                self.lastError = err
+                if !self.metroOn { self.teardownEngine() }
+                call.reject(err)
+                return
+            }
+            call.resolve(["sampleRate": self.currentInputRate()])
+        }
+    }
+
+    // { id } のマイクを止める。id が今のマイクと違えば何もしない(古い取得の片付けが、新しい取得を止めない)。
+    // メトロノームが鳴っていなければエンジンも捨てる(橙の印が消える)。鳴っていれば入力はつないだまま、読み手が捨てる(id が空)。
+    @objc func micStop(_ call: CAPPluginCall) {
+        let id = call.getString("id") ?? ""
+        audioQueue.async {
+            if !id.isEmpty && id != self.getMicId() {
+                call.resolve(["stopped": false])
+                return
+            }
+            self.micOn = false
+            self.setMicId("")
+            if !self.metroOn { self.teardownEngine() }
+            call.resolve(["stopped": true])
+        }
+    }
+
+    // エンジン(入力つき)を用意する。動いていて sink で取っていれば何もしない(新しい id の塊は読み手が送る)。
+    // メトロノームだけのエンジン・tap で取っているエンジンなら作り直す(sink をもう一度試す。拍の格子は teardownEngine が引き継ぐ)。audioQueue の上で呼ぶ。
+    private func ensureMic() -> String? {
+        if let engine = engine, engine.isRunning, engineHasInput, sinkNode != nil {
+            return nil
+        }
+        teardownEngine()
+        return startEngine()
+    }
+
+    // inputNode → AVAudioSinkNode をハードウェアの形式でつなぐ。sinkUnavailable(エンジンが始まらなかった・1 秒届かなかった)なら installTap(付ける直前に removeTap)。
+    // どちらも受け手は輪(MicRing)へ写して知らせるだけ。エンジンを始める前に audioQueue の上で呼ぶ。
+    // (つなげたかを前もって確かめる手は使わない: connect は失敗を返さないので、効くのは「始まらない」「届かない」の2つだけ)
+    private func installMicInput(_ engine: AVAudioEngine) -> String? {
+        let input = engine.inputNode
+        engineHasInput = true
+        let format = input.inputFormat(forBus: 0) // ハードウェアの形式(別の形式を渡すと落ちる)
+        guard format.sampleRate > 0, format.channelCount > 0 else { return "no input format" }
+        let ring = micRing
+        let rate = format.sampleRate
+        setInputRate(rate)
+        if !sinkUnavailable {
+            let sink = AVAudioSinkNode { (timestamp, frameCount, bufferList) -> OSStatus in
+                ring.write(timestamp, frameCount, bufferList, rate)
+                return noErr
+            }
+            engine.attach(sink)
+            engine.connect(input, to: sink, format: format)
+            sinkNode = sink
+            setMicVia("sink")
+            return nil
+        }
+        input.removeTap(onBus: 0)
+        input.installTap(onBus: 0, bufferSize: FicusAudioSessionPlugin.micTapFrames, format: format) { buffer, when in
+            var stamp = when.audioTimeStamp
+            withUnsafePointer(to: &stamp) { ring.write($0, buffer.frameLength, buffer.audioBufferList, rate) }
+        }
+        tapInstalled = true
+        setMicVia("tap")
+        return nil
+    }
+
+    // micQueue の上(輪の知らせ)。届いた回数ぶんの情報を順に読み、標本を写して塊に溜める。読み手が遅れて輪が回り切った恐れがあれば、その分は捨てる。
+    private func drainMic() {
+        let data = micRing.signal.data
+        var callbacks = Int(data >> 32)
+        let frames = Int(data & 0xFFFF_FFFF)
+        if callbacks > MicRing.metaCapacity / 2 || frames > MicRing.capacity / 2 {
+            micMetaRead += callbacks
+            micReadPos += frames
+            flushMic()
+            micLock.lock()
+            micOverruns += 1
+            micLock.unlock()
+            return
+        }
+        while callbacks > 0 {
+            let m = micMetaRead & MicRing.metaMask
+            let f = micRing.metaFrames[m]
+            let hostRaw = micRing.metaHost[m]
+            let sample = micRing.metaSample[m]
+            let rate = micRing.metaRate[m]
+            micMetaRead += 1
+            callbacks -= 1
+            guard f > 0, f <= micScratch.count, rate > 0 else { continue }
+            for i in 0..<f { micScratch[i] = micRing.samples[(micReadPos + i) & MicRing.mask] }
+            micReadPos += f
+            micLock.lock()
+            micCallbacks += 1
+            cbFramesLast = f
+            cbFramesMax = max(cbFramesMax, f)
+            micLock.unlock()
+            let host = hostRaw != 0 ? AVAudioTime.seconds(forHostTime: hostRaw) : FicusAudioSessionPlugin.nowHostSec() - Double(f) / rate
+            micScratch.withUnsafeBufferPointer { all in
+                appendMic(UnsafeBufferPointer(rebasing: all[0..<f]), sample, host, rate)
+            }
+        }
+    }
+
+    // micQueue の上。塊が micChunkFrames 以上になったら1つ送る。id が空(止めた)・替わった(取り直した)ら、前の溜めは捨てる。
+    private func appendMic(_ mono: UnsafeBufferPointer<Float>, _ sample: Double, _ host: Double, _ rate: Double) {
+        let id = getMicId()
+        if micPendingId != id { micPending.removeAll(keepingCapacity: true) }
+        micPendingId = id
+        guard !id.isEmpty else { return }
+        let expected = micPendingSample + Double(micPending.count)
+        if !micPending.isEmpty && (micPendingRate != rate || (sample >= 0 && sample != expected)) {
+            // 形式が替わった、または標本が途切れた: 溜めていた分を先に送る(途切れをまたいで1つの塊にしない)
+            flushMic()
+        }
+        if micPending.isEmpty {
+            micPendingSample = sample
+            micPendingHost = host
+            micPendingRate = rate
+        }
+        micPending.append(contentsOf: mono)
+        if micPending.count >= FicusAudioSessionPlugin.micChunkFrames { flushMic() }
+    }
+
+    private func flushMic() {
+        let n = micPending.count
+        guard n > 0, !micPendingId.isEmpty else {
+            micPending.removeAll(keepingCapacity: true)
+            return
+        }
+        let data = micPending.withUnsafeBufferPointer { Data(buffer: $0) }
+        var sum: Float = 0
+        for v in micPending { sum += v * v }
+        let db = 20 * log10(Double(sqrt(sum / Float(n))) + 1e-10)
+        let now = CFAbsoluteTimeGetCurrent()
+        micLock.lock()
+        inputLevelDb = db
+        micChunks += 1
+        if lastFlushAt > 0 {
+            sendMsLast = (now - lastFlushAt) * 1000
+            sendMsMax = max(sendMsMax, sendMsLast)
+        }
+        lastFlushAt = now
+        micLock.unlock()
+        emit("micData", [
+            "id": micPendingId,
+            "pcm": data.base64EncodedString(),
+            "sample": micPendingSample,
+            "host": micPendingHost,
+            "rate": micPendingRate,
+            "frames": n
+        ])
+        micPending.removeAll(keepingCapacity: true)
+    }
+
+    private func getMicId() -> String {
+        micLock.lock()
+        defer { micLock.unlock() }
+        return micId
+    }
+
+    private func setMicId(_ id: String) {
+        micLock.lock()
+        micId = id
+        micLock.unlock()
+    }
+
+    private func setMicVia(_ via: String) {
+        micLock.lock()
+        micVia = via
+        micLock.unlock()
+    }
+
+    private func setInputRate(_ rate: Double) {
+        micLock.lock()
+        inputRate = rate
+        micLock.unlock()
+    }
+
+    private func currentInputRate() -> Double {
+        micLock.lock()
+        defer { micLock.unlock() }
+        return inputRate
+    }
+
+    private func currentMicCallbacks() -> Int {
+        micLock.lock()
+        defer { micLock.unlock() }
+        return micCallbacks
+    }
+
+    // ============================================================
+    // メトロノーム
+    // ============================================================
+
+    // { sampleRate, accent, beat, sub }(3つは Float32 の標本の base64)。形式(標本化周波数)が替わったらエンジンを作り直す。
+    @objc func metroLoad(_ call: CAPPluginCall) {
+        guard let rate = FicusAudioSessionPlugin.numberArg(call, "sampleRate"), rate > 0,
+              let format = AVAudioFormat(standardFormatWithSampleRate: rate, channels: 1) else {
+            call.reject("bad sampleRate")
+            return
+        }
+        var buffers: [String: AVAudioPCMBuffer] = [:]
+        for kind in ["accent", "beat", "sub"] {
+            guard let b64 = call.getString(kind),
+                  let buffer = FicusAudioSessionPlugin.pcmBuffer(base64: b64, format: format) else {
+                call.reject("bad buffer: \(kind)")
+                return
+            }
+            buffers[kind] = buffer
+        }
+        let loaded = buffers
+        audioQueue.async {
+            // 今のエンジンのプレーヤーはつないだときの形式のまま。形式が違うバッファを予約すると落ちるので、作り直す
+            // (JS はセッションの標本化周波数で描くので、普段は同じ = 作り直さない)
+            let formatChanged = self.playerRate != format.sampleRate
+            self.clickFormat = format
+            self.clickBuffers = loaded
+            if formatChanged && self.engine != nil {
+                self.teardownEngine()
+                if self.micOn || self.metroOn {
+                    if let err = self.startEngine() {
+                        self.lastError = err
+                        self.scheduleRebuild()
+                    }
+                }
+            }
+            call.resolve(["frames": loaded.mapValues { Int($0.frameLength) }])
+        }
+    }
+
+    // { run, v, stepSec, kinds, leadSec }(1小節ぶんの並び)で鳴らし始める。小節の頭を今から leadSec 秒後に置く(Web の startMetronome と同じ 0.12 秒)。
+    @objc func metroStart(_ call: CAPPluginCall) {
+        let kinds = (call.getArray("kinds") ?? []).compactMap { $0 as? String }
+        guard let step = FicusAudioSessionPlugin.numberArg(call, "stepSec"), step > 0, !kinds.isEmpty else {
+            call.reject("bad pattern")
+            return
+        }
+        let run = call.getInt("run") ?? 0
+        let version = call.getInt("v") ?? 0
+        let lead = FicusAudioSessionPlugin.numberArg(call, "leadSec") ?? FicusAudioSessionPlugin.clickLeadSec
+        audioQueue.async {
+            guard self.clickFormat != nil, !self.clickBuffers.isEmpty else {
+                call.reject("not loaded")
+                return
+            }
+            self.metroKinds = kinds
+            self.metroStepSec = step
+            self.metroVersion = version
+            self.metroRun = run
+            self.metroIndex = 0
+            self.metroTick = 0
+            self.metroNextHost = -1
+            self.metroLeadSec = lead
+            self.metroPending.removeAll()
+            self.metroOn = true
+            self.rebuildFailures = 0
+            self.rebuildTimes.removeAll()
+            if let engine = self.engine, engine.isRunning {
+                self.startClicks()
+            } else {
+                self.teardownEngine()
+                if let err = self.startEngine() {
+                    self.metroOn = false
+                    self.lastError = err
+                    if self.micOn { self.scheduleRebuild() }
+                    call.reject(err)
+                    return
+                }
+            }
+            call.resolve(["running": self.engine?.isRunning ?? false])
+        }
+    }
+
+    // { run, v, stepSec, kinds, restart, leadSec }。テンポ・アクセント・まとまりの変更(restart なし)は、まだ予約していない次の拍から効く
+    // (並びの位置と次の時刻はそのまま = Web の metroSchedulerTick が ref を読むのと同じ)。拍子・分割の変更(restart)は小節の頭を今から leadSec 秒後に置き直す
+    // (Web の「拍子・分割の変更時は小節の頭から仕切り直す」= currentTime + 0.08)。予約済みのクリックは取り消さない(Web と同じ)。
+    @objc func metroUpdate(_ call: CAPPluginCall) {
+        let kinds = (call.getArray("kinds") ?? []).compactMap { $0 as? String }
+        guard let step = FicusAudioSessionPlugin.numberArg(call, "stepSec"), step > 0, !kinds.isEmpty else {
+            call.reject("bad pattern")
+            return
+        }
+        let run = call.getInt("run") ?? 0
+        let version = call.getInt("v") ?? 0
+        let restart = call.getBool("restart") ?? false
+        let lead = FicusAudioSessionPlugin.numberArg(call, "leadSec") ?? FicusAudioSessionPlugin.clickLeadSec
+        audioQueue.async {
+            guard self.metroOn else {
+                call.resolve(["running": false])
+                return
+            }
+            self.metroKinds = kinds
+            self.metroStepSec = step
+            self.metroVersion = version
+            if restart {
+                self.metroRun = run
+                self.metroIndex = 0
+                self.metroTick = 0
+                self.metroNextHost = -1
+                self.metroLeadSec = lead
+                self.metroPending.removeAll()
+            } else {
+                self.metroIndex = self.metroIndex % kinds.count
+            }
+            call.resolve(["running": true])
+        }
+    }
+
+    // { run } で止める。run が今の鳴らし方と違えば何もしない(古い画面の片付けが、新しい START を止めない)。
+    // 予約済みのクリック(0.12 秒先まで)は鳴り切る(Web がスケジューラを止めるのと同じ): マイクが止まっていても、エンジンを捨てるのは
+    // metroStopTeardownSec(0.25 秒)待ってから。そのときもまだメトロノームもマイクも止まっていれば捨てる。
+    @objc func metroStop(_ call: CAPPluginCall) {
+        let run = call.getInt("run")
+        audioQueue.async {
+            if let run = run, run != self.metroRun {
+                call.resolve(["stopped": false])
+                return
+            }
+            self.metroOn = false
+            self.stopClickTimer()
+            if !self.micOn {
+                let stopped = self.engine
+                self.audioQueue.asyncAfter(deadline: .now() + FicusAudioSessionPlugin.metroStopTeardownSec) { [weak self] in
+                    guard let self = self, !self.metroOn, !self.micOn, self.engine === stopped else { return }
+                    self.teardownEngine()
+                }
+            }
+            call.resolve(["stopped": true])
+        }
+    }
+
+    // 時計の対応(JS が拍の時刻と performance.now() を結ぶ)。host = 今の host time(秒)・sampleRate = セッションの出力の標本化周波数(クリックを描く値)。
+    // 待たせない(audioQueue に積まない)── 往復の真ん中を host の時刻と見なすので、往復が短いほど合う。
+    @objc func audioClock(_ call: CAPPluginCall) {
+        call.resolve([
+            "host": FicusAudioSessionPlugin.nowHostSec(),
+            "sampleRate": AVAudioSession.sharedInstance().sampleRate
+        ])
+    }
+
+    // 診断の板が1秒ごとに読む(読むだけ)。
+    @objc func audioInfo(_ call: CAPPluginCall) {
+        audioQueue.async {
+            var info: [String: Any] = [
+                "engineRunning": self.engine?.isRunning ?? false,
+                "activated": self.activated,
+                "micOn": self.micOn,
+                "metroOn": self.metroOn,
+                "configChanges": self.configChanges,
+                "rebuilds": self.rebuilds,
+                "lastError": self.lastError,
+                "scheduled": self.scheduled,
+                "played": self.played,
+                "playing": self.player?.isPlaying ?? false,
+                "lastRender": self.player?.lastRenderTime?.isSampleTimeValid ?? false,
+                "tick": self.lastTickReason
+            ]
+            self.micLock.lock()
+            let db = self.inputLevelDb
+            info["chunks"] = self.micChunks
+            info["inputRate"] = self.inputRate
+            info["via"] = self.micVia
+            info["cbFrames"] = self.cbFramesLast
+            info["cbMax"] = self.cbFramesMax
+            info["sendMs"] = self.sendMsLast
+            info["sendMaxMs"] = self.sendMsMax
+            info["overruns"] = self.micOverruns
+            self.micLock.unlock()
+            if let db = db { info["inputDb"] = db }
+            call.resolve(info)
+        }
+    }
+
+    // ============================================================
+    // エンジン(audioQueue の上だけで触る)
+    // ============================================================
+
+    // 音のセッションを用意する: 種別・モード・選択肢が違えば setCategory → I/O の長さの希望 → setActive(true) → 入力は本体のマイク → 受話口ならスピーカーへ。
+    private func configureSession() -> String? {
+        let session = AVAudioSession.sharedInstance()
+        do {
+            if needsSessionReset(session) {
+                try session.setCategory(.playAndRecord, mode: FicusAudioSessionPlugin.sessionMode, options: FicusAudioSessionPlugin.sessionOptions)
+            }
+            try? session.setPreferredIOBufferDuration(FicusAudioSessionPlugin.preferredIOBufferSec)
+            try session.setActive(true)
+            activated = true
+        } catch {
+            return "session: \(error.localizedDescription)"
+        }
+        applyInputRule(session)
+        do {
+            try applyOutputRule(session)
+        } catch {
+            lastError = "output: \(error.localizedDescription)"
+        }
+        return nil
+    }
+
+    // エンジン(プレーヤー → mainMixer。マイクが要れば入力も)を作って始める。鳴らしていれば予約を始める。失敗の文を返す(エンジンは捨てる)。
+    // sink のエンジンが始まらなければ、installTap に戻して1回だけ作り直す。sink の受け手が sinkCheckSec 来なければ、そのときも installTap に戻す。
+    private func startEngine() -> String? {
+        if let err = configureSession() { return err }
+        let engine = AVAudioEngine()
+        let player = AVAudioPlayerNode()
+        engine.attach(player)
+        // クリックをまだ受け取っていなければ、セッションの標本化周波数のモノラルでつなぐ(JS もこの値で描くので、後から受け取っても作り直さない)
+        let playerFormat = clickFormat ?? AVAudioFormat(standardFormatWithSampleRate: AVAudioSession.sharedInstance().sampleRate, channels: 1)
+        engine.connect(player, to: engine.mainMixerNode, format: playerFormat)
+        playerRate = playerFormat?.sampleRate ?? 0
+        self.engine = engine
+        self.player = player
+        engineHasInput = false
+        tapInstalled = false
+        sinkNode = nil
+        if micOn {
+            if let err = installMicInput(engine) {
+                teardownEngine()
+                return err
+            }
+        }
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(handleEngineConfigChange(_:)),
+                                               name: .AVAudioEngineConfigurationChange,
+                                               object: engine)
+        engine.prepare()
+        do {
+            try engine.start()
+            activated = true
+        } catch {
+            let usedSink = sinkNode != nil
+            teardownEngine()
+            if usedSink && !sinkUnavailable {
+                sinkUnavailable = true
+                lastError = "sink: start failed"
+                return startEngine()
+            }
+            return "start: \(error.localizedDescription)"
+        }
+        if sinkNode != nil {
+            let started = engine
+            let before = currentMicCallbacks()
+            audioQueue.asyncAfter(deadline: .now() + FicusAudioSessionPlugin.sinkCheckSec) { [weak self] in
+                guard let self = self, self.engine === started, self.sinkNode != nil, started.isRunning, self.micOn else { return }
+                if self.currentMicCallbacks() == before {
+                    self.sinkUnavailable = true
+                    self.lastError = "sink: no data"
+                    self.teardownEngine()
+                    if let err = self.startEngine() {
+                        self.lastError = err
+                        self.scheduleRebuild()
+                    }
+                }
+            }
+        }
+        if metroOn { startClicks() }
+        return nil
+    }
+
+    // 予約の時計を始める(並びの位置と次の時刻はそのまま)。プレーヤーの play() はエンジンが動いているときだけ(動いていないエンジンのプレーヤーに呼ぶと例外で落ちる)。
+    private func startClicks() {
+        stopClickTimer()
+        metroEpoch += 1
+        noRenderTicks = 0
+        lastTickReason = "idle"
+        guard metroOn, let player = player else { return }
+        guard let engine = engine, engine.isRunning else {
+            lastError = "engine not running"
+            return
+        }
+        if !player.isPlaying { player.play() }
+        let timer = DispatchSource.makeTimerSource(queue: audioQueue)
+        timer.schedule(deadline: .now(), repeating: .milliseconds(FicusAudioSessionPlugin.clickTimerMs))
+        timer.setEventHandler { [weak self] in self?.clickTick() }
+        clickTimer = timer
+        timer.resume()
+    }
+
+    private func stopClickTimer() {
+        clickTimer?.cancel()
+        clickTimer = nil
+    }
+
+    // 予約の時計・プレーヤー・入力・エンジンを片付ける(micOn / metroOn はそのまま)。
+    // 拍の格子を続けるため、予約したがまだ来ていないクリックがあれば、その最初のものから予約し直す(次のエンジンで同じ host time・同じ通し番号で予約する。
+    // JS は同じ番号の知らせを捨てる)。
+    private func teardownEngine() {
+        stopClickTimer()
+        metroEpoch += 1
+        let now = FicusAudioSessionPlugin.nowHostSec()
+        if let first = metroPending.first(where: { $0.host > now }) {
+            metroNextHost = first.host
+            metroIndex = first.index
+            metroTick = first.tick
+        }
+        metroPending.removeAll()
+        if let engine = engine {
+            NotificationCenter.default.removeObserver(self, name: .AVAudioEngineConfigurationChange, object: engine)
+            player?.stop()
+            if tapInstalled { engine.inputNode.removeTap(onBus: 0) }
+            engine.stop()
+        }
+        tapInstalled = false
+        engineHasInput = false
+        sinkNode = nil
+        setMicVia("none")
+        engine = nil
+        player = nil
+    }
+
+    // 25ms ごと(audioQueue)。host time で 0.12 秒先までのクリックを数え、プレーヤーの sample time に直して予約する。
+    // 過ぎてしまった拍(作り直しの間など)は鳴らさずに格子の上で数だけ進める(gridSkip。並びの次の拍の host time を引き継ぐ)。
+    // 早く返った理由は lastTickReason に残す(板の tick): idle / noEngine / notRunning / noPlayer / replay / noRender / noPlayerTime / badRate / ok。
+    private func clickTick() {
+        guard metroOn, !metroKinds.isEmpty, metroStepSec > 0 else { lastTickReason = "idle"; return }
+        guard let engine = engine else { lastTickReason = "noEngine"; return }
+        guard engine.isRunning else { lastTickReason = "notRunning"; return }
+        guard let player = player else { lastTickReason = "noPlayer"; return }
+        if !player.isPlaying {
+            // エンジンは動いているのにプレーヤーが止まっている(中断のあと等)。play の直前でもう一度エンジンを確かめてから再開する
+            guard engine.isRunning else { lastTickReason = "notRunning"; return }
+            player.play()
+            noRenderTicks = 0
+            lastTickReason = "replay"
+            return
+        }
+        guard let nodeTime = player.lastRenderTime, nodeTime.isSampleTimeValid, nodeTime.isHostTimeValid else { noteNoRender("noRender"); return }
+        guard let playerTime = player.playerTime(forNodeTime: nodeTime), playerTime.isSampleTimeValid else { noteNoRender("noPlayerTime"); return }
+        guard playerTime.sampleRate > 0 else { lastTickReason = "badRate"; return }
+        noRenderTicks = 0
+        let rate = playerTime.sampleRate
+        let nowSample = Double(playerTime.sampleTime)
+        let nowHost = AVAudioTime.seconds(forHostTime: nodeTime.hostTime)
+        let ahead = FicusAudioSessionPlugin.clickLookaheadSec
+        metroPending.removeAll(where: { $0.host < nowHost })
+        var clicks: [[String: Any]] = []
+        if metroNextHost < 0 {
+            metroNextHost = nowHost + metroLeadSec
+        } else if metroNextHost < nowHost {
+            let skip = min(FicusAudioSessionPlugin.gridSkip(next: metroNextHost, now: nowHost, step: metroStepSec), FicusAudioSessionPlugin.clickMaxPerTick)
+            for _ in 0..<skip {
+                let index = metroIndex % metroKinds.count
+                if metroKinds[index] != "silent" {
+                    clicks.append(["h": metroNextHost, "s": -1, "k": "skipped", "i": index, "v": metroVersion, "n": metroTick])
+                }
+                metroTick += 1
+                metroIndex = (index + 1) % metroKinds.count
+                metroNextHost += metroStepSec
+            }
+            if metroNextHost < nowHost { metroNextHost = nowHost + ahead }
+        }
+        var count = 0
+        while metroNextHost < nowHost + ahead && count < FicusAudioSessionPlugin.clickMaxPerTick {
+            count += 1
+            let index = metroIndex % metroKinds.count
+            let kind = metroKinds[index]
+            if let buffer = clickBuffers[kind] {
+                let sampleAt = (nowSample + (metroNextHost - nowHost) * rate).rounded()
+                let epoch = metroEpoch
+                player.scheduleBuffer(buffer,
+                                      at: AVAudioTime(sampleTime: AVAudioFramePosition(sampleAt), atRate: rate),
+                                      options: [],
+                                      completionCallbackType: .dataPlayedBack) { [weak self] _ in
+                    self?.noteClickPlayed(epoch)
+                }
+                scheduled += 1
+                metroPending.append((host: metroNextHost, index: index, tick: metroTick))
+                clicks.append(["h": metroNextHost, "s": sampleAt, "k": kind, "i": index, "v": metroVersion, "n": metroTick])
+            }
+            metroTick += 1
+            metroIndex = (index + 1) % metroKinds.count
+            metroNextHost += metroStepSec
+        }
+        lastTickReason = "ok"
+        if !clicks.isEmpty {
+            emit("metroClicks", ["run": metroRun, "clicks": clicks])
+        }
+    }
+
+    // 再生し終わったクリックを数える(完了の通知は音のスレッドから来るので audioQueue へ回す)。止めた・作り直した後の通知(epoch が古い)は数えない。
+    private func noteClickPlayed(_ epoch: Int) {
+        audioQueue.async { [weak self] in
+            guard let self = self, epoch == self.metroEpoch else { return }
+            self.played += 1
+        }
+    }
+
+    // プレーヤーの時計が有効でない tick。続いたら(primeAfterTicks)、無音の短いバッファを1つ at: nil で予約して時計を動かす(1回だけ。音は出ない)。
+    private func noteNoRender(_ reason: String) {
+        lastTickReason = reason
+        noRenderTicks += 1
+        if noRenderTicks == FicusAudioSessionPlugin.primeAfterTicks, let player = player, let buffer = silentPrimeBuffer() {
+            player.scheduleBuffer(buffer, at: nil, options: [], completionHandler: nil)
+            lastTickReason = reason + "+primed"
+        }
+    }
+
+    // 無音(0)のバッファ。AVAudioPCMBuffer の中身は 0 とは限らないので、明示的に 0 にする。
+    private func silentPrimeBuffer() -> AVAudioPCMBuffer? {
+        let frames = FicusAudioSessionPlugin.primeFrames
+        guard let format = clickFormat,
+              let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames),
+              let dst = buffer.floatChannelData?[0] else { return nil }
+        memset(dst, 0, Int(frames) * MemoryLayout<Float>.size)
+        buffer.frameLength = frames
+        return buffer
+    }
+
+    // ============================================================
+    // 作り直し・中断・経路
+    // ============================================================
+
+    // 過ぎてしまった拍の数(格子を保つ)。純関数。JS の nativeGridSkip(src/shell/nativeAudio.js)と同じ式(pitch-test K.14 が突き合わせる)。
+    static func gridSkip(next: Double, now: Double, step: Double) -> Int {
+        return now > next ? Int(((now - next) / step).rounded(.up)) : 0
+    }
+
+    // 作り直しの遅れ(1 秒に 1 回まで・通知から 0.2 秒は待つ)。純関数。JS の nativeRebuildDelay と同じ式。
+    static func rebuildDelay(sinceLast: Double) -> Double {
+        return max(rebuildSettleSec, rebuildMinIntervalSec - sinceLast)
+    }
+
+    // 作り直しの歯止め(10 秒に 5 回まで)。純関数(時刻を差し替えられる)。窓の中に残る時刻と、諦めるか。JS の nativeRebuildDecision と同じ式。
+    static func rebuildDecision(_ times: [Double], now: Double) -> (keep: [Double], giveUp: Bool) {
+        let keep = times.filter { now - $0 < rebuildWindowSec }
+        return (keep, keep.count >= rebuildMaxInWindow)
+    }
+
+    // エンジンの構成が変わった(経路の変化・形式の変化など)。エンジンは止まっているので捨て、回数と理由を控えて作り直す。
+    @objc func handleEngineConfigChange(_ notification: Notification) {
+        audioQueue.async {
+            guard let changed = notification.object as? AVAudioEngine, changed === self.engine else { return }
+            self.configChanges += 1
+            self.lastError = "configurationChange"
+            self.teardownEngine()
+            self.scheduleRebuild()
+        }
+    }
+
+    // 中断(電話・Siri など)。始まったときは控えて JS に知らせるだけ、終わったとき(.ended)は、動いていたものがあれば捨てて作り直す。
+    @objc func handleInterruption(_ notification: Notification) {
+        guard let raw = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
+        audioQueue.async {
+            if type == .began {
+                self.lastError = "interruption began"
+                if self.micOn || self.metroOn { self.notifyState("interrupted", "began") }
+                return
+            }
+            guard self.micOn || self.metroOn else { return }
+            self.configChanges += 1
+            self.lastError = "interruption ended"
+            self.rebuildFailures = 0 // 前の失敗の数を引き継がない(中断が終わったので、また 5 回まで試す)
+            self.teardownEngine()
+            self.scheduleRebuild()
+        }
+    }
+
+    // メディアサービスのリセット。エンジンは使えなくなるので捨てて作り直す。
+    @objc func handleMediaServicesReset(_ notification: Notification) {
+        audioQueue.async {
+            guard self.micOn || self.metroOn else { return }
+            self.configChanges += 1
+            self.lastError = "mediaServicesReset"
+            self.teardownEngine()
+            self.scheduleRebuild()
+        }
+    }
+
+    // 作り直しの予約(audioQueue の上で呼ぶ)。1 つだけ持つ・遅れは rebuildDelay = 連続は 1 秒に 1 回まで。
+    // 時が来たとき、止められていた(micOn も metroOn も偽)・もう動いているエンジンがあるなら何もしない。失敗は rebuildMaxFailures 回まで続け、
+    // 10 秒に 5 回に達したら諦める(rebuildDecision。作り直しに成功しても構成の変化が飛び続ける嵐の歯止め)。諦めたら JS へ failed を知らせる。
+    private func scheduleRebuild() {
+        guard micOn || metroOn, !rebuildScheduled else { return }
+        rebuildScheduled = true
+        let delay = FicusAudioSessionPlugin.rebuildDelay(sinceLast: CFAbsoluteTimeGetCurrent() - lastRebuildAt)
+        audioQueue.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self = self else { return }
+            self.rebuildScheduled = false
+            guard self.micOn || self.metroOn else { return }
+            if let engine = self.engine, engine.isRunning { return }
+            let nowTime = CFAbsoluteTimeGetCurrent()
+            let decision = FicusAudioSessionPlugin.rebuildDecision(self.rebuildTimes, now: nowTime)
+            self.rebuildTimes = decision.keep
+            if decision.giveUp {
+                self.lastError = "rebuild: loop"
+                self.giveUp("loop")
+                return
+            }
+            self.rebuildTimes.append(nowTime)
+            self.lastRebuildAt = nowTime
+            self.teardownEngine()
+            if let err = self.startEngine() {
+                self.rebuildFailures += 1
+                self.lastError = "rebuild: \(err)"
+                if self.rebuildFailures < FicusAudioSessionPlugin.rebuildMaxFailures {
+                    self.scheduleRebuild()
+                } else {
+                    self.giveUp(err)
+                }
+            } else {
+                self.rebuildFailures = 0
+                self.rebuilds += 1
+                self.notifyState("running", "rebuilt")
+            }
+        }
+    }
+
+    // 作り直しを諦める: JS へ failed を知らせ(マイクは既存の復旧の入口で取り直す・メトロノームは止める)、エンジンを捨てる。
+    // JS が micStart / metroStart を呼べば、回数は数え直して始め直す。
+    private func giveUp(_ reason: String) {
+        let mic = micOn
+        let metro = metroOn
+        let id = getMicId()
+        let run = metroRun
+        micOn = false
+        metroOn = false
+        setMicId("")
+        teardownEngine()
+        emit("audioState", ["state": "failed", "reason": reason, "mic": mic, "metro": metro, "id": id, "run": run])
+    }
+
+    private func notifyState(_ state: String, _ reason: String) {
+        emit("audioState", ["state": state, "reason": reason, "mic": micOn, "metro": metroOn, "id": getMicId(), "run": metroRun])
+    }
+
+    // 裏へ行った: クリックも取り込みも止める(戻っても勝手に鳴らさない。JS は戻ったときに既存の道でマイクを取り直す)。
+    @objc func handleDidEnterBackground(_ notification: Notification) {
+        audioQueue.async {
+            self.micOn = false
+            self.metroOn = false
+            self.setMicId("")
+            self.metroPending.removeAll()
+            self.teardownEngine()
+        }
+    }
+
+    // 経路の変化(イヤホンの抜き差し・Bluetooth の接続と切断)。殻の音が動いている間(micOn / metroOn)だけ、同じ規則を当て直す。
+    // 【便CX】WebKit はもう音のセッションを立て直さないので、ここは「殻のセッションが別の何かに替えられていたら戻す」念のための当て直しと、入力・出口の規則。
     @objc func handleRouteChange(_ notification: Notification) {
-        DispatchQueue.main.async {
+        audioQueue.async {
             let session = AVAudioSession.sharedInstance()
-            guard session.category == .playAndRecord else { self.clearInputRuleTriedRoutes(); return }
+            guard self.micOn || self.metroOn, session.category == .playAndRecord else {
+                self.clearInputRuleTriedRoutes()
+                return
+            }
             do {
                 if self.needsSessionReset(session) {
-                    try session.setCategory(.playAndRecord, mode: self.desiredMode(), options: FicusAudioSessionPlugin.sessionOptions)
+                    try session.setCategory(.playAndRecord, mode: FicusAudioSessionPlugin.sessionMode, options: FicusAudioSessionPlugin.sessionOptions)
                 }
                 self.applyInputRule(session)
                 try self.applyOutputRule(session)
@@ -249,28 +1160,16 @@ public class FicusAudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
-    // 【便CQ】立て直すかの判断。種別・選択肢に加えてモードも見る ── **念のための条件**(いまの判定は1件も変えない)。
-    // WebKit が取り込み中に立て直すときの選択肢は AllowBluetooth|A2DP|AirPlay(|DefaultToSpeaker)で、ここの sessionOptions とは
-    // 一致しないので、WebKit が videoChat に立て直した場合は選択肢の違いだけで既に真になる(便CQ の審査の指摘)。
-    // モードの条件が効くのは「選択肢は同じでモードだけ違う」場合だけで、いまそれを起こす経路は知られていない。
-    // マイクが入っているとメトロノームが小さい原因は**仮説**(WebKit が videoChat = 通話の音量にする。WebKit bug 271305)で、
-    // 旧来の処理(選択肢が違えば .default へ戻す)で直らなかった理由は未解明。WebKit は routeSharingPolicy も比べるので、
-    // こちらが setCategory すると WebKit がまた立て直しうる。切り分けは診断の板(sessionInfo)で実機の値を見て行う。
-    // モードは .default(殻の仕様 §4.4。setCategory の2か所と同じ値)。
-    // 【便CT】モードの比べる先は desiredMode()(診断の板の試し口で選んだモード。選んでいなければ .default = 今までどおり)。
+    // 立て直すかの判断。種別・モード(.default)・選択肢の3つ。configureSession(エンジンを始める前)と経路の変化の両方が使う。
     func needsSessionReset(_ session: AVAudioSession) -> Bool {
         return session.category != .playAndRecord
-            || session.mode != desiredMode()
+            || session.mode != FicusAudioSessionPlugin.sessionMode
             || session.categoryOptions != FicusAudioSessionPlugin.sessionOptions
     }
 
-    // 【便CS】入力の規則: 入力はいつも本体のマイク(builtInMic)。Bluetooth のイヤホン(HFP)・有線のヘッドセットのマイクは使わない
-    // (計測の質のため。本人の実機の板で in = BluetoothHFP のとき out も BluetoothHFP・outputVolume 0.15 = 通話の経路に引きずられていた)。
-    // WebKit はマイクを取るとき setCategory に AllowBluetooth(HFP)を付け、既定の機器で取ると setPreferredInput(nil) にする
-    // (AVAudioSessionCaptureDeviceManager.mm / CoreAudioCaptureUnit.cpp の captureDeviceChanged)ので、イヤホンのマイクが入力になりうる。
-    // ここで本体のマイクを優先の入力にする。入力が本体のマイクなら、出力は A2DP(イヤホン)かスピーカーへ行く見込み(実機待ち)。
-    // 呼ぶのは routeToSpeaker と経路の変化。入力も優先も本体のマイクなら何もしない。同じ経路では1回しか呼ばない(上の inputRuleTriedRoutes)。
-    // 本体のマイクが一覧に無い(取り込み中でない等)ときも何もしない。失敗は記録だけ(出口の規則は続けて当てる)。
+    // 【便CS】入力の規則: 入力はいつも本体のマイク(builtInMic)。Bluetooth のイヤホン(HFP)・有線のヘッドセットのマイクは使わない(計測の質のため)。
+    // 呼ぶのは configureSession と経路の変化。入力も優先も本体のマイクなら何もしない。同じ経路では1回しか呼ばない(上の inputRuleTriedRoutes)。
+    // 本体のマイクが一覧に無いときも何もしない。失敗は記録だけ(出口の規則は続けて当てる)。
     func applyInputRule(_ session: AVAudioSession) {
         guard let builtIn = (session.availableInputs ?? []).first(where: { $0.portType == .builtInMic }) else { return }
         let inputIsBuiltIn = session.currentRoute.inputs.first?.portType == .builtInMic
@@ -313,8 +1212,7 @@ public class FicusAudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
     // 出口の規則: 受話口に出ているときだけ、本体のスピーカーへ寄せる。
     // イヤホン(有線・Bluetooth)やスピーカーに出ているときは何もしない ── .speaker の上書きは
     // 「つながっているイヤホンより本体のスピーカーを優先する」ので、イヤホンがあるときに呼んではいけない。
-    // 上書きは経路が変わると OS が外す(イヤホンを挿せばイヤホンへ)。外したあとは defaultToSpeaker でスピーカーへ戻る。
-    // スピーカーへ寄せた後は出口が builtInSpeaker になるので、この関数は2度目に何もしない(通知との往復が起きない)。
+    // defaultToSpeaker があるので普段は受話口に出ない(念のための規則)。
     func applyOutputRule(_ session: AVAudioSession) throws {
         let outputs = session.currentRoute.outputs.map { $0.portType }
         if outputs.contains(.builtInReceiver) {
@@ -322,455 +1220,9 @@ public class FicusAudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
-    // ============================================================
-    // 【便CU 2026-10-17】診断の板の試し口「鳴らし方」(nativeClick / nativeBoth)。本番では誰も呼ばない(板で選んだときだけ・保存しない)。
-    // 本人の実機: 便CT の試し口(このプロセスのセッションのモード 5種・マスターの倍率 ×1/1.3/1.6)では、聞こえる音量が変わらなかった。
-    // 仮説: Web Audio の音とマイクの取り込みは WebKit の GPU プロセス側の音のセッションで動き、取り込み中 WebKit はそれを playAndRecord + videoChat
-    // (通話)に立て直す。このプロセスのセッションを替えても聞こえる音に効かないのはそのため。そこでメトロノームのクリックを**このプロセスの
-    // AVAudioEngine** で鳴らし(nativeClick)、さらに Web の取り込みを止めて**このプロセスで**マイクを取る(nativeBoth)と大きくなるかを見る。
-    //   クリックの音: JS が OfflineAudioContext で描いた今の Web のクリック(3段・モノラルの Float32・base64)を nativeClickLoad で1回受け取る。
-    //   鳴らし方: AVAudioPlayerNode に sample time で予約する。予約の値は Web の metroSchedulerTick と同じ(25ms ごとに 0.12 秒先まで・
-    //            始めは今から 0.12 秒後・1回の予約は 512 個まで)。1小節ぶんの並び(stepSec ごとの kinds)は JS が渡し、設定が変わったら渡し直す。
-    //   取り込み: inputNode のハードウェアの形式(inputFormat(forBus: 0))でタップを付け、入力のレベル(RMS の dBFS)だけを控える(標本は捨てる)。
-    //   セッション: 種別・モード・選択肢は今のまま(ここでは種別を替えない)。エンジンを始める前に setActive(true)(失敗は記録だけ)。
-    //            止めるときも非活性にはしない(WebKit の音まで止めうるため)。
-    //   止める: nativeClickStop / nativeInputStop(両方止まればエンジンを捨てる)・裏へ行く(didEnterBackground)。
-    //   【便CV 2026-10-18】構成の変化(AVAudioEngineConfigurationChange)と中断の終わり(interruptionNotification の ended)では、エンジンを捨てて、
-    //          clickOn / inputOn が真なら**作り直して鳴らし直す**(便CU は捨てるだけで始め直さなかったので、WebKit が音のセッションを立て直すたびに
-    //          殻の音が消え、Web のマスターは 0 のままで無音になった恐れがある)。作り直しは 1 秒に 1 回まで・失敗は 5 回まで・10 秒に 10 回まで(超えたら諦めて err=rebuild: loop。板の同じボタンで始め直す)(経路が落ち着くまで 0.2 秒待つ)。
-    //          nativeBoth のときは入力のタップも付け直す(エンジンを作るたびに ensureTestEngine が付ける)。回数は configChanges に残す。
-    // エンジンの操作はすべて testQueue(直列)の上で行う。タップの中(音のスレッド)は入力のレベルを鍵の中で書くだけ。
-    // ============================================================
-    private let testQueue = DispatchQueue(label: "FicusAudioSession.testEngine")
-    private var testEngine: AVAudioEngine? = nil
-    private var testPlayer: AVAudioPlayerNode? = nil
-    private var testTapInstalled = false
-    private var clickFormat: AVAudioFormat? = nil
-    private var clickBuffers: [String: AVAudioPCMBuffer] = [:]
-    private var clickKinds: [String] = []
-    private var clickStepSec: Double = 0
-    private var clickOn = false
-    private var clickIndex = 0
-    private var clickNextSample: Double = -1
-    private var clickTimer: DispatchSourceTimer? = nil
-    private var inputOn = false
-    private var testLastError = ""
-    private var testConfigChanges = 0
-    // 【便CV】作り直しの状態と、板に出す数(sched = 予約した累計個数・tick = 直近の clickTick が早く返った理由・rebuilds = 作り直しに成功した回数)
-    private var rebuildScheduled = false
-    private var lastRebuildAt: CFAbsoluteTime = 0
-    private var rebuildFailures = 0
-    // 作り直しが成功しても構成の変化が飛び続ける場合の歯止め: 作り直しの時刻(rebuildWindowSec 以内のもの)が rebuildMaxInWindow 個に達したら諦める(err=rebuild: loop)。
-    // 板の同じボタン(nativeClickStart / nativeInputStart)で始め直すと空になる。
-    private var rebuildTimes: [CFAbsoluteTime] = []
-    // 再生し終わったクリックの累計(板の played)。ほかの数と同じく testQueue の上だけで書く。testEpoch は、止めた・作り直したとき(teardown・開始のやり直し)に進め、
-    // それより前に予約したバッファの完了(止めたときにも呼ばれうる)を数えないための世代。
-    private var testPlayed = 0
-    private var testEpoch = 0
-    private var testRebuilds = 0
-    private var testScheduled = 0
-    private var lastTickReason = "idle"
-    private var noRenderTicks = 0
-    // 【便CU 審査】このプロセスで setActive(true) かエンジンの start を一度でも成功させたか(以後ずっと true。非活性には戻さないので、
-    // 一度この試しを使うと、起動し直すまでこのプロセスのセッションは活性のまま = web の聞こえ方が試しの前と同じとは限らない)。板の act= に出す
-    private var testActivated = false
-    private var inputLevelDb: Double? = nil
-    private let inputLevelLock = NSLock()
-    // Web の metroSchedulerTick と同じ値(LOOKAHEAD 0.12 秒・setInterval 25ms・始めは currentTime + 0.12・guard 512)
-    static let clickLookaheadSec: Double = 0.12
-    static let clickTimerMs: Int = 25
-    static let clickMaxPerTick: Int = 512
-    // 【便CV】作り直し: 連続は 1 秒に 1 回まで(暴走防止)・通知から 0.2 秒は経路が落ち着くのを待つ・失敗は 5 回まで
-    static let rebuildMinIntervalSec: Double = 1.0
-    static let rebuildSettleSec: Double = 0.2
-    static let rebuildMaxFailures: Int = 5
-    // 【便CV 審査】作り直しの歯止め: 10 秒に 10 回まで
-    static let rebuildWindowSec: Double = 10.0
-    static let rebuildMaxInWindow: Int = 10
-    // 【便CV】プレーヤーの時計が有効にならないまま続いたら(25ms × 8 = 0.2 秒)、無音の短いバッファを1つ予約して時計を動かす(板の tick に noRender+primed と出る)
-    static let primeAfterTicks: Int = 8
-    static let primeFrames: AVAudioFrameCount = 512
-    // タップの大きさ(フレーム。iOS は目安として扱う)。入力のレベルを見るだけなので小さくなくてよい
-    static let inputTapFrames: AVAudioFrameCount = 4096
-
-    // { sampleRate, accent, beat, sub }(3つは Float32 の標本の base64)。形式(標本化周波数)が替わったらエンジンを作り直す。
-    @objc func nativeClickLoad(_ call: CAPPluginCall) {
-        guard let rate = FicusAudioSessionPlugin.numberArg(call, "sampleRate"), rate > 0,
-              let format = AVAudioFormat(standardFormatWithSampleRate: rate, channels: 1) else {
-            call.reject("bad sampleRate")
-            return
-        }
-        var buffers: [String: AVAudioPCMBuffer] = [:]
-        for kind in ["accent", "beat", "sub"] {
-            guard let b64 = call.getString(kind),
-                  let buffer = FicusAudioSessionPlugin.pcmBuffer(base64: b64, format: format) else {
-                call.reject("bad buffer: \(kind)")
-                return
-            }
-            buffers[kind] = buffer
-        }
-        let loaded = buffers
-        testQueue.async {
-            // 今のエンジンのプレーヤーは前の形式(無ければ既定の形式)でつないである。形式が違うバッファを予約すると落ちるので、作り直す
-            let formatChanged = self.clickFormat?.sampleRate != format.sampleRate
-            self.clickFormat = format
-            self.clickBuffers = loaded
-            if formatChanged && self.testEngine != nil {
-                self.teardownTestEngine()
-                if self.clickOn || self.inputOn { self.startTestEngineAndClick() }
-            }
-            call.resolve(["frames": loaded.mapValues { Int($0.frameLength) }])
-        }
-    }
-
-    // { stepSec, kinds }(1小節ぶんの並び)で鳴らし始める。もう鳴っていれば頭から始め直す。
-    @objc func nativeClickStart(_ call: CAPPluginCall) {
-        let kinds = (call.getArray("kinds") ?? []).compactMap { $0 as? String }
-        guard let step = FicusAudioSessionPlugin.numberArg(call, "stepSec"), step > 0, !kinds.isEmpty else {
-            call.reject("bad pattern")
-            return
-        }
-        testQueue.async {
-            guard self.clickFormat != nil, !self.clickBuffers.isEmpty else {
-                call.reject("not loaded")
-                return
-            }
-            self.clickKinds = kinds
-            self.clickStepSec = step
-            self.clickOn = true
-            self.rebuildFailures = 0
-            self.rebuildTimes.removeAll()
-            if let err = self.startTestEngineAndClick() {
-                call.reject(err)
-                return
-            }
-            call.resolve(["running": self.testEngine?.isRunning ?? false])
-        }
-    }
-
-    @objc func nativeClickStop(_ call: CAPPluginCall) {
-        testQueue.async {
-            self.clickOn = false
-            self.clickTimer?.cancel()
-            self.clickTimer = nil
-            self.testPlayer?.stop()
-            if !self.inputOn { self.teardownTestEngine() }
-            call.resolve()
-        }
-    }
-
-    // 取り込み中(playAndRecord)のときだけ受ける(ここでは種別を替えない)。入力を足すのでエンジンを作り直す(鳴らしていれば始め直す)。
-    @objc func nativeInputStart(_ call: CAPPluginCall) {
-        guard AVAudioSession.sharedInstance().category == .playAndRecord else {
-            call.reject("not playAndRecord")
-            return
-        }
-        testQueue.async {
-            self.inputOn = true
-            self.rebuildFailures = 0
-            self.rebuildTimes.removeAll()
-            self.teardownTestEngine()
-            if let err = self.startTestEngineAndClick() {
-                self.inputOn = false
-                if self.clickOn { self.startTestEngineAndClick() }
-                call.reject(err)
-                return
-            }
-            call.resolve(["running": self.testEngine?.isRunning ?? false])
-        }
-    }
-
-    // 入力を外す(エンジンを捨てる。鳴らしていれば入力なしで始め直す)。
-    // 【便CU 審査】web へ戻すとき JS は nativeClickStop を先に呼ぶので、ここへ来たときは clickOn = false = 鳴らし直さない(Web と二重に鳴らさない)。
-    // 鳴らし直すのは nativeBoth → nativeClick のときだけ。
-    @objc func nativeInputStop(_ call: CAPPluginCall) {
-        testQueue.async {
-            self.inputOn = false
-            self.teardownTestEngine()
-            self.inputLevelLock.lock()
-            self.inputLevelDb = nil
-            self.inputLevelLock.unlock()
-            if self.clickOn { self.startTestEngineAndClick() }
-            call.resolve()
-        }
-    }
-
-    // 板が1秒ごとに読む(読むだけ)。inputDb は取り込みのタップが1回でも来ていれば。
-    @objc func nativeAudioInfo(_ call: CAPPluginCall) {
-        testQueue.async {
-            var info: [String: Any] = [
-                "engineRunning": self.testEngine?.isRunning ?? false,
-                "clickOn": self.clickOn,
-                "inputOn": self.inputOn,
-                "lastError": self.testLastError,
-                "configChanges": self.testConfigChanges,
-                "activated": self.testActivated,
-                "rebuilds": self.testRebuilds,
-                "scheduled": self.testScheduled,
-                "played": self.testPlayed,
-                "playing": self.testPlayer?.isPlaying ?? false,
-                "lastRender": self.testPlayer?.lastRenderTime?.isSampleTimeValid ?? false,
-                "tick": self.lastTickReason
-            ]
-            self.inputLevelLock.lock()
-            let db = self.inputLevelDb
-            self.inputLevelLock.unlock()
-            if let db = db { info["inputDb"] = db }
-            call.resolve(info)
-        }
-    }
-
-    // エンジンを用意して(無ければ作る)、鳴らしていればクリックの予約を頭から始め直す。失敗は testLastError に控え、エンジンを捨てて返す。testQueue の上で呼ぶ。
-    @discardableResult
-    private func startTestEngineAndClick() -> String? {
-        if let err = ensureTestEngine() {
-            testLastError = err
-            teardownTestEngine()
-            return err
-        }
-        clickTimer?.cancel()
-        clickTimer = nil
-        testEpoch += 1
-        testPlayer?.stop()
-        clickIndex = 0
-        clickNextSample = -1
-        noRenderTicks = 0
-        lastTickReason = "idle"
-        guard clickOn, let player = testPlayer else { return nil }
-        // 【便CU 審査】動いていないエンジンのプレーヤーに play を呼ぶと例外で落ちる
-        guard let engine = testEngine, engine.isRunning else {
-            testLastError = "engine not running"
-            return "engine not running"
-        }
-        player.play()
-        let timer = DispatchSource.makeTimerSource(queue: testQueue)
-        timer.schedule(deadline: .now(), repeating: .milliseconds(FicusAudioSessionPlugin.clickTimerMs))
-        timer.setEventHandler { [weak self] in self?.clickTick() }
-        clickTimer = timer
-        timer.resume()
-        return nil
-    }
-
-    // エンジン(プレーヤー → mainMixer。nativeBoth のときは入力のタップも)を作って始める。失敗の文を返す。testQueue の上で呼ぶ。
-    private func ensureTestEngine() -> String? {
-        if let engine = testEngine {
-            if engine.isRunning { return nil }
-            do {
-                try engine.start()
-                testActivated = true
-                return nil
-            } catch {
-                return "start: \(error.localizedDescription)"
-            }
-        }
-        do {
-            try AVAudioSession.sharedInstance().setActive(true)
-            testActivated = true
-        } catch {
-            testLastError = "setActive: \(error.localizedDescription)"
-        }
-        let engine = AVAudioEngine()
-        let player = AVAudioPlayerNode()
-        engine.attach(player)
-        engine.connect(player, to: engine.mainMixerNode, format: clickFormat)
-        testEngine = engine
-        testPlayer = player
-        if inputOn {
-            let input = engine.inputNode
-            let format = input.inputFormat(forBus: 0) // ハードウェアの形式(別の形式を渡すとタップが落ちる)
-            guard format.sampleRate > 0, format.channelCount > 0 else { return "no input format" }
-            input.removeTap(onBus: 0)
-            input.installTap(onBus: 0, bufferSize: FicusAudioSessionPlugin.inputTapFrames, format: format) { [weak self] buffer, _ in
-                self?.noteInputLevel(buffer)
-            }
-            testTapInstalled = true
-        }
-        NotificationCenter.default.addObserver(self,
-                                               selector: #selector(handleTestEngineConfigChange(_:)),
-                                               name: .AVAudioEngineConfigurationChange,
-                                               object: engine)
-        engine.prepare()
-        do {
-            try engine.start()
-            testActivated = true
-        } catch {
-            return "start: \(error.localizedDescription)"
-        }
-        return nil
-    }
-
-    // 25ms ごと(testQueue)。プレーヤーの時計(sample time)で 0.12 秒先までのクリックを予約する。過ぎてしまっていたら今から 0.12 秒後へ置き直す。
-    // 【便CV】早く返った理由は lastTickReason に残す(板の tick): idle / noEngine / notRunning / noPlayer / replay / noRender / noPlayerTime / badRate / ok。
-    private func clickTick() {
-        guard clickOn, !clickKinds.isEmpty, clickStepSec > 0 else { lastTickReason = "idle"; return }
-        guard let engine = testEngine else { lastTickReason = "noEngine"; return }
-        guard engine.isRunning else { lastTickReason = "notRunning"; return }
-        guard let player = testPlayer else { lastTickReason = "noPlayer"; return }
-        if !player.isPlaying {
-            // エンジンは動いているのにプレーヤーが止まっている(中断のあと等)。再開して、予約は今から 0.12 秒後へ置き直す
-            player.play()
-            clickNextSample = -1
-            noRenderTicks = 0
-            lastTickReason = "replay"
-            return
-        }
-        guard let nodeTime = player.lastRenderTime, nodeTime.isSampleTimeValid else { noteNoRender("noRender"); return }
-        guard let playerTime = player.playerTime(forNodeTime: nodeTime), playerTime.isSampleTimeValid else { noteNoRender("noPlayerTime"); return }
-        guard playerTime.sampleRate > 0 else { lastTickReason = "badRate"; return }
-        noRenderTicks = 0
-        let rate = playerTime.sampleRate
-        let now = Double(playerTime.sampleTime)
-        let ahead = FicusAudioSessionPlugin.clickLookaheadSec * rate
-        if clickNextSample < now { clickNextSample = now + ahead }
-        var count = 0
-        while clickNextSample < now + ahead && count < FicusAudioSessionPlugin.clickMaxPerTick {
-            count += 1
-            let kind = clickKinds[clickIndex % clickKinds.count]
-            if let buffer = clickBuffers[kind] {
-                let epoch = testEpoch
-                player.scheduleBuffer(buffer,
-                                      at: AVAudioTime(sampleTime: AVAudioFramePosition(clickNextSample), atRate: rate),
-                                      options: [],
-                                      completionCallbackType: .dataPlayedBack) { [weak self] _ in
-                    self?.noteClickPlayed(epoch)
-                }
-                testScheduled += 1
-            }
-            clickIndex = (clickIndex + 1) % clickKinds.count
-            clickNextSample += clickStepSec * rate
-        }
-        lastTickReason = "ok"
-    }
-
-    // 【便CV 審査】再生し終わったクリックを数える(完了の通知は音のスレッドから来るので testQueue へ回す)。止めた・作り直した後の通知(epoch が古い)は数えない。
-    private func noteClickPlayed(_ epoch: Int) {
-        testQueue.async { [weak self] in
-            guard let self = self, epoch == self.testEpoch else { return }
-            self.testPlayed += 1
-        }
-    }
-
-    // 【便CV】プレーヤーの時計が有効でない tick。続いたら(primeAfterTicks)、無音の短いバッファを1つ at: nil で予約して時計を動かす(1回だけ。音は出ない)。
-    private func noteNoRender(_ reason: String) {
-        lastTickReason = reason
-        noRenderTicks += 1
-        if noRenderTicks == FicusAudioSessionPlugin.primeAfterTicks, let player = testPlayer, let buffer = silentPrimeBuffer() {
-            player.scheduleBuffer(buffer, at: nil, options: [], completionHandler: nil)
-            lastTickReason = reason + "+primed"
-        }
-    }
-
-    // 無音(0)のバッファ。AVAudioPCMBuffer の中身は 0 とは限らないので、明示的に 0 にする。
-    private func silentPrimeBuffer() -> AVAudioPCMBuffer? {
-        let frames = FicusAudioSessionPlugin.primeFrames
-        guard let format = clickFormat,
-              let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames),
-              let dst = buffer.floatChannelData?[0] else { return nil }
-        memset(dst, 0, Int(frames) * MemoryLayout<Float>.size)
-        buffer.frameLength = frames
-        return buffer
-    }
-
-    // 予約の時計・プレーヤー・タップ・エンジンを片付ける(clickOn / inputOn はそのまま)。testQueue の上で呼ぶ。
-    private func teardownTestEngine() {
-        clickTimer?.cancel()
-        clickTimer = nil
-        clickNextSample = -1
-        testEpoch += 1
-        if let engine = testEngine {
-            NotificationCenter.default.removeObserver(self, name: .AVAudioEngineConfigurationChange, object: engine)
-            testPlayer?.stop()
-            if testTapInstalled { engine.inputNode.removeTap(onBus: 0) }
-            engine.stop()
-        }
-        testTapInstalled = false
-        testEngine = nil
-        testPlayer = nil
-    }
-
-    // 入力のレベル(RMS の dBFS)。タップのスレッドで呼ばれる。
-    private func noteInputLevel(_ buffer: AVAudioPCMBuffer) {
-        guard let samples = buffer.floatChannelData?[0] else { return }
-        let n = Int(buffer.frameLength)
-        guard n > 0 else { return }
-        var sum: Float = 0
-        for i in 0..<n { sum += samples[i] * samples[i] }
-        let db = 20 * log10(Double(sqrt(sum / Float(n))) + 1e-10)
-        inputLevelLock.lock()
-        inputLevelDb = db
-        inputLevelLock.unlock()
-    }
-
-    // エンジンの構成が変わった(経路の変化・WebKit が音のセッションを立て直した等)。エンジンは止まっているので捨て、回数と理由を控える。
-    // 【便CV】clickOn / inputOn が真なら、経路が落ち着くのを待って作り直し、鳴らし直す(scheduleTestRebuild。1 秒に 1 回まで)。
-    @objc func handleTestEngineConfigChange(_ notification: Notification) {
-        testQueue.async {
-            guard let engine = notification.object as? AVAudioEngine, engine === self.testEngine else { return }
-            self.testConfigChanges += 1
-            self.testLastError = "configurationChange"
-            self.teardownTestEngine()
-            self.scheduleTestRebuild()
-        }
-    }
-
-    // 【便CV】中断(電話・Siri など)。始まったときは控えるだけ、終わったとき(.ended)は、動いていたものがあれば捨てて作り直す。
-    @objc func handleTestInterruption(_ notification: Notification) {
-        guard let raw = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
-              let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
-        testQueue.async {
-            if type == .began {
-                self.testLastError = "interruption began"
-                return
-            }
-            guard self.clickOn || self.inputOn else { return }
-            self.testConfigChanges += 1
-            self.testLastError = "interruption ended"
-            self.rebuildFailures = 0 // 前の失敗の数を引き継がない(中断が終わったので、また 5 回まで試す)
-            self.teardownTestEngine()
-            self.scheduleTestRebuild()
-        }
-    }
-
-    // 【便CV】作り直しの予約(testQueue の上で呼ぶ)。1 つだけ持つ・遅れは max(0.2 秒, 1 秒 − 前の作り直しからの経過)= 連続は 1 秒に 1 回まで。
-    // 時が来たとき、止められていた(clickOn も inputOn も偽)・もう動いているエンジンがあるなら何もしない。失敗は rebuildMaxFailures 回まで続ける。
-    private func scheduleTestRebuild() {
-        guard clickOn || inputOn, !rebuildScheduled else { return }
-        rebuildScheduled = true
-        let since = CFAbsoluteTimeGetCurrent() - lastRebuildAt
-        let delay = max(FicusAudioSessionPlugin.rebuildSettleSec, FicusAudioSessionPlugin.rebuildMinIntervalSec - since)
-        testQueue.asyncAfter(deadline: .now() + delay) { [weak self] in
-            guard let self = self else { return }
-            self.rebuildScheduled = false
-            guard self.clickOn || self.inputOn else { return }
-            if let engine = self.testEngine, engine.isRunning { return }
-            let nowTime = CFAbsoluteTimeGetCurrent()
-            self.rebuildTimes = self.rebuildTimes.filter { nowTime - $0 < FicusAudioSessionPlugin.rebuildWindowSec }
-            if self.rebuildTimes.count >= FicusAudioSessionPlugin.rebuildMaxInWindow {
-                // 作り直しても構成の変化が飛び続けている。諦めて理由を残す(板の同じボタンで始め直す)
-                self.testLastError = "rebuild: loop"
-                return
-            }
-            self.rebuildTimes.append(nowTime)
-            self.lastRebuildAt = nowTime
-            self.teardownTestEngine()
-            if let err = self.startTestEngineAndClick() {
-                self.rebuildFailures += 1
-                self.testLastError = "rebuild: \(err)"
-                if self.rebuildFailures < FicusAudioSessionPlugin.rebuildMaxFailures { self.scheduleTestRebuild() }
-            } else {
-                self.rebuildFailures = 0
-                self.testRebuilds += 1
-            }
-        }
-    }
-
-    // 裏へ行った: クリックも取り込みも止める(戻っても勝手に鳴らさない)。
-    @objc func handleTestEngineBackground(_ notification: Notification) {
-        testQueue.async {
-            self.clickOn = false
-            self.inputOn = false
-            self.teardownTestEngine()
-        }
+    // 今の host time(秒)。マイクの塊の host・クリックの h と同じ時計(mach の時計)。
+    static func nowHostSec() -> Double {
+        return AVAudioTime.seconds(forHostTime: mach_absolute_time())
     }
 
     // 【便CV】JS の数値(48000 のような整数も 0.5 のような小数も)を Double で読む。getDouble が整数を拾わない場合に getInt へ落ちる。

@@ -30,30 +30,37 @@ describe("METRO_MASTER_GAIN_SHELL ── 殻のメトロノームのマスター
   });
 });
 
-// shellRouteToSpeaker: Web では動的 import もしない。殻では FicusAudioSession.routeToSpeaker を1回呼ぶ。
-const reg = vi.hoisted(() => ({ names: [], calls: 0, factory: 0 }));
+// 【便CX 2026-10-19】殻の計測の音の呼び口 shellNativeAudio(src/shell/audio.js)。Web では null(動的 import もしない)。
+// 殻では FicusAudioSession のメソッドをそのまま呼び、on(event, fn) は「受けるのをやめる関数」を返す。
+// (出口を寄せる shellRouteToSpeaker は消した: 殻はもう WebKit で取り込まず、殻のセッションは殻がエンジンを始める前に用意する)
+const reg = vi.hoisted(() => ({ names: [], calls: [], factory: 0, removed: 0 }));
 vi.mock("@capacitor/core", () => {
   reg.factory++;
-  return { registerPlugin: (name) => { reg.names.push(name); return { routeToSpeaker: async () => { reg.calls++; return {}; } }; } };
+  return { registerPlugin: (name) => { reg.names.push(name); return {
+    micStart: async (o) => { reg.calls.push(["micStart", o]); return { sampleRate: 48000 }; },
+    addListener: async (ev) => { reg.calls.push(["addListener", ev]); return { remove: async () => { reg.removed++; } }; },
+  }; } };
 });
 afterEach(() => { delete window.Capacitor; });
 const settle = async () => { for (let i = 0; i < 10; i++) await new Promise((r) => setTimeout(r, 0)); };
 
-describe("shellRouteToSpeaker ── 音の出口の呼び口", () => {
-  it("Web(window.Capacitor 無し)では何もしない(@capacitor/core を読みもしない)", async () => {
-    const { shellRouteToSpeaker } = await import("./audio.js");
-    expect(shellRouteToSpeaker()).toBe(undefined);
+describe("shellNativeAudio ── 殻の計測の音の呼び口", () => {
+  it("Web(window.Capacitor 無し)では null・@capacitor/core を読みもしない", async () => {
+    const audio = await import("./audio.js");
+    expect(audio.shellNativeAudio()).toBe(null);
+    expect("shellRouteToSpeaker" in audio).toBe(false);
     await new Promise((r) => setTimeout(r, 200));   // 読まれるなら届くだけの時間を置いてから、読まれていないことを見る
     await settle();
-    expect([reg.factory, reg.calls, reg.names]).toEqual([0, 0, []]);
+    expect([reg.factory, reg.calls, reg.names]).toEqual([0, [], []]);
   });
-  it("殻では FicusAudioSession を登録して routeToSpeaker を呼ぶ(待たない)", async () => {
+  it("殻では FicusAudioSession を登録してメソッドを呼ぶ・on は受けるのをやめる関数を返す", async () => {
     window.Capacitor = { isNativePlatform: () => true, getPlatform: () => "ios" };
-    const { shellRouteToSpeaker } = await import("./audio.js");
-    expect(shellRouteToSpeaker()).toBe(undefined);
-    // 動的 import は負荷によって数十 ms かかる(並列で回すと 0 秒のタイマー10回では足りないことがあった)。届くまで待つ
-    for (let i = 0; i < 200 && reg.calls === 0; i++) await new Promise((r) => setTimeout(r, 10));
+    const { shellNativeAudio } = await import("./audio.js");
+    const api = shellNativeAudio();
+    expect(await api.micStart({ id: "m1" })).toEqual({ sampleRate: 48000 });
+    const off = await api.on("micData", () => {});
+    off();
     await settle();
-    expect([reg.factory, reg.calls, reg.names]).toEqual([1, 1, ["FicusAudioSession"]]);
+    expect([reg.factory, reg.names, reg.calls, reg.removed]).toEqual([1, ["FicusAudioSession"], [["micStart", { id: "m1" }], ["addListener", "micData"]], 1]);
   });
 });

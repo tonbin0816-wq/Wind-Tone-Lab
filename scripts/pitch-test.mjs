@@ -22511,7 +22511,8 @@ console.log("\n========== 検証43: D-25 クリック音は木の1種 / タッ�
   // 「規則が1箇所にある」ことではない。
   {
     const code45 = codeOf(src);
-    const sm = /const startMetronome = useCallback\(\(\) => \{([\s\S]*?)\n  \}, \[metroSchedulerTickTimed, metroActiveRef, requestWakeLock\]\);/.exec(code45);
+    // 【便CX】依存に殻のメトロノームの口(ensureNativeMetro など)が加わった。殻の枝は先頭で戻るので、下の条件は Web の枝のもの
+    const sm = /const startMetronome = useCallback\(\(\) => \{([\s\S]*?)\n  \}, \[metroSchedulerTickTimed, metroActiveRef, requestWakeLock, ensureNativeMetro, nativeMetroSettingsNow, nativeMetroPattern, nativeMetroRemember\]\);/.exec(code45);
     const startBody = sm ? sm[1] : "";
     check("43.5 startMetronome の本体が読める", startBody.length > 0);
     const rm = /const clockStalled = ([\s\S]*?);\n\s*if \((![\s\S]*?)\) \{/.exec(startBody);
@@ -32598,55 +32599,36 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     // HFP(.allowBluetoothHFP / 旧名 .allowBluetooth)はマイクが替わるので付けない。S1 の「allowBluetooth の綴りが無い」はこの裁定で置き換えた。
     // 注記(// の行)は剥がしてから見る(注記は HFP を付けない理由として綴りを書いている)。
     const swiftCode = swift.split("\n").map((l) => l.replace(/\/\/.*$/, "")).join("\n");
-    check("K.6 AppDelegate.swift: 音の出口は playAndRecord + [.defaultToSpeaker, .allowBluetoothA2DP](選択肢は1か所)・HFP(.allowBluetooth / .allowBluetoothHFP)の綴りがコードに無い",
+    // 【便CX 2026-10-19】殻が自分でセッションを用意する(エンジンを始める前の configureSession)。setCategory は configureSession と経路の変化の2か所だけで、
+    // どちらも種別 playAndRecord・モード sessionMode(.default)・選択肢 sessionOptions。試し口のモード(desiredMode・setTestMode)は消した。
+    check("K.6 AppDelegate.swift: 音の出口は playAndRecord + [.defaultToSpeaker, .allowBluetoothA2DP](選択肢は1か所)・モードは .default(1か所)・setCategory は2か所・HFP(.allowBluetooth / .allowBluetoothHFP)の綴りがコードに無い",
       /static let sessionOptions: AVAudioSession\.CategoryOptions = \[\.defaultToSpeaker, \.allowBluetoothA2DP\]\n/.test(swiftCode)
-      // 【便CT】立て直しの2か所のモードは desiredMode()(試し口で選んでいなければ .default)。3か所目は試し口 setTestMode(選んだモードで1回)。
-      //   3か所とも種別は playAndRecord・選択肢は sessionOptions のまま
-      && (swiftCode.match(/try session\.setCategory\(\.playAndRecord, mode: (?:self\.)?desiredMode\(\), options: FicusAudioSessionPlugin\.sessionOptions\)/g) || []).length === 2
-      && (swiftCode.match(/try session\.setCategory\(\.playAndRecord, mode: mode, options: FicusAudioSessionPlugin\.sessionOptions\)/g) || []).length === 1
-      && (swiftCode.match(/setCategory\(/g) || []).length === 3
+      && /static let sessionMode: AVAudioSession\.Mode = \.default\n/.test(swiftCode)
+      && (swiftCode.match(/try session\.setCategory\(\.playAndRecord, mode: FicusAudioSessionPlugin\.sessionMode, options: FicusAudioSessionPlugin\.sessionOptions\)/g) || []).length === 2
+      && (swiftCode.match(/setCategory\(/g) || []).length === 2
       && !/\.allowBluetooth(?!A2DP)/.test(swiftCode) && !/allowBluetoothHFP/.test(swiftCode));
-    // 【便CQ】モードの条件は**念のための条件**で、いまの判定を1件も変えない(WebKit が立て直すときの選択肢は
-    // AllowBluetooth|A2DP|AirPlay(|DefaultToSpeaker)で sessionOptions と一致しないので、選択肢の違いだけで既に真になる)。
-    // 音量が小さい原因は仮説(WebKit の videoChat = 通話の音量。bug 271305)で、旧来の処理で直らなかった理由は未解明。
-    // ここが守るのは「3つを見る判断を2か所が使う」綴りだけ。Swift はここでは走らない(ビルドが通るか・効くかは実機待ち)。
-    check("K.6 AppDelegate.swift: 【便CQ】立て直しの判断 needsSessionReset は種別・モード(.default)・選択肢の3つを見て、routeToSpeaker と経路の変化の両方がそれを使う",
-      // 【便CT】モードの比べる先は desiredMode()。試し口で選んでいなければ .default(= 今までどおり)。選んだモードはメモリだけ(保存しない)
-      /func needsSessionReset\(_ session: AVAudioSession\) -> Bool \{\n\s*return session\.category != \.playAndRecord\n\s*\|\| session\.mode != desiredMode\(\)\n\s*\|\| session\.categoryOptions != FicusAudioSessionPlugin\.sessionOptions\n\s*\}/.test(swiftCode)
-      && /func desiredMode\(\) -> AVAudioSession\.Mode \{\n\s*testModeLock\.lock\(\)\n\s*defer \{ testModeLock\.unlock\(\) \}\n\s*return testMode \?\? \.default\n\s*\}/.test(swiftCode)
-      && /private var testMode: AVAudioSession\.Mode\? = nil\n/.test(swiftCode)
+    // 立て直しの判断 needsSessionReset は種別・モード・選択肢の3つ。configureSession と経路の変化の両方が使う(Swift はここでは走らない。効くかは実機待ち)。
+    check("K.6 AppDelegate.swift: 立て直しの判断 needsSessionReset は種別・モード(sessionMode)・選択肢の3つを見て、configureSession と経路の変化の両方がそれを使う",
+      /func needsSessionReset\(_ session: AVAudioSession\) -> Bool \{\n\s*return session\.category != \.playAndRecord\n\s*\|\| session\.mode != FicusAudioSessionPlugin\.sessionMode\n\s*\|\| session\.categoryOptions != FicusAudioSessionPlugin\.sessionOptions\n\s*\}/.test(swiftCode)
       && /\n\s*if needsSessionReset\(session\) \{\n\s*try session\.setCategory\(/.test(swiftCode)
       && /\n\s*if self\.needsSessionReset\(session\) \{\n\s*try session\.setCategory\(/.test(swiftCode)
       && (swiftCode.match(/needsSessionReset\(/g) || []).length === 3);
-    // 【便CT 2026-10-13】診断の板の試し口: setTestMode は5つの名前だけを受け、選んだモードをメモリ(testMode)にだけ持つ(保存しない)。
-    // 取り込み中(playAndRecord)ならその場で setCategory。Swift はここでは走らない(効くか・どれが大きいかは実機待ち)。
-    {
-      const stm = (/@objc func setTestMode\(_ call: CAPPluginCall\) \{[\s\S]*?\n    \}\n/.exec(swiftCode) || [""])[0];
-      const modes = (/static let testModes: \[String: AVAudioSession\.Mode\] = \[([\s\S]*?)\]/.exec(swiftCode) || [])[1] || "";
-      const names = [...modes.matchAll(/"(\w+)": \.(\w+)/g)].map((m) => `${m[1]}=${m[2]}`);
-      check("K.6 AppDelegate.swift: 【便CT】setTestMode は default / videoRecording / measurement / spokenAudio / moviePlayback だけを受け、メモリ(testMode)にだけ持つ(保存しない)",
-        JSON.stringify(names) === JSON.stringify(["default=default", "videoRecording=videoRecording", "measurement=measurement", "spokenAudio=spokenAudio", "moviePlayback=moviePlayback"])
-        && /guard let name = call\.getString\("mode"\), let mode = FicusAudioSessionPlugin\.testModes\[name\] else \{\n\s*call\.reject\("unknown mode"\)/.test(stm)
-        && /func storeTestMode\(_ mode: AVAudioSession\.Mode\) \{\n\s*testModeLock\.lock\(\)\n\s*testMode = \(mode == \.default\) \? nil : mode\n/.test(swiftCode)
-        // 取り込み中だけ受ける・iOS が受け付けなければ(投げた・替わらなかった)前のモードに戻す(戻さないと立て直しが毎回投げる・往復する)
-        // 【便CT 審査】板を閉じたときの戻し(default)だけは、取り込み中でなくても受けて既定へ戻す
-        && /guard session\.category == \.playAndRecord else \{\n\s*if mode == \.default \{\n\s*storeTestMode\(\.default\)\n\s*call\.resolve\(\["mode": session\.mode\.rawValue\]\)\n\s*return\n\s*\}\n\s*call\.reject\("not playAndRecord"\)/.test(stm)
-        && /let previous = desiredMode\(\)\n\s*storeTestMode\(mode\)\n/.test(stm)
-        && /guard session\.mode == mode else \{\n\s*storeTestMode\(previous\)\n/.test(stm)
-        && /\} catch \{\n\s*storeTestMode\(previous\)\n/.test(stm)
-        && !/UserDefaults|NSUbiquitousKeyValueStore|FileManager|write\(/.test(swiftCode), names.join(","));
-    }
+    // 【便CX】診断の板の試し口(setTestMode・desiredMode・testMode)と、JS から呼んでいた routeToSpeaker は消した(WebKit がもう音のセッションを立て直さない)。
+    // 何も保存しない(UserDefaults などに書かない)のは今までどおり。
+    check("K.6 AppDelegate.swift: 【便CX】試し口のモード(setTestMode・desiredMode・testMode)と routeToSpeaker・試し口の nativeClick* / nativeInput* が無い・何も保存しない",
+      !/setTestMode|desiredMode|testMode|routeToSpeaker|nativeClick|nativeInput|nativeAudioInfo|testEngine|testQueue/.test(swiftCode)
+      && !/UserDefaults|NSUbiquitousKeyValueStore|FileManager|\.write\(to/.test(swiftCode)); // 【便CX 審査】輪の write( はマイクの輪(保存ではない)
     check("K.6 AppDelegate.swift: スピーカーへの上書き overrideOutputAudioPort(.speaker) は出口が受話口のときだけ(イヤホンがあるときにかけない)",
       /func applyOutputRule\(_ session: AVAudioSession\) throws \{\n\s*let outputs = session\.currentRoute\.outputs\.map \{ \$0\.portType \}\n\s*if outputs\.contains\(\.builtInReceiver\) \{\n\s*try session\.overrideOutputAudioPort\(\.speaker\)\n\s*\}\n\s*\}/.test(swiftCode)
       && (swiftCode.match(/overrideOutputAudioPort\(/g) || []).length === 1);
-    check("K.6 AppDelegate.swift: 経路の変化(routeChangeNotification)を load() で受け、取り込み中(playAndRecord)だけ同じ規則を当て直す",
-      /@objc override public func load\(\) \{\n\s*NotificationCenter\.default\.addObserver\(self,\s*selector: #selector\(handleRouteChange\(_:\)\),\s*name: AVAudioSession\.routeChangeNotification,\s*object: nil\)/.test(swiftCode)
-      && /@objc func handleRouteChange\(_ notification: Notification\) \{\n\s*DispatchQueue\.main\.async \{\n\s*let session = AVAudioSession\.sharedInstance\(\)\n\s*guard session\.category == \.playAndRecord else \{ self\.clearInputRuleTriedRoutes\(\); return \}/.test(swiftCode)
+    // 【便CX】経路の変化は殻の音が動いている間(micOn / metroOn)・playAndRecord のときだけ当て直す。エンジンの操作と同じ列(audioQueue)の上
+    check("K.6 AppDelegate.swift: 経路の変化(routeChangeNotification)を load() で受け、殻の音が動いている間(micOn / metroOn)・playAndRecord のときだけ同じ規則を当て直す(audioQueue の上)",
+      /@objc override public func load\(\) \{\n\s*micRing\.signal\.setEventHandler \{ \[weak self\] in self\?\.drainMic\(\) \}\n\s*micRing\.signal\.resume\(\)\n\s*NotificationCenter\.default\.addObserver\(self,\s*selector: #selector\(handleRouteChange\(_:\)\),\s*name: AVAudioSession\.routeChangeNotification,\s*object: nil\)/.test(swiftCode)
+      && /@objc func handleRouteChange\(_ notification: Notification\) \{\n\s*audioQueue\.async \{\n\s*let session = AVAudioSession\.sharedInstance\(\)\n\s*guard self\.micOn \|\| self\.metroOn, session\.category == \.playAndRecord else \{\n\s*self\.clearInputRuleTriedRoutes\(\)\n\s*return\n\s*\}/.test(swiftCode)
       && (swiftCode.match(/try (?:self\.)?applyOutputRule\(session\)/g) || []).length === 2);
-    // 【便CS】入力はいつも本体のマイク: applyInputRule が availableInputs の builtInMic を setPreferredInput する。routeToSpeaker と経路の変化の両方が
-    // setCategory の後・出口の規則の前に呼ぶ。入力も優先も本体のマイクなら呼ばない・同じ経路(routeSignature)では1回だけ(WebKit / iOS と往復しても有限)。
-    // 取り込みが終わったら(playAndRecord でない)試した経路を空にする。Swift はここでは走らない(効くか・出口が A2DP / スピーカーへ行くかは実機待ち)。
-    check("K.6 AppDelegate.swift: 【便CS】入力の規則 applyInputRule(本体のマイクを setPreferredInput・同じ経路では1回だけ)を routeToSpeaker と経路の変化の両方が出口の規則の直前に呼ぶ",
+    // 【便CS】入力はいつも本体のマイク: applyInputRule が availableInputs の builtInMic を setPreferredInput する。【便CX】configureSession(setActive の後)と経路の変化の両方が
+    // 出口の規則の前に呼ぶ。入力も優先も本体のマイクなら呼ばない・同じ経路(routeSignature)では1回だけ(iOS と往復しても有限)。
+    check("K.6 AppDelegate.swift: 【便CS】入力の規則 applyInputRule(本体のマイクを setPreferredInput・同じ経路では1回だけ)を configureSession と経路の変化の両方が出口の規則の直前に呼ぶ",
       /func applyInputRule\(_ session: AVAudioSession\) \{\n\s*guard let builtIn = \(session\.availableInputs \?\? \[\]\)\.first\(where: \{ \$0\.portType == \.builtInMic \}\) else \{ return \}\n/.test(swiftCode)
       && /if inputIsBuiltIn && preferredIsBuiltIn \{\n\s*clearInputRuleTriedRoutes\(\)\n\s*return\n\s*\}/.test(swiftCode)
       && /\n\s*guard markRouteTried\(routeSignature\(session\)\) else \{ return \}\n\s*do \{\n\s*try session\.setPreferredInput\(builtIn\)\n/.test(swiftCode)
@@ -32656,7 +32638,7 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
       // 経路の見分けの中身(入力・出力の portType・優先の入力・選択肢の生の値)。定数にすると2つ目の経路で止まってしまう
       && /func routeSignature\(_ session: AVAudioSession\) -> String \{\n\s*let inputs = session\.currentRoute\.inputs\.map \{ \$0\.portType\.rawValue \}\.joined\(separator: \",\"\)\n\s*let outputs = session\.currentRoute\.outputs\.map \{ \$0\.portType\.rawValue \}\.joined\(separator: \",\"\)\n\s*let preferred = session\.preferredInput\?\.portType\.rawValue \?\? \"-\"\n\s*return \"\\\(inputs\)\|\\\(outputs\)\|\\\(preferred\)\|\\\(session\.categoryOptions\.rawValue\)\"\n\s*\}/.test(swiftCode)
       && (swiftCode.match(/setPreferredInput\(/g) || []).length === 1
-      && /\n\s*applyInputRule\(session\)\n\s*try applyOutputRule\(session\)\n/.test(swiftCode)
+      && /\n\s*try session\.setActive\(true\)\n\s*activated = true\n\s*\} catch \{\n\s*return "session: \\\(error\.localizedDescription\)"\n\s*\}\n\s*applyInputRule\(session\)\n\s*do \{\n\s*try applyOutputRule\(session\)\n/.test(swiftCode)
       && /\n\s*self\.applyInputRule\(session\)\n\s*try self\.applyOutputRule\(session\)\n/.test(swiftCode)
       && (swiftCode.match(/applyInputRule\(session\)/g) || []).length === 2
       && !/\.allowBluetooth(?!A2DP)/.test(swiftCode));
@@ -32760,51 +32742,69 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
 
   // --- K.12 App.jsx の殻の枝(Web の枝はそのまま) ------------------------------------------------------------------
   {
-    check("K.12 App.jsx: isNativeShell / micActionOnTabLeave・METRO_MASTER_GAIN_SHELL / shellRouteToSpeaker を shell から import する",
+    // 【便CX 2026-10-19】殻の計測の音は殻(AVAudioEngine)が扱う: shellRouteToSpeaker は消え、殻の口(src/shell/nativeAudio.js)を静的に import する(Capacitor に触れない)
+    check("K.12 App.jsx: isNativeShell / micActionOnTabLeave・METRO_MASTER_GAIN_SHELL / shellAvailableInputs / 【便CX】createNativeMicContext・createNativeMetronome・nativeHostClock を shell から import する",
       /\nimport \{ isNativeShell \} from "\.\/shell\/native\.js";\n/.test(app)
       && /\nimport \{ micActionOnTabLeave, METRO_MASTER_GAIN_SHELL \} from "\.\/shell\/policy\.js";\n/.test(app)
-      && /\nimport \{ shellRouteToSpeaker, shellAvailableInputs \} from "\.\/shell\/audio\.js";\n/.test(app));
+      && /\nimport \{ shellAvailableInputs \} from "\.\/shell\/audio\.js";\n/.test(app)
+      && /\nimport \{ createNativeMicContext, createNativeMetronome, nativeHostClock \} from "\.\/shell\/nativeAudio\.js";\n/.test(app));
     check("K.12 topTab の effect: 計測タブなら start・殻(micActionOnTabLeave が stop)なら stopListening・それ以外は今までどおり pauseListening",
       /\n    if \(topTab === "measure" && !document\.hidden\) \{\n      startListeningRef\.current\(\);\n    \} else if \(micActionOnTabLeave\(isNativeShell\(\)\) === "stop"\) \{\n      stopListeningRef\.current\(\);\s*\n    \} else \{\n      pauseListeningRef\.current\(\);\n    \}\n/.test(app));
     // 仕様 §4.4 の綴り(master.gain.value = metroMasterGain(isNativeShell());)にすると、Web の 2.6 の行を見る既存の検査(3641)と、
     // getMetroMasterInput を単独で切り出して回す 43.x(外の名前 isNativeShell などを持たない)が落ちる。
-    // そこで Web の行は綴りのまま残し、殻のゲイン(METRO_MASTER_GAIN_SHELL)は startMetronome が ctx に置いて getMetroMasterInput が読む形にした。
+    // そこで Web の行は綴りのまま残し、殻のゲイン(METRO_MASTER_GAIN_SHELL)は ctx に置いて getMetroMasterInput が読む形にした。
+    // 【便CX】殻は Web の AudioContext でメトロノームを鳴らさなくなったので、置くのは殻へ渡すクリックの描き出し(renderMetroClickSamples)の1か所だけ
     const fnMaster = (/function getMetroMasterInput\(ctx\) \{[\s\S]*?\n\}/.exec(app) || [""])[0];
-    check("K.12 メトロノームのマスターゲイン: Web の master.gain.value = 2.6; は残り、殻だけ startMetronome が置いた METRO_MASTER_GAIN_SHELL で上書き。getMetroMasterInput は外の名前を読まない",
+    check("K.12 メトロノームのマスターゲイン: Web の master.gain.value = 2.6; は残り、殻の値は描き出しの ctx にだけ置く(METRO_MASTER_GAIN_SHELL)。getMetroMasterInput は外の名前を読まない",
       /\n  master\.gain\.value = 2\.6;[^\n]*\n\s*if \(typeof ctx\.__metroMasterGainShell === "number"\) master\.gain\.value = ctx\.__metroMasterGainShell;\n/.test(fnMaster)
       && !/isNativeShell|METRO_MASTER_GAIN_SHELL/.test(fnMaster)
-      && /\n      metroCtxRef\.current = ctx;\n    \}\n    if \(isNativeShell\(\)\) \{\n\s*ctx\.__metroMasterGainShell = METRO_MASTER_GAIN_SHELL;\n/.test(app)
-      // 【便CU】4か所目: 診断の板の試し口「鳴らし方」で殻へ渡すクリックの描き出し(renderMetroClickSamples)が、OfflineAudioContext に殻の値を置く
-      // (殻の AVAudioEngine で鳴らす音を、殻のメトロノームと同じ鎖・同じマスターの値で描くため)。それ以外の所で置かない
-      && (app.match(/__metroMasterGainShell/g) || []).length === 4
+      && (app.match(/__metroMasterGainShell/g) || []).length === 3 // getMetroMasterInput の読み(1行に2つ)と描き出しの置き場の1つ
       && /\nasync function renderMetroClickSamples\(sampleRate, OfflineCtor\) \{[\s\S]*?\n    ctx\.__metroMasterGainShell = METRO_MASTER_GAIN_SHELL;\n    scheduleMetroClick\(ctx, head \/ sampleRate, kind\);\n[\s\S]*?\n\}\n/.test(app));
-    // 【殻 S2 審査】イヤホンを外すと WebKit がメトロノームの ctx を止める。殻の枝でだけ onstatechange で再開する(Web には付けない)
-    check("K.12 殻のメトロノームの ctx だけに onstatechange: 鳴らしている間・いまの ctx・画面が見えている・running でも closed でもないときに resume",
-      /\n    if \(isNativeShell\(\)\) \{\n\s*ctx\.__metroMasterGainShell = METRO_MASTER_GAIN_SHELL;\n\s*const shellCtx = ctx;\n\s*shellCtx\.onstatechange = \(\) => \{\n\s*if \(metroOnRef\.current && metroCtxRef\.current === shellCtx && !document\.hidden\n\s*&& shellCtx\.state !== "running" && shellCtx\.state !== "closed"\) shellCtx\.resume\(\)\.catch\(\(\) => \{\}\);\n\s*\};\n    \}\n/.test(app)
-      && (app.match(/onstatechange/g) || []).length === 1);
+    // 【便CX】殻のメトロノームは殻で鳴らす: startMetronome の先頭(古い状態の無効化の直後)が殻の枝で、その中で Web の AudioContext・metroSchedulerTick・
+    // Web Audio のクリックを使わずに戻る。殻の ctx の onstatechange の手当て(イヤホンを外して WebKit が止めた ctx の再開)は要らなくなったので消した
+    {
+      const sm = /const startMetronome = useCallback\(\(\) => \{\n    metroGenRef\.current\+\+;[^\n]*\n([\s\S]*?)\n  \}, \[metroSchedulerTickTimed,/.exec(app);
+      const body = sm ? sm[1] : "";
+      const shell = (/^\s*if \(isNativeShell\(\)\) \{\n([\s\S]*?)\n      return;\n    \}\n/.exec(body.replace(/^(\s*\n)+/, "")) || [])[1] || "";
+      check("K.12 【便CX】startMetronome の先頭が殻の枝: 殻のメトロノーム(ensureNativeMetro → start(並び, 0.12))で戻り、Web の AudioContext・metroSchedulerTick・setInterval・applyAudioSessionType を使わない。onstatechange は App.jsx に無い",
+        shell.length > 0
+        && /const nm = ensureNativeMetro\(\);/.test(shell)
+        && /nativeMetroRemember\(nm\.start\(nativeMetroPattern\(st\), 0\.12\), st\);/.test(shell)
+        && /metroNextTimeRef\.current = nm\.ctx\.currentTime \+ 0\.12;/.test(shell)
+        && !/AudioContext|metroSchedulerTick|setInterval\(|applyAudioSessionType|scheduleMetroClick/.test(shell)
+        && (app.match(/onstatechange/g) || []).length === 0, shell.slice(0, 120));
+    }
     // 【殻 S2 審査】KeepAwake は自動で解けない。殻の枝でだけ、隠れたとき・MeasureView のアンマウント・stopListening のあとで解く
     check("K.12 殻のスリープ防止を解く3か所(隠れたとき・MeasureView のアンマウント(録音中を除く)・stopListening のあと(メトロノームと取り込み解析を除く))と、戻ったときのメトロノーム",
       /\n      if \(document\.hidden\) \{\n        stopListeningRef\.current\(\);\n        if \(isNativeShell\(\)\) releaseWakeLock\(\);\s*\n      \} else \{/.test(app)
       && /\n        if \(isRecordingRef\.current \|\| isAnalyzingUploadRef\.current\) requestWakeLock\(\);\n\s*else if \(isNativeShell\(\) && metroActiveRef\.current\) requestWakeLock\(\);\n/.test(app)
       && /\n    setIsListening\(false\);\n\s*if \(isNativeShell\(\) && !metroActiveRef\.current && !isAnalyzingUploadRef\.current\) releaseWakeLock\(\);\n  \}, \[finalizeRecording, releaseWakeLock\]\);/.test(app)
       && /try \{ metroCtxRef\.current\?\.close\(\); \} catch \{\s*\}\n\s*if \(isNativeShell\(\) && !shellRecordingRef\.current\) releaseWakeLock\(\);\n    \};/.test(app));
-    const at = lines.findIndex((l) => l.trim() === "streamRef.current = stream;");
-    const after = at >= 0 ? lines.slice(at + 1, at + 4).map((l) => l.trim()) : [];
-    check("K.12 startListening: streamRef.current = stream; の直後 3 行以内に shellRouteToSpeaker();(マイクを取った後で出口を寄せる)",
-      at >= 0 && after.includes("shellRouteToSpeaker();") && lines.filter((l) => l.trim() === "streamRef.current = stream;").length === 1, JSON.stringify(after));
-    check("K.12 startMetronome: 先頭(古い状態の無効化の直後)で shellRouteToSpeaker();",
-      /const startMetronome = useCallback\(\(\) => \{\n    metroGenRef\.current\+\+;\s*\n\s*shellRouteToSpeaker\(\);\n/.test(app));
-    // 【便CQ】3か所目: メトロノームが鳴り始めた(resume が解決した)後。WebKit は取り込み中に音が鳴り始めるたび
-    // playAndRecord + videoChat(VC の音量)へ立て直すので、その後でもう一度寄せる。止めた・別の ctx に替わった後は呼ばない。
-    check("K.12 shellRouteToSpeaker() の呼び手は4か所(マイクの直後・メトロノームの開始・【便CQ】メトロノームが鳴り始めた後(いまの ctx で鳴らしている間だけ)・【便CS】機器の一覧が変わったとき(マイクのトラックが live で enabled の間だけ・録音中は録音が終わるまで見送る))", (app.match(/shellRouteToSpeaker\(\);/g) || []).length === 4
-      && /\n      if \(!t \|\| t\.readyState !== "live" \|\| !t\.enabled\) \{ shellRoutePendingRef\.current = false; return; \}\n      if \(isRecordingRef\.current\) \{ shellRoutePendingRef\.current = true; return; \}\n      shellRoutePendingRef\.current = false;\n      shellRouteToSpeaker\(\);\n/.test(app)
-      && /\n    ctx\.resume\(\)\.then\(\(\) => \{\n      if \(metroOnRef\.current && metroCtxRef\.current === ctx\) shellRouteToSpeaker\(\);\n    \}\)\.catch\(\(\) => \{\}\);\n/.test(app));
+    // 【便CX】startListening: 殻は Web の AudioContext を作らず getUserMedia も呼ばない。同じ形の口(NativeMicContext)に、Web と同じ綴りの配線を組む
+    check("K.12 【便CX】startListening: 殻は createNativeMicContext の口(nativeMic || new AudioContext())・殻のマイクの開始(nativeMic ? await nativeMic.start() : getUserMedia の道)・配線と tick は Web と同じ綴り",
+      /\n      const nativeMic = isNativeShell\(\) \? createNativeMicContext\(\) : null;\n      const audioCtx = nativeMic \|\| new AudioContext\(\);\n      audioCtxRef\.current = audioCtx;\n/.test(app)
+      && /\n      const stream = nativeMic \? await nativeMic\.start\(\) : await preferBuiltInMicStream\(\n        navigator\.mediaDevices,\n        await navigator\.mediaDevices\.getUserMedia\(\{ audio: micAudio \}\),\n/.test(app)
+      && (app.match(/getUserMedia\(/g) || []).length === 1
+      && /\n      const source = audioCtx\.createMediaStreamSource\(stream\);\n/.test(app)
+      && /\n      const bandpass = audioCtx\.createBiquadFilter\(\);\n      bandpass\.type = "bandpass";\n/.test(app));
+    // 【便CX】除外(isNearScheduledClick)の「今」: Web は performance.now() のまま・殻は殻の入力の最新の標本の host time(metroClickClockMs)。窓は既定(30 / 90)のまま
+    check("K.12 【便CX】tick の除外は isNearScheduledClick(scheduledClicksRef.current, metroClickClockMs(audioCtx))(窓は既定のまま)・metroClickClockMs は clickClockMs が無ければ performance.now()",
+      /const skipFrameForMetroClick = !sounding && isNearScheduledClick\(scheduledClicksRef\.current, metroClickClockMs\(audioCtx\)\);/.test(app)
+      && (app.match(/isNearScheduledClick\(/g) || []).length === 2
+      && /\nfunction metroClickClockMs\(src\) \{\n  return src && typeof src\.clickClockMs === "function" \? src\.clickClockMs\(\) : performance\.now\(\);\n\}/.test(app));
+    // 【便CX】recoverMic は殻で Web の AudioContext を作り直さない(recoverAudioContext は new AudioContext する)
+    check("K.12 【便CX】recoverMic: 殻では recoverAudioContext(Web の AudioContext を作る)に回さない",
+      /\n      if \(ok && ctx && ctx\.state !== "running" && !isNativeShell\(\)\) \{\n/.test(app));
+    // 【便CX】shellRouteToSpeaker と、殻の機器の一覧の変化の手当て(shellRoutePendingRef・routeAfterDeviceChangeRef)は消した(殻はもう WebKit で取り込まない)
+    check("K.12 【便CX】shellRouteToSpeaker・shellRoutePendingRef・routeAfterDeviceChangeRef・試し口の口(audioDiagWebMicStopped・audioDiagSetPlayback・webMic)が App.jsx に無い",
+      !/shellRouteToSpeaker|shellRoutePendingRef|routeAfterDeviceChangeRef|audioDiagWebMicStopped|audioDiagSetPlayback|AUDIO_DIAG\.webMic|AUDIO_DIAG\.renderClicks/.test(app));
     check("K.12 requestWakeLock の先頭が if (isNativeShell()) で KeepAwake を動的 import(Web の navigator.wakeLock の枝は残る)",
       /const requestWakeLock = useCallback\(async \(\) => \{\n    if \(isNativeShell\(\)\) \{\n\s*try \{ const m = await import\("\.\/shell\/keepAwake\.native\.js"\); await m\.keepAwake\(\); \} catch \{\s*\}\n\s*return;\n    \}\n    try \{\n      if \("wakeLock" in navigator && !wakeLockRef\.current\) \{\n        wakeLockRef\.current = await navigator\.wakeLock\.request\("screen"\);/.test(app));
     check("K.12 releaseWakeLock の先頭が殻の枝(allowSleep)で、Web の release の行は残る",
       /const releaseWakeLock = useCallback\(\(\) => \{\n    if \(isNativeShell\(\)\) \{ import\("\.\/shell\/keepAwake\.native\.js"\)\.then\(\(m\) => m\.allowSleep\(\)\)\.catch\(\(\) => \{\}\); return; \}\n    try \{ wakeLockRef\.current\?\.release\(\); \} catch \{\s*\}\n    wakeLockRef\.current = null;/.test(app));
-    check("K.12 Web の audioSession の宣言(navigator.audioSession.type = AUDIO_SESSION_TYPE;)は残る",
-      /navigator\.audioSession\.type = AUDIO_SESSION_TYPE;/.test(app) && /const AUDIO_SESSION_TYPE = "play-and-record";/.test(app));
+    check("K.12 Web の audioSession の宣言(navigator.audioSession.type = AUDIO_SESSION_TYPE;)は残り、【便CX】殻では置かない(applyAudioSessionType の先頭で戻る)",
+      /navigator\.audioSession\.type = AUDIO_SESSION_TYPE;/.test(app) && /const AUDIO_SESSION_TYPE = "play-and-record";/.test(app)
+      && /\nfunction applyAudioSessionType\(\) \{\n\s*if \(isNativeShell\(\)\) return;\n/.test(app));
     // 【便BX 2026-10-06 本人の決定 D1】参加前の入口の名前が「端末を替えるとき」になったので、括弧の中を合わせた
     // 【便CE 2026-10-08】参加前の入口は部品ごと消した(全員が参加し、書き出し・読み戻しはマイページ)ので括弧を外した
     check("K.12 移し方の1行: 殻かつ記録 0 件の時だけ・「まだ記録がありません」の行のすぐ下・語は「Web 版」「アカウント引継」(【便CE】「端末を替えるとき」は無い)",
@@ -32835,14 +32835,22 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     const ex = codeOf(readS("src/shell/backupExport.native.js"));
     const ka = codeOf(readS("src/shell/keepAwake.native.js"));
     const as = codeOf(readS("src/shell/audioSession.native.js"));
+    const na = codeOf(readS("src/shell/nativeAudio.js"));
     const swift = readS("ios/App/App/AppDelegate.swift");
     check("K.14 policy.js は何も import しない(Web から静的に読んでよい)・殻の stop と Web の pause・殻のゲインは 1.0 の定数だけ(Web の 2.6 の写しを持たない)",
       !/\bimport\b/.test(policy) && /export const SHELL_STOP_MIC_ON_TAB_LEAVE = true;/.test(policy)
       && /return native && stopOnLeave \? "stop" : "pause";/.test(policy)
       && /export const METRO_MASTER_GAIN_SHELL = 1\.0;/.test(policy) && !/2\.6/.test(policy) && !/metroMasterGain/.test(policy));
-    check("K.14 audio.js: Web では即 return・殻の枝で audioSession.native.js を動的 import(静的 import は native.js だけ)",
+    // 【便CX】shellRouteToSpeaker・試し口の呼び口は消した。殻の計測の音の呼び口 shellNativeAudio は Web で null(動的 import もしない)
+    check("K.14 audio.js: 静的 import は native.js だけ・殻の枝で audioSession.native.js を動的 import・【便CX】shellNativeAudio は Web で null・shellRouteToSpeaker と試し口の呼び口は無い",
       (audio.match(/^import /gm) || []).length === 1 && /^import \{ isNativeShell \} from "\.\/native\.js";$/m.test(audio)
-      && /export function shellRouteToSpeaker\(\) \{\n  if \(!isNativeShell\(\)\) return;\n  import\("\.\/audioSession\.native\.js"\)\.then\(\(m\) => m\.routeToSpeaker\(\)\)\.catch\(\(\) => \{\}\);\n\}/.test(audio));
+      && /export function shellNativeAudio\(\) \{\n  return isNativeShell\(\) \? NATIVE_AUDIO_API : null;\n\}/.test(audio)
+      && /function nativeCall\(name, arg\) \{\n  return import\("\.\/audioSession\.native\.js"\)\.then\(\(m\) => m\[name\]\(arg\)\);\n\}/.test(audio)
+      && /export function shellAudioSessionInfo\(\) \{\n  if \(!isNativeShell\(\)\) return Promise\.resolve\(null\);/.test(audio)
+      && !/shellRouteToSpeaker|shellSetAudioTestMode|shellNativeClick|shellNativeInput|routeToSpeaker/.test(audio));
+    // 【便CX】殻の口(nativeAudio.js)は Capacitor に触れない(静的 import は ./audio.js だけ)ので、App.jsx から静的に読んでよい
+    check("K.14 【便CX】nativeAudio.js の静的 import は ./audio.js だけ(@capacitor を読まない)",
+      (na.match(/^import /gm) || []).length === 1 && /^import \{ shellNativeAudio \} from "\.\/audio\.js";$/m.test(na) && !/@capacitor/.test(na));
     check("K.14 backupExport.native.js: Cache に UTF8 で書く → Share(url は書いた uri)→ finally で消す・取り消し(cancel)は cancelled",
       /import \{ Filesystem, Directory, Encoding \} from "@capacitor\/filesystem";/.test(ex) && /import \{ Share \} from "@capacitor\/share";/.test(ex)
       && /Filesystem\.writeFile\(\{ path: name, data: json, directory: Directory\.Cache, encoding: Encoding\.UTF8 \}\)/.test(ex)
@@ -32855,7 +32863,6 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     const jsName = (/registerPlugin\("([^"]+)"\)/.exec(as) || [])[1];
     const swiftJsName = (/public let jsName = "([^"]+)"/.exec(swift) || [])[1];
     const swiftMethods = [...swift.matchAll(/CAPPluginMethod\(name: "([^"]+)", returnType: CAPPluginReturnPromise\)/g)].map((m) => m[1]);
-    // 【便CQ】sessionInfo(診断の板の読み出し口。読むだけ)を足した。JS が呼ぶメソッドの集合と Swift の pluginMethods が過不足なく一致すること
     // 【便CQ】診断の板: Swift の sessionInfo が返す名前と、板(src/audioDiag.jsx)が読む名前が一致すること(片方だけ綴りを変えると「—」が出るだけで誰も気づかない)
     {
       const si = (/@objc func sessionInfo\(_ call: CAPPluginCall\) \{[\s\S]*?\n    \}/.exec(swift) || [""])[0];
@@ -32866,24 +32873,22 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
         swiftKeys.length === 10 && swiftKeys.includes("availableInputs") && swiftKeys.includes("preferredInput") && JSON.stringify(swiftKeys) === JSON.stringify(jsKeys) && !/setCategory|setActive|overrideOutputAudioPort|setMode/.test(si),
         `${swiftKeys.join(",")} / ${jsKeys.join(",")}`);
     }
-    // 【便CT】setTestMode(診断の板の試し口。モードを替える)を足した
-    // 【便CU 2026-10-17】診断の板の試し口「鳴らし方」: 殻の AVAudioEngine の6つ(nativeClickLoad / nativeClickStart / nativeClickStop / nativeInputStart / nativeInputStop / nativeAudioInfo)を足した
-    const CU_METHODS = ["nativeClickLoad", "nativeClickStart", "nativeClickStop", "nativeInputStart", "nativeInputStop", "nativeAudioInfo"];
-    check("K.14 audioSession.native.js の registerPlugin の名前 = Swift の jsName(FicusAudioSession)・呼ぶメソッド routeToSpeaker / sessionInfo / setTestMode /【便CU】native* の6つ が Swift の pluginMethods と一致",
+    // 【便CX 2026-10-19】殻の計測の音のメソッド(マイク・メトロノーム・時計・診断)。JS が呼ぶメソッドの集合(addListener は Capacitor の作法で pluginMethods に書かない)と
+    // Swift の pluginMethods が過不足なく一致すること。試し口の setTestMode・native*・routeToSpeaker は消した
+    const CX_METHODS = ["sessionInfo", "micStart", "micStop", "metroLoad", "metroStart", "metroUpdate", "metroStop", "audioClock", "audioInfo"];
+    check("K.14 audioSession.native.js の registerPlugin の名前 = Swift の jsName(FicusAudioSession)・【便CX】呼ぶメソッド9つ(マイク・メトロノーム・時計・診断)が Swift の pluginMethods と一致・知らせは P.addListener",
       jsName === "FicusAudioSession" && swiftJsName === jsName
-      && /export const routeToSpeaker = \(\) => P\.routeToSpeaker\(\);/.test(as) && /export const sessionInfo = \(\) => P\.sessionInfo\(\);/.test(as)
-      && /export const setTestMode = \(mode\) => P\.setTestMode\(\{ mode \}\);/.test(as)
-      && /export const nativeClickLoad = \(o\) => P\.nativeClickLoad\(o\);/.test(as) && /export const nativeClickStart = \(o\) => P\.nativeClickStart\(o\);/.test(as)
-      && JSON.stringify([...as.matchAll(/P\.(\w+)\(/g)].map((m) => m[1]).sort()) === JSON.stringify([...swiftMethods].sort())
-      && JSON.stringify(swiftMethods) === JSON.stringify(["routeToSpeaker", "sessionInfo", "setTestMode", ...CU_METHODS])
-      && /@objc func routeToSpeaker\(_ call: CAPPluginCall\)/.test(swift)
-      && CU_METHODS.every((n) => new RegExp(`@objc func ${n}\\(_ call: CAPPluginCall\\)`).test(swift)), `${jsName} / ${swiftJsName} / ${swiftMethods}`);
-    // 【便CU】殻の AVAudioEngine の綴り(Swift はここでは走らない。鳴るか・取れるか・大きくなるかは実機待ち):
-    //   取り込みのタップはハードウェアの形式(inputNode.inputFormat(forBus: 0))で、付ける直前に removeTap・片付けでも外す
-    //   裏へ行ったら(didEnterBackground)クリックも取り込みも止める・構成の変化(AVAudioEngineConfigurationChange)ではエンジンを捨てる
-    //   種別は替えない(setCategory は K.6 の3か所のまま)・非活性(setActive(false))にしない
-    //   予約の値(先読みの秒・間隔の ms)は Web の metroSchedulerTick と同じ(App.jsx から読む)
-    //   JS の呼び口は Web では null を返す(動的 import もしない)
+      && JSON.stringify([...as.matchAll(/P\.(\w+)\(/g)].map((m) => m[1]).filter((n) => n !== "addListener").sort()) === JSON.stringify([...swiftMethods].sort())
+      && JSON.stringify(swiftMethods) === JSON.stringify(CX_METHODS)
+      && /export const addListener = \(event, fn\) => P\.addListener\(event, fn\);/.test(as)
+      && CX_METHODS.every((n) => new RegExp(`@objc func ${n}\\(_ call: CAPPluginCall\\)`).test(swift)), `${jsName} / ${swiftJsName} / ${swiftMethods}`);
+    // 【便CX】殻の AVAudioEngine の綴り(Swift はここでは走らない。鳴るか・取れるか・大きいかは実機待ち):
+    //   入力は inputNode → AVAudioSinkNode(ハードウェアの形式)。受け手は輪へ写して知らせるだけ(確保・鍵・dispatch の async・AVAudioTime を呼ばない)。
+    //   つなげない・始まらない・届かないときは installTap に戻る(付ける直前に removeTap・片付けでも外す・installTap は1か所)
+    //   JS への知らせ(notifyListeners)は emit の1か所で、呼んだ列(micQueue / audioQueue)の上でそのまま(main で JSON にしない)。
+    //   【便CX 再審査】JS の受け手は1回だけ登録して付けっぱなし(nativeEvents)。micStart のたびに sink をもう一度試す(sinkUnavailable を戻す)
+    //   裏へ行ったら(didEnterBackground)止める・構成の変化で捨てて作り直す・非活性(setActive(false))にしない・プレーヤーの play() はエンジンが動いているときだけ(直前で確かめる)
+    //   予約の値(先読みの秒・間隔の ms)は Web の metroSchedulerTick と同じ・始めの 0.12 秒(clickLeadSec)は startMetronome の殻の枝と同じ
     {
       const sc = swift.split("\n").map((l) => l.replace(/\/\/.*$/, "")).join("\n");
       const appS = codeOf(readS("src/App.jsx"));
@@ -32891,64 +32896,157 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
       const webTick = parseInt((/setInterval\(metroSchedulerTickTimed, (\d+)\)/.exec(appS) || [])[1], 10);
       const natLook = parseFloat((/static let clickLookaheadSec: Double = ([\d.]+)\n/.exec(sc) || [])[1]);
       const natTick = parseInt((/static let clickTimerMs: Int = (\d+)\n/.exec(sc) || [])[1], 10);
-      const bg = (/@objc func handleTestEngineBackground\(_ notification: Notification\) \{[\s\S]*?\n    \}\n/.exec(sc) || [""])[0];
-      const cfg = (/@objc func handleTestEngineConfigChange\(_ notification: Notification\) \{[\s\S]*?\n    \}\n/.exec(sc) || [""])[0];
-      const stop = (/@objc func nativeClickStop\(_ call: CAPPluginCall\) \{[\s\S]*?\n    \}\n/.exec(sc) || [""])[0];
-      check("K.14 AppDelegate.swift: 【便CU】タップはハードウェアの形式で removeTap の直後に1か所・片付けでも外す・裏へ行けば止める・構成の変化で捨てる・種別を替えない・非活性にしない(活性にした印 act を返す)・play の前にエンジンが動いているか見る・予約の値は Web と同じ・JS は Web で null",
-        /let format = input\.inputFormat\(forBus: 0\)/.test(sc)
-        && /\n\s*input\.removeTap\(onBus: 0\)\n\s*input\.installTap\(onBus: 0, bufferSize: [\w.]+, format: format\)/.test(sc)
-        && (sc.match(/installTap\(/g) || []).length === 1
-        && /if testTapInstalled \{ engine\.inputNode\.removeTap\(onBus: 0\) \}/.test(sc)
+      const natLead = parseFloat((/static let clickLeadSec: Double = ([\d.]+)\n/.exec(sc) || [])[1]);
+      const jsLead = parseFloat((/nativeMetroRemember\(nm\.start\(nativeMetroPattern\(st\), ([\d.]+)\), st\);/.exec(appS) || [])[1]);
+      const webLead = parseFloat((/\n    metroNextTimeRef\.current = ctx\.currentTime \+ ([\d.]+);\n    metroAnchorRef\.current = \{ time: metroNextTimeRef\.current, gBeat: 0, mBeat: 0 \};\n    metroOnRef\.current = true;/.exec(appS) || [])[1]);
+      const bg = (/@objc func handleDidEnterBackground\(_ notification: Notification\) \{[\s\S]*?\n    \}\n/.exec(sc) || [""])[0];
+      const cfg = (/@objc func handleEngineConfigChange\(_ notification: Notification\) \{[\s\S]*?\n    \}\n/.exec(sc) || [""])[0];
+      const write = (/    func write\(_ timestamp: UnsafePointer<AudioTimeStamp>, [\s\S]*?\n    \}\n/.exec(sc) || [""])[0];
+      const inst = (/private func installMicInput\(_ engine: AVAudioEngine\) -> String\? \{[\s\S]*?\n    \}\n/.exec(sc) || [""])[0];
+      const flush = (/private func flushMic\(\) \{[\s\S]*?\n    \}\n/.exec(sc) || [""])[0];
+      const emitFn = (/private func emit\(_ event: String, _ data: \[String: Any\]\) \{[\s\S]*?\n    \}\n/.exec(sc) || [""])[0];
+      const tick = (/private func clickTick\(\) \{[\s\S]*?\n    \}\n/.exec(sc) || [""])[0];
+      const start = (/private func startEngine\(\) -> String\? \{[\s\S]*?\n    \}\n/.exec(sc) || [""])[0];
+      check("K.14 AppDelegate.swift: 【便CX】入力は AVAudioSinkNode(ハードウェアの形式)・受け手は輪へ写して知らせるだけ・使えなければ installTap(removeTap の直後に1か所)に戻る・知らせは main から・裏へ行けば止める・構成の変化で捨てる・非活性にしない・play の直前にエンジンを見る・予約の値と始めの 0.12 秒は Web と同じ",
+        /let format = input\.inputFormat\(forBus: 0\)/.test(inst)
+        && /let sink = AVAudioSinkNode \{ \(timestamp, frameCount, bufferList\) -> OSStatus in\n\s*ring\.write\(timestamp, frameCount, bufferList, rate\)\n\s*return noErr\n\s*\}/.test(inst)
+        && /engine\.connect\(input, to: sink, format: format\)\n\s*sinkNode = sink\n/.test(inst) && !/inputConnectionPoint/.test(sc)
+        && /\n\s*input\.removeTap\(onBus: 0\)\n\s*input\.installTap\(onBus: 0, bufferSize: FicusAudioSessionPlugin\.micTapFrames, format: format\)/.test(inst)
+        && (sc.match(/installTap\(/g) || []).length === 1 && /if tapInstalled \{ engine\.inputNode\.removeTap\(onBus: 0\) \}/.test(sc)
+        // 受け手(音のスレッド): 確保・鍵・dispatch の async・ObjC の時刻の換算をしない。知らせは足し算だけ
+        && write.length > 0 && /signal\.add\(data: \(UInt\(1\) << 32\) \| UInt\(n\)\)/.test(write)
+        && !/\[Float\]\(|Array\(|\.append\(|lock\(\)|\.async|DispatchQueue|AVAudioTime|String\(|print\(/.test(write)
+        // sink が始まらない・届かないときは installTap に戻る
+        && /if usedSink && !sinkUnavailable \{\n\s*sinkUnavailable = true\n[^\n]*\n\s*return startEngine\(\)/.test(start)
+        && /asyncAfter\(deadline: \.now\(\) \+ FicusAudioSessionPlugin\.sinkCheckSec\)/.test(start) && /self\.sinkUnavailable = true\n\s*self\.lastError = "sink: no data"/.test(start)
+        && /static let micTapFrames: AVAudioFrameCount = 4800\n/.test(sc)
+        // JS への知らせは emit の1か所。呼んだ列の上でそのまま送る(main へ回さない = main で JSON にしない)
+        && (sc.match(/notifyListeners\(/g) || []).length === 1 && /private func emit\(_ event: String, _ data: \[String: Any\]\) \{\n\s*notifyListeners\(event, data: data\)\n\s*\}/.test(emitFn) && !/DispatchQueue\.main/.test(sc)
+        // 【便CX 再審査】JS から micStart が来るたびに sink をもう一度試す(作り直しの最中は戻したまま)。tap で取っているエンジンは作り直す
+        && /self\.sinkUnavailable = false\n\s*if let err = self\.ensureMic\(\) \{/.test(sc)
+        && /private func ensureMic\(\) -> String\? \{\n\s*if let engine = engine, engine\.isRunning, engineHasInput, sinkNode != nil \{\n\s*return nil\n\s*\}/.test(sc)
+        // 宣言のほかに sinkUnavailable を false へ戻すのは micStart の1か所だけ(作り直し・片付けでは戻さない)
+        && (sc.match(/(?<!var )sinkUnavailable\s*=\s*false/g) || []).length === 1
+        // 【便CX 再審査】JS の受け手は nativeEvents が殻の部品ごとに1回だけ登録する(api.on は1か所・外さない)。マイクとメトロノームは JS の中の受け手を足し外しするだけ
+        && (na.match(/api\.on\(/g) || []).length === 1 && /export function nativeEvents\(api\) \{/.test(na)
+        && /const ev = nativeEvents\(this\._api\);/.test(na) && /st\.offs\.push\(nativeEvents\(api\)\.subscribe\(event, fn\)\);/.test(na) && !/removeListener|removeAllListeners/.test(na)
+        && /emit\("micData", \[/.test(flush)
         && /name: UIApplication\.didEnterBackgroundNotification/.test(sc)
-        && /self\.clickOn = false/.test(bg) && /self\.inputOn = false/.test(bg) && /self\.teardownTestEngine\(\)/.test(bg)
-        && /self\.teardownTestEngine\(\)/.test(cfg) && /name: \.AVAudioEngineConfigurationChange/.test(sc)
-        && /self\.clickOn = false/.test(stop) && /if !self\.inputOn \{ self\.teardownTestEngine\(\) \}/.test(stop)
+        && /self\.micOn = false/.test(bg) && /self\.metroOn = false/.test(bg) && /self\.teardownEngine\(\)/.test(bg)
+        && /self\.teardownEngine\(\)\n\s*self\.scheduleRebuild\(\)/.test(cfg) && /name: \.AVAudioEngineConfigurationChange/.test(sc)
         && !/setActive\(false/.test(sc)
-        // 【便CU 審査】活性にした印(setActive(true) の成功・エンジンの start の成功の3か所で立て、nativeAudioInfo で返す = 板の act=)
-        && /"activated": self\.testActivated/.test(sc) && (sc.match(/\n\s*testActivated = true\n/g) || []).length === 3
-        // 【便CU 審査】プレーヤーの play() の前にエンジンが動いているかを見る(動いていないエンジンのプレーヤーに呼ぶと例外で落ちる)
-        && /\n\s*guard let engine = testEngine, engine\.isRunning else \{[^}]*\}\n\s*player\.play\(\)/.test(sc) && (sc.match(/player\.play\(\)/g) || []).length === 2
+        && /\n\s*guard let engine = engine, engine\.isRunning else \{[^}]*\}\n\s*if !player\.isPlaying \{ player\.play\(\) \}/.test(sc) && (sc.match(/player\.play\(\)/g) || []).length === 2
+        && /if !player\.isPlaying \{\n\s*guard engine\.isRunning else \{ lastTickReason = "notRunning"; return \}\n\s*player\.play\(\)/.test(tick)
         && Number.isFinite(webLook) && webLook === natLook && Number.isFinite(webTick) && webTick === natTick
-        && /function shellNativeCall\(name, arg\) \{\n  if \(!isNativeShell\(\)\) return Promise\.resolve\(null\);\n  return import\("\.\/audioSession\.native\.js"\)/.test(audio),
-        `先読み Web ${webLook} / 殻 ${natLook} · 間隔 Web ${webTick} / 殻 ${natTick} · installTap ${(sc.match(/installTap\(/g) || []).length}`);
+        && Number.isFinite(natLead) && natLead === jsLead && jsLead === webLead,
+        `先読み Web ${webLook} / 殻 ${natLook} · 間隔 Web ${webTick} / 殻 ${natTick} · 始め Web ${webLead} / JS ${jsLead} / 殻 ${natLead} · installTap ${(sc.match(/installTap\(/g) || []).length} · notifyListeners ${(sc.match(/notifyListeners\(/g) || []).length}`);
     }
-    // 【便CV 2026-10-18】本人の実機「web 以外で鳴らすと音が消える」。構成の変化(WebKit が音のセッションを立て直すたびに飛ぶ)と中断の終わりでエンジンを作り直して鳴らし直す。
-    // Swift はここでは走らない(鳴るか・直ったかは実機待ち)。綴りだけを守る:
-    //   ・構成の変化と中断の終わりのどちらも scheduleTestRebuild を呼び、回数 testConfigChanges を増やす
-    //   ・作り直しの予約は1つだけ・遅れは max(settle, 1 秒 − 前の作り直しからの経過)= 連続は 1 秒に 1 回まで・時が来たとき動いているエンジンがあれば何もしない・失敗は上限まで
-    //   ・clickTick は早く返った理由を lastTickReason に残し、予約したら testScheduled を増やす・止まっているプレーヤーは play し直す・時計が有効にならなければ無音のバッファで動かす
-    //   ・nativeAudioInfo が返す名前(Swift)と、板が読む名前(audioDiag.jsx の ni.xxx)が過不足なく一致
+    // 【便CX 審査】作り直しの歯止めは純関数(殻 rebuildDecision / rebuildDelay・JS nativeRebuildDecision / nativeRebuildDelay)。値と式が殻と JS で同じ
+    // (JS の側で、成功が続く嵐でも 10 秒に 5 回で諦めることを試験する = src/shell/nativeAudio.test.js)。1 秒に 1 回の作り直しは 10 秒の窓に最大 9 件なので、上限は 5。
+    // 構成の変化・中断の終わり・メディアサービスのリセットで作り直す・中断の終わりは数え直す・諦めたら failed を知らせる。audioInfo の名前(Swift)と板が読む名前が一致
     {
       const sc = swift.split("\n").map((l) => l.replace(/\/\/.*$/, "")).join("\n");
       const diagJs = codeOf(readS("src/audioDiag.jsx"));
-      const cfg = (/@objc func handleTestEngineConfigChange\(_ notification: Notification\) \{[\s\S]*?\n    \}\n/.exec(sc) || [""])[0];
-      const intr = (/@objc func handleTestInterruption\(_ notification: Notification\) \{[\s\S]*?\n    \}\n/.exec(sc) || [""])[0];
-      const reb = (/private func scheduleTestRebuild\(\) \{[\s\S]*?\n    \}\n/.exec(sc) || [""])[0];
+      const intr = (/@objc func handleInterruption\(_ notification: Notification\) \{[\s\S]*?\n    \}\n/.exec(sc) || [""])[0];
+      const reset = (/@objc func handleMediaServicesReset\(_ notification: Notification\) \{[\s\S]*?\n    \}\n/.exec(sc) || [""])[0];
+      const reb = (/private func scheduleRebuild\(\) \{[\s\S]*?\n    \}\n/.exec(sc) || [""])[0];
       const tick = (/private func clickTick\(\) \{[\s\S]*?\n    \}\n/.exec(sc) || [""])[0];
-      const info = (/@objc func nativeAudioInfo\(_ call: CAPPluginCall\) \{[\s\S]*?\n    \}\n/.exec(sc) || [""])[0];
+      const info = (/@objc func audioInfo\(_ call: CAPPluginCall\) \{[\s\S]*?\n    \}\n/.exec(sc) || [""])[0];
       const swiftInfoKeys = [...new Set([...info.matchAll(/\n\s*"(\w+)": /g), ...info.matchAll(/info\["(\w+)"\]/g)].map((m) => m[1]))].sort();
       const jsInfoKeys = [...new Set([...diagJs.matchAll(/\bni\.(\w+)/g)].map((m) => m[1]).filter((k) => k !== "error"))].sort();
-      check("K.14 AppDelegate.swift: 【便CV】構成の変化と中断の終わりでエンジンを作り直して鳴らし直す(1 秒に 1 回まで・失敗は上限まで)・clickTick は早く返った理由と予約の個数を残す・nativeAudioInfo の名前が板と一致",
-        /\n\s*self\.testConfigChanges \+= 1\n/.test(cfg) && /\n\s*self\.teardownTestEngine\(\)\n\s*self\.scheduleTestRebuild\(\)\n/.test(cfg)
-        && /name: AVAudioSession\.interruptionNotification/.test(sc) && /AVAudioSessionInterruptionTypeKey/.test(intr) && /type == \.began/.test(intr)
-        && /guard self\.clickOn \|\| self\.inputOn else \{ return \}\n\s*self\.testConfigChanges \+= 1\n/.test(intr) && /\n\s*self\.teardownTestEngine\(\)\n\s*self\.scheduleTestRebuild\(\)\n/.test(intr)
-        && /static let rebuildMinIntervalSec: Double = 1\.0\n/.test(sc) && /static let rebuildMaxFailures: Int = \d+\n/.test(sc)
-        && /guard clickOn \|\| inputOn, !rebuildScheduled else \{ return \}/.test(reb) && /FicusAudioSessionPlugin\.rebuildMinIntervalSec - since/.test(reb) && /testQueue\.asyncAfter\(deadline: \.now\(\) \+ delay\)/.test(reb)
-        && /if let engine = self\.testEngine, engine\.isRunning \{ return \}/.test(reb) && /self\.rebuildFailures < FicusAudioSessionPlugin\.rebuildMaxFailures/.test(reb)
-        && (sc.match(/lastTickReason = /g) || []).length >= 9 && /\n\s*testScheduled \+= 1\n/.test(tick) && /if !player\.isPlaying \{\s*player\.play\(\)/.test(tick) && /scheduleBuffer\(buffer, at: nil/.test(sc)
-        // 【便CV 審査】中断の終わりは前の失敗の数を引き継がない(rebuildFailures を 0 にしてから作り直す)
-        && /self\.testLastError = "interruption ended"\n\s*self\.rebuildFailures = 0[^\n]*\n\s*self\.teardownTestEngine\(\)\n\s*self\.scheduleTestRebuild\(\)/.test(intr)
-        // 【便CV 審査】作り直しの歯止め(10 秒に 10 回まで。超えたら諦めて err=rebuild: loop・板の同じボタン〈nativeClickStart / nativeInputStart〉で空に戻す)
-        && /static let rebuildWindowSec: Double = 10\.0\n/.test(sc) && /static let rebuildMaxInWindow: Int = 10\n/.test(sc)
-        && /self\.rebuildTimes\.count >= FicusAudioSessionPlugin\.rebuildMaxInWindow \{\s*self\.testLastError = "rebuild: loop"\s*return\s*\}\s*self\.rebuildTimes\.append\(nowTime\)/.test(reb)
-        && (sc.match(/self\.rebuildTimes\.removeAll\(\)/g) || []).length === 2
-        // 【便CV 審査】再生し終わったクリックの数(.dataPlayedBack)。止めた・作り直した後の通知は世代(testEpoch)で捨てる
-        && /completionCallbackType: \.dataPlayedBack\) \{ \[weak self\] _ in\s*self\?\.noteClickPlayed\(epoch\)/.test(tick) && /epoch == self\.testEpoch \{?/.test(sc) && /self\.testPlayed \+= 1/.test(sc)
-        && (sc.match(/\n\s*testEpoch \+= 1\n/g) || []).length === 2 && /"played": self\.testPlayed/.test(info)
+      const num = (re, t) => parseFloat((re.exec(t) || [])[1]);
+      const sw = {
+        min: num(/static let rebuildMinIntervalSec: Double = ([\d.]+)\n/, sc), settle: num(/static let rebuildSettleSec: Double = ([\d.]+)\n/, sc),
+        win: num(/static let rebuildWindowSec: Double = ([\d.]+)\n/, sc), max: num(/static let rebuildMaxInWindow: Int = (\d+)\n/, sc), fails: num(/static let rebuildMaxFailures: Int = (\d+)\n/, sc),
+      };
+      const js = {
+        min: num(/export const NATIVE_REBUILD_MIN_INTERVAL_SEC = ([\d.]+);/, na), settle: num(/export const NATIVE_REBUILD_SETTLE_SEC = ([\d.]+);/, na),
+        win: num(/export const NATIVE_REBUILD_WINDOW_SEC = ([\d.]+);/, na), max: num(/export const NATIVE_REBUILD_MAX_IN_WINDOW = (\d+);/, na), fails: num(/export const NATIVE_REBUILD_MAX_FAILURES = (\d+);/, na),
+      };
+      check("K.14 【便CX 審査】作り直しの歯止め: 殻と JS の純関数の値(1 秒・0.2 秒・10 秒に 5 回・失敗 5 回)と式が同じ・殻の scheduleRebuild はその純関数で判定する",
+        JSON.stringify(sw) === JSON.stringify({ min: 1, settle: 0.2, win: 10, max: 5, fails: 5 }) && JSON.stringify(sw) === JSON.stringify(js)
+        && /static func rebuildDecision\(_ times: \[Double\], now: Double\) -> \(keep: \[Double\], giveUp: Bool\) \{\n\s*let keep = times\.filter \{ now - \$0 < rebuildWindowSec \}\n\s*return \(keep, keep\.count >= rebuildMaxInWindow\)\n\s*\}/.test(sc)
+        && /export function nativeRebuildDecision\(times, now\) \{\n  const keep = times\.filter\(\(t\) => now - t < NATIVE_REBUILD_WINDOW_SEC\);\n  return \{ keep, giveUp: keep\.length >= NATIVE_REBUILD_MAX_IN_WINDOW \};\n\}/.test(na)
+        && /static func rebuildDelay\(sinceLast: Double\) -> Double \{\n\s*return max\(rebuildSettleSec, rebuildMinIntervalSec - sinceLast\)\n\s*\}/.test(sc)
+        && /export function nativeRebuildDelay\(sinceLast\) \{\n  return Math\.max\(NATIVE_REBUILD_SETTLE_SEC, NATIVE_REBUILD_MIN_INTERVAL_SEC - sinceLast\);\n\}/.test(na)
+        && /let delay = FicusAudioSessionPlugin\.rebuildDelay\(sinceLast: CFAbsoluteTimeGetCurrent\(\) - lastRebuildAt\)/.test(reb)
+        && /let decision = FicusAudioSessionPlugin\.rebuildDecision\(self\.rebuildTimes, now: nowTime\)\n\s*self\.rebuildTimes = decision\.keep\n\s*if decision\.giveUp \{\n\s*self\.lastError = "rebuild: loop"\n\s*self\.giveUp\("loop"\)\n\s*return\n\s*\}\n\s*self\.rebuildTimes\.append\(nowTime\)/.test(reb)
+        && /if self\.rebuildFailures < FicusAudioSessionPlugin\.rebuildMaxFailures \{\s*self\.scheduleRebuild\(\)\s*\} else \{\s*self\.giveUp\(err\)\s*\}/.test(reb),
+        `殻 ${JSON.stringify(sw)} / JS ${JSON.stringify(js)}`);
+      check("K.14 AppDelegate.swift: 【便CX】構成の変化・中断の終わり・メディアサービスのリセットで作り直す(中断の終わりは数え直す・諦めたら failed を知らせる)・audioInfo の名前が板と一致",
+        /name: AVAudioSession\.interruptionNotification/.test(sc) && /AVAudioSessionInterruptionTypeKey/.test(intr) && /type == \.began/.test(intr)
+        && /guard self\.micOn \|\| self\.metroOn else \{ return \}\n\s*self\.configChanges \+= 1\n/.test(intr)
+        && /self\.lastError = "interruption ended"\n\s*self\.rebuildFailures = 0[^\n]*\n\s*self\.teardownEngine\(\)\n\s*self\.scheduleRebuild\(\)/.test(intr)
+        && /name: AVAudioSession\.mediaServicesWereResetNotification/.test(sc) && /self\.teardownEngine\(\)\n\s*self\.scheduleRebuild\(\)/.test(reset)
+        && /guard micOn \|\| metroOn, !rebuildScheduled else \{ return \}/.test(reb)
+        && /audioQueue\.asyncAfter\(deadline: \.now\(\) \+ delay\)/.test(reb) && /if let engine = self\.engine, engine\.isRunning \{ return \}/.test(reb)
+        && /emit\("audioState", \["state": "failed"/.test(sc)
+        // JS の micStart / metroStart は数え直して始め直す(失敗の数と10秒の履歴を空にする)
+        && (sc.match(/self\.rebuildTimes\.removeAll\(\)/g) || []).length === 2 && (sc.match(/self\.rebuildFailures = 0\n/g) || []).length >= 3
+        && (sc.match(/lastTickReason = /g) || []).length >= 9 && /\n\s*scheduled \+= 1\n/.test(tick) && /scheduleBuffer\(buffer, at: nil/.test(sc)
+        && /completionCallbackType: \.dataPlayedBack\) \{ \[weak self\] _ in\s*self\?\.noteClickPlayed\(epoch\)/.test(tick) && /self\.played \+= 1/.test(sc)
         // JS の数値は getDouble が整数(48000 など)を拾わない恐れがあるので、numberArg(getDouble → getInt)で読む(call.getDouble は numberArg の中の1か所だけ)
         && /numberArg\(call, "sampleRate"\)/.test(sc) && /numberArg\(call, "stepSec"\)/.test(sc) && (sc.match(/call\.getDouble\(/g) || []).length === 1 && /if let i = call\.getInt\(key\) \{ return Double\(i\) \}/.test(sc)
-        && swiftInfoKeys.length >= 12 && JSON.stringify(swiftInfoKeys) === JSON.stringify(jsInfoKeys),
+        && swiftInfoKeys.length >= 20 && JSON.stringify(swiftInfoKeys) === JSON.stringify(jsInfoKeys),
         `Swift ${swiftInfoKeys.join(",")} / JS ${jsInfoKeys.join(",")}`);
+    }
+    // 【便CX 審査】拍の格子を続ける(作り直しても途切れない)・止めたら予約済みのクリックを鳴り切らせる:
+    //   ・過ぎた拍は gridSkip(殻)= nativeGridSkip(JS)の数だけ鳴らさずに進め、"skipped" として知らせる(振り子の拍に数える)
+    //   ・teardownEngine はまだ来ていない最初のクリックから予約し直す(同じ host time・同じ通し番号 n。JS は同じ番号を捨てる)
+    //   ・metroStop はマイクが止まっていても、エンジンを捨てるのを metroStopTeardownSec(0.25 秒 = 先読み 0.12 + クリックの長さ 0.09 + 余裕)待つ
+    {
+      const sc = swift.split("\n").map((l) => l.replace(/\/\/.*$/, "")).join("\n");
+      const tick = (/private func clickTick\(\) \{[\s\S]*?\n    \}\n/.exec(sc) || [""])[0];
+      const td = (/private func teardownEngine\(\) \{[\s\S]*?\n    \}\n/.exec(sc) || [""])[0];
+      const ms = (/@objc func metroStop\(_ call: CAPPluginCall\) \{[\s\S]*?\n    \}\n/.exec(sc) || [""])[0];
+      const appS = codeOf(readS("src/App.jsx"));
+      check("K.14 【便CX 審査】拍の格子: 過ぎた拍は gridSkip(殻)= nativeGridSkip(JS)で数だけ進めて skipped と知らせ、作り直しはまだ来ていない最初のクリックから同じ番号で予約し直す・JS は同じ番号を捨てる・止めてもエンジンは 0.25 秒待ってから捨てる",
+        /static func gridSkip\(next: Double, now: Double, step: Double\) -> Int \{\n\s*return now > next \? Int\(\(\(now - next\) \/ step\)\.rounded\(\.up\)\) : 0\n\s*\}/.test(sc)
+        && /export function nativeGridSkip\(next, now, step\) \{\n  return now > next \? Math\.ceil\(\(now - next\) \/ step\) : 0;\n\}/.test(na)
+        && /\} else if metroNextHost < nowHost \{\n\s*let skip = min\(FicusAudioSessionPlugin\.gridSkip\(next: metroNextHost, now: nowHost, step: metroStepSec\), FicusAudioSessionPlugin\.clickMaxPerTick\)/.test(tick)
+        && /"k": "skipped"/.test(tick) && /metroPending\.append\(\(host: metroNextHost, index: index, tick: metroTick\)\)/.test(tick)
+        && /if let first = metroPending\.first\(where: \{ \$0\.host > now \}\) \{\n\s*metroNextHost = first\.host\n\s*metroIndex = first\.index\n\s*metroTick = first\.tick\n\s*\}/.test(td)
+        && /const fresh = d\.clicks\.filter\(\(c\) => typeof c\.n !== "number" \|\| c\.n > seen\.n\);/.test(na)
+        && /if \(c\.k === "accent" \|\| c\.k === "beat" \|\| c\.k === "sub"\) \{/.test(appS)
+        && /static let metroStopTeardownSec: Double = 0\.25\n/.test(sc)
+        && /if !self\.micOn \{\n\s*let stopped = self\.engine\n\s*self\.audioQueue\.asyncAfter\(deadline: \.now\(\) \+ FicusAudioSessionPlugin\.metroStopTeardownSec\) \{ \[weak self\] in\n\s*guard let self = self, !self\.metroOn, !self\.micOn, self\.engine === stopped else \{ return \}\n\s*self\.teardownEngine\(\)/.test(ms)
+        && (ms.match(/teardownEngine\(\)/g) || []).length === 1);
+    }
+    // 【便CX】マイクの許可は殻の requestRecordPermission(断られたら reject = JS は今の拒否の案内)・知らせの名前(Swift が送る鍵と JS が読む鍵)が一致
+    {
+      const sc = swift.split("\n").map((l) => l.replace(/\/\/.*$/, "")).join("\n");
+      const ms = (/@objc func micStart\(_ call: CAPPluginCall\) \{[\s\S]*?\n    \}\n/.exec(sc) || [""])[0];
+      const flush = (/private func flushMic\(\) \{[\s\S]*?\n    \}\n/.exec(sc) || [""])[0];
+      const tick = (/private func clickTick\(\) \{[\s\S]*?\n    \}\n/.exec(sc) || [""])[0];
+      const keysOf = (s) => [...s.matchAll(/"(\w+)": /g)].map((m) => m[1]);
+      const micKeys = keysOf((/emit\("micData", \[([\s\S]*?)\]\)/.exec(flush) || [])[1] || "").sort();
+      const clickKeyLists = [...tick.matchAll(/clicks\.append\(\[([^\]]*)\]\)/g)].map((m) => JSON.stringify(keysOf(m[1]).sort()));
+      const onData = (/  _onData\(d\) \{[\s\S]*?\n  \}\n/.exec(na) || [""])[0];
+      const jsMic = [...new Set([...onData.matchAll(/\bd\.(\w+)/g)].map((m) => m[1]))].sort();
+      const appS = codeOf(readS("src/App.jsx"));
+      const onClicks = (/onClicks: \(clicks\) => \{[\s\S]*?\n      \},\n/.exec(appS) || [""])[0];
+      const listener = (/listen\("metroClicks", \(d\) => \{[\s\S]*?\n  \}\);\n/.exec(na) || [""])[0];
+      const jsClick = [...new Set([...onClicks.matchAll(/\bc\.(\w+)/g), ...listener.matchAll(/\bc\.(\w+)/g)].map((m) => m[1]))].sort();
+      check("K.14 AppDelegate.swift: 【便CX】マイクの許可は recordPermission(granted / denied / undetermined → requestRecordPermission)・断られたら reject(\"denied\")。micData と metroClicks(鳴らした拍・飛ばした拍)の鍵が JS の読み手と一致",
+        /switch session\.recordPermission \{/.test(ms) && /case \.granted:\n\s*startMicOnQueue\(call, id\)/.test(ms) && /case \.denied:\n\s*call\.reject\("denied", "DENIED"\)/.test(ms)
+        && /case \.undetermined:\n\s*session\.requestRecordPermission \{ \[weak self\] granted in/.test(ms)
+        && JSON.stringify(micKeys) === JSON.stringify(["frames", "host", "id", "pcm", "rate", "sample"])
+        && JSON.stringify(jsMic) === JSON.stringify(["host", "id", "pcm", "rate", "sample"])
+        && clickKeyLists.length === 2 && clickKeyLists.every((k) => k === JSON.stringify(["h", "i", "k", "n", "s", "v"]))
+        && JSON.stringify(jsClick) === JSON.stringify(["h", "i", "k", "n", "v"])
+        && /emit\("metroClicks", \["run": metroRun, "clicks": clicks\]\)/.test(tick)
+        && /static let micChunkFrames: Int = 1024\n/.test(sc) && /if micPending\.count >= FicusAudioSessionPlugin\.micChunkFrames \{ flushMic\(\) \}/.test(sc),
+        `mic ${micKeys} / JS ${jsMic} · click ${clickKeyLists} / JS ${jsClick}`);
+    }
+    // 【便CX】JS のバンドパス(殻のゲート用)の係数は App.jsx の applyBandpassRBJ と同じ式・同じ順(Web Audio の BiquadFilterNode bandpass と同じ伝達関数)
+    {
+      const appS = codeOf(readS("src/App.jsx"));
+      const rbj = (/function applyBandpassRBJ\(input, sampleRate, centerHz, q\) \{\n([\s\S]*?)\n  const out = new Float32Array/.exec(appS) || [])[1] || "";
+      const nat = (/export function nativeBandpassCoefficients\(sampleRate, centerHz, q\) \{\n([\s\S]*?)\n  return \{ b0, b2, a1, a2 \};/.exec(na) || [])[1] || "";
+      const loopRbj = (/for \(let i = 0; i < input\.length; i\+\+\) \{\n\s*const x0 = input\[i\];\n\s*(const y0 = [^\n]*)\n/.exec(appS) || [])[1];
+      const loopNat = (/for \(let i = 0; i < input\.length; i\+\+\) \{\n\s*const x0 = input\[i\];\n\s*(const y0 = [^\n]*)\n/.exec(na) || [])[1];
+      check("K.14 【便CX】殻のバンドパスの係数と漸化式は applyBandpassRBJ と同じ綴り(同じ値になる。値の比べは src/shell/nativeAudio.test.js)",
+        rbj.length > 0 && rbj.replace(/\s+/g, " ").trim() === nat.replace(/\s+/g, " ").trim() && !!loopRbj && loopRbj === loopNat, `${loopRbj} / ${loopNat}`);
     }
   }
 
@@ -33203,13 +33301,14 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     const lines = app.split("\n");
     check("K.21 App.jsx: shellStartAdsOnce / shellSetAdsHidden を shell/ads.js から静的に import(ads.native.js は読まない)",
       /\nimport \{ shellStartAdsOnce, shellSetAdsHidden \} from "\.\/shell\/ads\.js";\n/.test(app));
-    const iRoute = lines.findIndex((l) => l.trim() === "shellRouteToSpeaker();");
-    const afterRoute = iRoute >= 0 ? lines.slice(iRoute + 1, iRoute + 4).map((l) => l.trim()) : [];
+    // 【便CX】マイクの直後の shellRouteToSpeaker は消えた。streamRef.current = stream; の後の(注記を除いた)3行以内を見る
+    const iRoute = lines.findIndex((l) => l.trim() === "streamRef.current = stream;");
+    const afterRoute = iRoute >= 0 ? lines.slice(iRoute + 1).map((l) => l.trim()).filter((l) => l).slice(0, 3) : [];
     // 【便CG 2026-10-09 統括の裁定】はじめの案内が終わるまで帯(と ATT)を始めない。マイクの試みの直後には「試みが終わった」(setMicTried(true))を立てるだけにし、
     // 帯を始めるのは「試みが終わった」かつ adsAllowed(onboarding.jsx)が立ったときの effect 1か所(マイクの許可の画面と ATT を重ねないのは今までどおり)
-    check("K.21 startListening: マイクが取れた直後(shellRouteToSpeaker の直後 3 行以内)に setMicTried(true);(【便CG】帯はここでは始めない)",
+    check("K.21 startListening: マイクが取れた直後(streamRef.current = stream; の後の3行以内)に setMicTried(true);(【便CG】帯はここでは始めない)",
       iRoute >= 0 && afterRoute.includes("setMicTried(true);") && !afterRoute.includes("shellStartAdsOnce();")
-      && iRoute > lines.findIndex((l) => l.trim() === "streamRef.current = stream;"), JSON.stringify(afterRoute));
+      && lines.filter((l) => l.trim() === "streamRef.current = stream;").length === 1, JSON.stringify(afterRoute));
     check("K.21 startListening: 失敗の枝(getUserMedia failed の直後)にも setMicTried(true);・その次の行は今までどおり setErrorMsg(MIC_DENIED_MSG);",
       /\n      console\.error\("getUserMedia failed:", err\.name, err\.message, err\);\n      setMicTried\(true\);\s*\n      setErrorMsg\(MIC_DENIED_MSG\);\n/.test(app));
     check("K.21 【便CG】shellStartAdsOnce() の呼び手は1か所だけ: マイクの試みが終わった(micTried)かつ adsAllowed(adsOk)の effect",

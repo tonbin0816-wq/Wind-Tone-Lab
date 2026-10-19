@@ -6,49 +6,76 @@ import { createFakeIndexedDb } from "../backup/fakeIndexedDb.testutil.js";
 // 【殻 S2 2026-10-05】アプリ全体(WindToneLabPhaseMode)を描いて、殻の枝の**配線**を確かめる。凍結仕様 shell-spec.md §4.2〜§4.5・§8.1-S2。
 //   ・スリープ防止: 殻は録音の開始で KeepAwake.keepAwake・停止で allowSleep(navigator.wakeLock は使わない)。
 //     Web は navigator.wakeLock.request("screen") だけ(KeepAwake のモジュールは読まれもしない)
-//   ・音の出口: 殻はマイクを取った直後に FicusAudioSession.routeToSpeaker。Web は呼ばない
-//   ・計測タブを離れたとき: 殻はマイクを止める(トラックの stop)。Web は一時停止(enabled = false・stop しない)
+//   ・計測タブを離れたとき: 殻はマイクを止める。Web は一時停止(enabled = false・stop しない)
 //   ・Web 版の記録の移し方の1行: 殻かつ記録 0 件のときだけ、すべての計測の「まだ記録がありません」の下に出る
+// 【便CX 2026-10-19】殻の計測の音(メトロノームとマイク)は殻(AVAudioEngine)が扱う: 殻では getUserMedia を呼ばず、Web の AudioContext を作らず、
+//   navigator.audioSession.type を play-and-record にしない。マイクは殻の micStart / micStop と "micData" の知らせ、メトロノームは metroLoad / metroStart /
+//   metroUpdate / metroStop と "metroClicks" の知らせ(作り物の殻 = 下の vi.mock)。作り物の殻は、マイクを始めたら 40ms ごとに小さな雑音の塊を送る
+//   (本物の殻と同じく、止めるまで送り続ける。送らないと解析が無音と読み、既存の無音の見張りが取り直しを始める)。
 // マイクと Web Audio は作り物(onboardingApp.test.jsx の installFakeMic と同じ形)。IndexedDB も作り物。
-// 【守っていないもの】実機で KeepAwake が画面を点け続けること・出口が実際にスピーカー / イヤホンへ替わること・
-//   止めたマイクが戻ったときに固まらないこと(どれも実機待ち。仕様 §8.4)。メトロノームのゲインの値は policy.test.js と pitch-test が見る。
+// 【守っていないもの】実機で KeepAwake が画面を点け続けること・殻のエンジンが鳴る・取れる・大きく聞こえること・出口がスピーカー / イヤホンへ替わること
+//   (どれも実機待ち。Swift はここでは走らない。綴りは pitch-test K.6 / K.14)。
 // ------------------------------------------------------------------
-const cap = vi.hoisted(() => ({ log: [], factories: [], session: null, native: [], nativeInfo: null, onInStart: null, failStart: false }));
+const cap = vi.hoisted(() => ({
+  log: [], factories: [], session: null, native: [], nativeInfo: null, listeners: {},
+  mic: { queue: [], fail: null, rate: 48000 }, clock: { offsetSec: 1000, sampleRate: 48000, delayMs: 0 }, metroFail: null,
+  feed: { id: null, timer: null, off: false, b64: null },
+}));
 vi.mock("@capacitor-community/keep-awake", () => {
   cap.factories.push("keep-awake");
   return { KeepAwake: { keepAwake: async () => { cap.log.push("keepAwake"); }, allowSleep: async () => { cap.log.push("allowSleep"); } } };
 });
 vi.mock("@capacitor/core", () => {
   cap.factories.push("core");
+  const emit = (ev, d) => { for (const fn of [...(cap.listeners[ev] || [])]) fn(d); };
+  const startFeed = () => {
+    if (cap.feed.timer) return;
+    cap.feed.timer = setInterval(() => {
+      if (!cap.feed.id || cap.feed.off) return;
+      emit("micData", { id: cap.feed.id, pcm: cap.feed.b64, sample: 0, host: performance.now() / 1000 + cap.clock.offsetSec, rate: cap.mic.rate, frames: 1024 });
+    }, 40);
+  };
   // 【便CQ】sessionInfo は診断の板が読む。cap.session が無いときは古い殻のビルド(読み出し口が無い)として拒否する
   return { registerPlugin: (name) => ({
-    routeToSpeaker: async () => { cap.log.push(`${name}.routeToSpeaker`); return {}; },
     sessionInfo: async () => {
       if (!cap.session) throw Object.assign(new Error("not implemented"), { code: "UNIMPLEMENTED" });
       return cap.session;
     },
-    // 【便CT】診断の板の試し口。殻が替えた後のモード(生の値)を返す形の作り物。cap.session があれば mode も書き換える
-    setTestMode: async ({ mode }) => {
-      cap.log.push(`${name}.setTestMode:${mode}`);
-      const raw = `AVAudioSessionMode${mode[0].toUpperCase()}${mode.slice(1)}`;
-      if (cap.session) cap.session = { ...cap.session, mode: raw };
-      return { mode: raw };
+    // 【便CX】殻のマイク。cap.mic.queue があれば呼ばれた順に1つずつ使う({ gate, fail })。fail は拒否の文
+    micStart: async (o) => {
+      cap.log.push(`${name}.micStart`); cap.native.push(["micStart", o]);
+      const q = cap.mic.queue.length ? cap.mic.queue.shift() : null;
+      if (q && q.gate) await q.gate;
+      const fail = q ? q.fail : cap.mic.fail;
+      if (fail) throw Object.assign(new Error(fail), { code: "DENIED" });
+      cap.feed.id = o.id;
+      startFeed();
+      return { sampleRate: cap.mic.rate };
     },
-    // 【便CU】試し口「鳴らし方」: 殻の AVAudioEngine の6つ。呼ばれた順と引数を cap.native に控える。nativeAudioInfo は cap.nativeInfo が無ければ古い殻のビルド
-    nativeClickLoad: async (o) => { cap.native.push(["load", o]); return { frames: {} }; },
-    nativeClickStart: async (o) => { cap.native.push(["start", o]); if (cap.failStart) throw new Error("engine not running"); return { running: true }; },
-    nativeClickStop: async (...a) => { cap.native.push(["stop", ...a]); return {}; },
-    nativeInputStart: async (...a) => { cap.native.push(["inStart", ...a]); cap.onInStart?.(); return { running: true }; },
-    nativeInputStop: async (...a) => { cap.native.push(["inStop", ...a]); return {}; },
-    nativeAudioInfo: async () => {
+    micStop: async (o) => { cap.log.push(`${name}.micStop`); cap.native.push(["micStop", o]); if (cap.feed.id === o.id) cap.feed.id = null; return { stopped: true }; },
+    metroLoad: async (o) => { cap.native.push(["metroLoad", { sampleRate: o.sampleRate }]); return {}; },
+    metroStart: async (o) => { cap.native.push(["metroStart", o]); if (cap.metroFail) throw new Error(cap.metroFail); return { running: true }; },
+    metroUpdate: async (o) => { cap.native.push(["metroUpdate", o]); return { running: true }; },
+    metroStop: async (o) => { cap.native.push(["metroStop", o]); return { stopped: true }; },
+    // host は呼ばれた時の時刻(performance.now() + offsetSec)。答えは delayMs 遅れて返す(往復の片道を不揃いにする)
+    audioClock: async () => {
+      const host = performance.now() / 1000 + cap.clock.offsetSec;
+      if (cap.clock.delayMs) await new Promise((r) => setTimeout(r, cap.clock.delayMs));
+      return { host, sampleRate: cap.clock.sampleRate };
+    },
+    audioInfo: async () => {
       if (!cap.nativeInfo) throw Object.assign(new Error("not implemented"), { code: "UNIMPLEMENTED" });
       return cap.nativeInfo;
+    },
+    addListener: async (ev, fn) => {
+      (cap.listeners[ev] ||= []).push(fn);
+      return { remove: async () => { cap.listeners[ev] = (cap.listeners[ev] || []).filter((f) => f !== fn); } };
     },
   }) };
 });
 
 const W = 375; const H = 812;
-let fake; let host; let mod; let root; let track; let wakeReq; let masterGains = [];
+let fake; let host; let mod; let root; let track; let wakeReq; let masterGains = []; let gum = 0; let offlines = [];
 
 async function loadApp() {
   vi.resetModules();
@@ -81,6 +108,10 @@ async function waitFor(pred, label, deadline = 10000) {
 }
 const nav = (label) => document.querySelector(`button[aria-label="${label}"]`);
 const click = (el) => mod.act(async () => { el.click(); });
+// 【便CX】作り物の殻への呼び出し・知らせ
+const nativeCalls = (n) => cap.native.filter(([k]) => k === n);
+const micStarts = () => nativeCalls("micStart").length;
+const emitNative = (ev, d) => mod.act(async () => { for (const fn of [...(cap.listeners[ev] || [])]) fn(d); });
 
 function installFakeMic() {
   const node = () => ({ connect() {}, disconnect() {} });
@@ -92,7 +123,7 @@ function installFakeMic() {
     getByteTimeDomainData(a) { a.fill(128); },
   });
   // メトロノームの鎖(音源 → フィルタ → 音量 → リミッター → マスター → 出口)も組めるようにする。
-  // マスターの音量 = リミッター(createDynamicsCompressor)の直後に作られた gain。作った順に控える。
+  // マスターの音量 = リミッター(createDynamicsCompressor)の直後に作られた gain。作った順に控える(masterGains = 作った AudioContext の全部)。
   class FakeAudioContext {
     constructor() { this.state = "running"; this.sampleRate = 48000; this._t0 = performance.now(); this.destination = node(); this._afterComp = false; masterGains.push(this); this.master = null; }
     get currentTime() { return (performance.now() - this._t0) / 1000; }
@@ -113,17 +144,41 @@ function installFakeMic() {
     createOscillator() { return { ...node(), frequency: { value: 0, setValueAtTime() {} }, start() {}, stop() {} }; }
   }
   window.AudioContext = FakeAudioContext;
+  // 【便CX】殻のクリックの描き出し(renderMetroClickSamples)の OfflineAudioContext(音の出口を使わない)。助走 0.12 秒の後ろに 0.5 の標本を1つ返す
+  class FakeOfflineAudioContext {
+    constructor(ch, length, sampleRate) { this.length = length; this.sampleRate = sampleRate; this.destination = node(); offlines.push(this); }
+    createBuffer(ch, len) { const d = new Float32Array(len); return { length: len, getChannelData: () => d }; }
+    createBufferSource() { return { ...node(), buffer: null, start() {} }; }
+    createBiquadFilter() { return { ...node(), type: "", frequency: { value: 0 }, Q: { value: 0 } }; }
+    createGain() { return { ...node(), gain: { value: 1, setValueAtTime() {}, exponentialRampToValueAtTime() {} } }; }
+    createDynamicsCompressor() { const p = () => ({ value: 0 }); return { ...node(), threshold: p(), knee: p(), ratio: p(), attack: p(), release: p() }; }
+    startRendering() { const d = new Float32Array(this.length); d[Math.round(this.sampleRate * 0.12)] = 0.5; return Promise.resolve({ getChannelData: () => d }); }
+  }
+  window.OfflineAudioContext = FakeOfflineAudioContext;
   track = { enabled: true, readyState: "live", muted: false, kind: "audio", stopped: 0, stop() { this.stopped++; this.readyState = "ended"; }, getSettings() { return {}; } };
   const stream = { getTracks: () => [track], getAudioTracks: () => [track] };
-  Object.defineProperty(window.navigator, "mediaDevices", { value: { getUserMedia: async () => stream }, configurable: true });
+  Object.defineProperty(window.navigator, "mediaDevices", { value: { getUserMedia: async () => { gum += 1; return stream; } }, configurable: true });
   wakeReq = vi.fn(async () => ({ release() {}, addEventListener() {} }));
   Object.defineProperty(window.navigator, "wakeLock", { value: { request: wakeReq }, configurable: true });
+}
+// 作り物の殻が送る雑音の塊(±1e-3。Float32 × 1024 の base64)
+function noiseChunkB64() {
+  const f = new Float32Array(1024);
+  for (let i = 0; i < f.length; i++) f[i] = (Math.random() - 0.5) * 2e-3;
+  const b = new Uint8Array(f.buffer);
+  let s = "";
+  for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
+  return btoa(s);
 }
 
 beforeEach(() => {
   fake = createFakeIndexedDb();
-  cap.log.length = 0; cap.factories.length = 0; cap.session = null; masterGains = [];
-  cap.native = []; cap.nativeInfo = null; cap.onInStart = null; cap.failStart = false; // 配列ごと作り直す(試験が push を差し替えることがある)
+  cap.log.length = 0; cap.factories.length = 0; cap.session = null; masterGains = []; gum = 0; offlines = [];
+  cap.native = []; cap.nativeInfo = null; cap.listeners = {}; cap.metroFail = null; // 配列ごと作り直す(試験が push を差し替えることがある)
+  cap.mic = { queue: [], fail: null, rate: 48000 };
+  cap.clock = { offsetSec: 1000, sampleRate: 48000, delayMs: 0 };
+  if (cap.feed.timer) clearInterval(cap.feed.timer);
+  cap.feed = { id: null, timer: null, off: false, b64: noiseChunkB64() };
   window.localStorage.clear();
   if (!window.matchMedia) window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
   if (!window.SVGElement.prototype.getComputedTextLength) {
@@ -139,43 +194,49 @@ afterEach(async () => {
   root = null;
   host?.remove();
   document.body.innerHTML = "";
+  if (cap.feed.timer) { clearInterval(cap.feed.timer); cap.feed.timer = null; }
   delete window.Capacitor;
   delete window.AudioContext;
+  delete window.OfflineAudioContext;
   try { delete window.navigator.mediaDevices; } catch { /* */ }
   try { delete window.navigator.wakeLock; } catch { /* */ }
 });
 const asShell = () => { window.Capacitor = { isNativePlatform: () => true, getPlatform: () => "ios" }; };
 const recButton = () => document.querySelector('button[aria-label="録音する"]') || document.querySelector('button[aria-label="録音を停止"]');
 const settle = async () => { for (let i = 0; i < 10; i++) await tick(5); };
+const waitMic = () => waitFor(() => micStarts() >= 1 && cap.feed.id, "殻のマイク");
 
-describe("殻: スリープ防止は KeepAwake・音の出口はマイクの直後・タブを離れたらマイクを止める", () => {
-  it("マイクを取った直後に routeToSpeaker。録音の開始で keepAwake・停止で allowSleep。navigator.wakeLock は使わない", async () => {
+describe("殻: スリープ防止は KeepAwake・マイクは殻(getUserMedia を呼ばない)・タブを離れたらマイクを止める", () => {
+  it("殻のマイクを始める(micStart)。録音の開始で keepAwake・停止で allowSleep。navigator.wakeLock は使わない・getUserMedia も Web の AudioContext も使わない", async () => {
     asShell();
     mod = await loadApp();
     await render();
-    await waitFor(() => cap.log.includes("FicusAudioSession.routeToSpeaker"), "マイクの直後の routeToSpeaker");
-    expect(cap.log).toEqual(["FicusAudioSession.routeToSpeaker"]);
+    await waitMic();
+    expect(cap.log).toEqual(["FicusAudioSession.micStart"]);
     await waitFor(() => document.querySelector('button[aria-label="録音する"]'), "録音のボタン");
     await click(recButton());
     await waitFor(() => cap.log.includes("keepAwake"), "録音の開始で keepAwake");
     expect(document.querySelector('button[aria-label="録音を停止"]')).not.toBe(null);
     await click(recButton());
     await waitFor(() => cap.log.includes("allowSleep"), "録音の停止で allowSleep");
-    expect(cap.log).toEqual(["FicusAudioSession.routeToSpeaker", "keepAwake", "allowSleep"]);
+    expect(cap.log).toEqual(["FicusAudioSession.micStart", "keepAwake", "allowSleep"]);
     expect(wakeReq).not.toHaveBeenCalled();
+    expect([gum, masterGains.length]).toEqual([0, 0]);
   }, 30000);
 
-  it("リードタブへ移るとマイクのトラックを stop する(橙の印が消える)。戻ると取り直してまた出口を寄せる", async () => {
+  it("リードタブへ移ると殻のマイクを止める(同じ id の micStop)。戻ると新しい id で取り直す", async () => {
     asShell();
     mod = await loadApp();
     await render();
-    await waitFor(() => cap.log.includes("FicusAudioSession.routeToSpeaker"), "マイク");
-    expect(track.stopped).toBe(0);
+    await waitMic();
+    const id1 = nativeCalls("micStart")[0][1].id;
     await click(nav("リード"));
     await settle();
-    expect(track.stopped).toBeGreaterThan(0);
+    expect(nativeCalls("micStop").map(([, o]) => o.id)).toEqual([id1]);
     await click(nav("計測"));
-    await waitFor(() => cap.log.filter((x) => x === "FicusAudioSession.routeToSpeaker").length === 2, "戻ると取り直す(完全再取得の道)");
+    await waitFor(() => micStarts() === 2, "戻ると取り直す(完全再取得の道)");
+    expect(nativeCalls("micStart")[1][1].id).not.toBe(id1);
+    expect([gum, masterGains.length]).toEqual([0, 0]);
   }, 30000);
 });
 
@@ -191,7 +252,7 @@ describe("殻: スリープ防止を解く(計測タブを離れたとき・画�
     asShell();
     mod = await loadApp();
     await render();
-    await waitFor(() => cap.log.includes("FicusAudioSession.routeToSpeaker"), "マイク");
+    await waitMic();
     await openMetro();
     await waitFor(() => cap.log.includes("keepAwake"), "鳴らし始めで keepAwake");
     cap.log.length = 0;
@@ -205,7 +266,7 @@ describe("殻: スリープ防止を解く(計測タブを離れたとき・画�
     asShell();
     mod = await loadApp();
     await render();
-    await waitFor(() => document.querySelector('button[aria-label="録音する"]') && cap.log.includes("FicusAudioSession.routeToSpeaker"), "録音のボタン");
+    await waitFor(() => document.querySelector('button[aria-label="録音する"]') && micStarts() >= 1, "録音のボタン");
     await click(recButton());
     await waitFor(() => cap.log.includes("keepAwake"), "録音の開始で keepAwake");
     cap.log.length = 0;
@@ -224,7 +285,7 @@ describe("殻: スリープ防止を解く(計測タブを離れたとき・画�
     asShell();
     mod = await loadApp();
     await render();
-    await waitFor(() => cap.log.includes("FicusAudioSession.routeToSpeaker"), "マイク");
+    await waitMic();
     cap.log.length = 0;
     Object.defineProperty(document, "hidden", { value: true, configurable: true });
     try {
@@ -234,8 +295,8 @@ describe("殻: スリープ防止を解く(計測タブを離れたとき・画�
   }, 30000);
 });
 
-// 【殻 S2 審査】イヤホンを外すと WebKit が AudioContext を止める(suspended)。殻ではメトロノームの ctx を onstatechange で再開する。
-// 計測側の ctx は tick が毎フレーム resume を試みる既存の道で戻る(殻・Web 共通。ここで確かめる)。
+// 【殻 S2 審査】イヤホンを外すと WebKit が AudioContext を止める(suspended)── Web の AudioContext の話。
+// 【便CX】殻はメトロノームを殻で鳴らすので、殻の ctx の onstatechange の手当ては消した(経路の変化は殻が自分で作り直す)。
 describe("経路の変化で AudioContext が止められたとき", () => {
   const startMetroCtx = async () => {
     await waitFor(() => document.querySelector('button[aria-label="メトロノーム"]'), "計測タブ");
@@ -245,38 +306,26 @@ describe("経路の変化で AudioContext が止められたとき", () => {
     await waitFor(() => masterGains.some((c) => c.master), "メトロノームの ctx", 5000);
     return masterGains.find((c) => c.master);
   };
-  it("殻: 鳴らしている間にメトロノームの ctx が suspended になると resume する。止めたあとは再開しない", async () => {
-    asShell();
-    mod = await loadApp();
-    await render();
-    const ctx = await startMetroCtx();
-    expect(typeof ctx.onstatechange).toBe("function");
-    const before = ctx.resumes || 0;
-    ctx.state = "suspended";
-    await mod.act(async () => { ctx.onstatechange(); });
-    expect([ctx.resumes - before, ctx.state]).toEqual([1, "running"]);
-    // 止める(表示 OFF)→ 止められても再開しない
-    await click(document.querySelector('button[aria-label="メトロノームの開始/停止"]'));
-    const after = ctx.resumes;
-    ctx.state = "suspended";
-    await mod.act(async () => { ctx.onstatechange(); });
-    expect([ctx.resumes, ctx.state]).toEqual([after, "suspended"]);
-  }, 30000);
   it("Web: メトロノームの ctx に onstatechange を付けない", async () => {
     mod = await loadApp();
     await render();
     const ctx = await startMetroCtx();
     expect(ctx.onstatechange).toBe(undefined);
   }, 30000);
-  it("殻: 計測側の ctx が suspended にされても、tick が resume して戻る(既存の道)", async () => {
+  it("殻: メトロノームは殻で鳴らす(Web の AudioContext を作らない)・殻の標本化周波数で描いて1回渡し、今の設定の並び(♩=120・4/4 → 0.5 秒ごとに 強 拍 拍 拍)で 0.12 秒後から始める", async () => {
     asShell();
+    cap.clock.sampleRate = 44100;
     mod = await loadApp();
     await render();
-    await waitFor(() => masterGains.some((c) => c.isMic) && cap.log.includes("FicusAudioSession.routeToSpeaker"), "マイク");
-    const mic = masterGains.find((c) => c.isMic && c.state !== "closed");
-    const before = mic.resumes || 0;
-    mic.state = "suspended";
-    await waitFor(() => mic.state === "running" && mic.resumes > before, "tick が resume", 5000);
+    await waitMic();
+    await openMetroShell();
+    await waitFor(() => nativeCalls("metroStart").length === 1, "殻の開始");
+    expect(nativeCalls("metroLoad")).toEqual([["metroLoad", { sampleRate: 44100 }]]);
+    expect(offlines.map((c) => c.sampleRate)).toEqual([44100, 44100, 44100]);
+    const o = nativeCalls("metroStart")[0][1];
+    expect({ stepSec: o.stepSec, kinds: o.kinds, leadSec: o.leadSec }).toEqual({ stepSec: 0.5, kinds: ["accent", "beat", "beat", "beat"], leadSec: 0.12 });
+    expect(masterGains.length).toBe(0);
+    expect(metroToggle().getAttribute("aria-pressed")).toBe("true");
   }, 30000);
 });
 
@@ -290,11 +339,16 @@ describe("メトロノームのマスターゲイン(鳴らして鎖を組ませ
     await waitFor(() => masterGains.some((c) => c.master), "マスターの鎖", 5000);
     return masterGains.find((c) => c.master).master.gain.value;
   };
-  it("殻: 1.0(出口はネイティブでスピーカーへ寄せる)", async () => {
+  it("殻: Web の鎖は組まない(Web の AudioContext を作らない)。殻へ渡すクリックは殻の値 1.0 のマスターで描く(描き出しの ctx の基の値)", async () => {
     asShell();
     mod = await loadApp();
     await render();
-    expect(await startMetro()).toBe(1.0);
+    await waitMic();
+    await openMetroShell();
+    await waitFor(() => nativeCalls("metroLoad").length === 1, "描いて渡す");
+    expect(masterGains.length).toBe(0);
+    expect(offlines.length).toBe(3);
+    expect(offlines.every((c) => c.__metroMasterBase === 1)).toBe(true);
   }, 30000);
   it("Web: 2.6 のまま", async () => {
     mod = await loadApp();
@@ -378,40 +432,70 @@ async function openMetroAndStart() {
   return masterGains.find((c) => c.master);
 }
 
-describe("【便CQ】裏から戻ったときのメトロノーム: 止まった状態で戻り、押せば新しい ctx で鳴る", () => {
-  for (const shell of [true, false]) {
-    it(`${shell ? "殻" : "Web"}: 鳴らしたまま裏へ → 戻ると止まったまま(勝手に予約しない)・古い ctx は閉じる → 押すと新しい ctx を resume して予約する`, async () => {
-      if (shell) asShell();
-      countClickStarts();
-      mod = await loadApp();
-      await render();
-      const ctx1 = await openMetroAndStart();
-      await waitFor(() => (ctx1.started || 0) > 0, "1つ目の ctx で予約される");
+// 【便CX】殻: メトロノームの面を開いて(開いていればそのまま)START を押す。殻は Web の AudioContext を作らないので、殻の metroStart を呼び手が待つ
+async function openMetroShell() {
+  await waitFor(() => document.querySelector('button[aria-label="メトロノーム"]'), "計測タブ");
+  if (!metroToggle()) await click(document.querySelector('button[aria-label="メトロノーム"]'));
+  await waitFor(() => metroToggle(), "メトロノームの面");
+  await click(metroToggle());
+}
+
+describe("【便CQ】裏から戻ったときのメトロノーム: 止まった状態で戻り、押せば新しく鳴る", () => {
+  it("Web: 鳴らしたまま裏へ → 戻ると止まったまま(勝手に予約しない)・古い ctx は閉じる → 押すと新しい ctx を resume して予約する", async () => {
+    countClickStarts();
+    mod = await loadApp();
+    await render();
+    const ctx1 = await openMetroAndStart();
+    await waitFor(() => (ctx1.started || 0) > 0, "1つ目の ctx で予約される");
+    expect(metroToggle().getAttribute("aria-pressed")).toBe("true");
+    try {
+      await setHidden(true);
+      expect(metroToggle().getAttribute("aria-pressed")).toBe("false");   // 隠れたら止める(既存)
+      // 戻ってきた ctx は「running のまま・時計も進む」(WebKit bug 240646 の形)。F-52 の時計の判定では見分けられない
+      expect(ctx1.state).toBe("running");
+      await setHidden(false);
+      expect(ctx1.state).toBe("closed");                                   // 戻ったら閉じて捨てる
+      const startsAtReturn = totalStarts();
+      const ctx1Starts = ctx1.started;
+      await tick(300);
+      expect(metroToggle().getAttribute("aria-pressed")).toBe("false");   // 勝手に鳴り出さない
+      expect(totalStarts()).toBe(startsAtReturn);                          // 戻っただけでは1つも予約しない
+      await click(metroToggle());
+      await waitFor(() => masterGains.some((c) => c !== ctx1 && c.master), "押すと新しい ctx", 5000);
+      const ctx2 = masterGains.find((c) => c !== ctx1 && c.master);
+      expect(ctx2.resumes).toBeGreaterThanOrEqual(1);                     // タップの中で resume を蹴る
+      await waitFor(() => (ctx2.started || 0) > 0, "新しい ctx に予約される", 5000);
+      expect(ctx1.started).toBe(ctx1Starts);                               // 閉じた ctx にはもう予約しない
       expect(metroToggle().getAttribute("aria-pressed")).toBe("true");
-      try {
-        await setHidden(true);
-        expect(metroToggle().getAttribute("aria-pressed")).toBe("false");   // 隠れたら止める(既存)
-        // 戻ってきた ctx は「running のまま・時計も進む」(WebKit bug 240646 の形)。F-52 の時計の判定では見分けられない
-        expect(ctx1.state).toBe("running");
-        await setHidden(false);
-        expect(ctx1.state).toBe("closed");                                   // 戻ったら閉じて捨てる
-        const startsAtReturn = totalStarts();
-        const ctx1Starts = ctx1.started;
-        await tick(300);
-        expect(metroToggle().getAttribute("aria-pressed")).toBe("false");   // 勝手に鳴り出さない
-        expect(totalStarts()).toBe(startsAtReturn);                          // 戻っただけでは1つも予約しない
-        await click(metroToggle());
-        await waitFor(() => masterGains.some((c) => c !== ctx1 && c.master), "押すと新しい ctx", 5000);
-        const ctx2 = masterGains.find((c) => c !== ctx1 && c.master);
-        expect(ctx2.resumes).toBeGreaterThanOrEqual(1);                     // タップの中で resume を蹴る
-        await waitFor(() => (ctx2.started || 0) > 0, "新しい ctx に予約される", 5000);
-        expect(ctx1.started).toBe(ctx1Starts);                               // 閉じた ctx にはもう予約しない
-        expect(metroToggle().getAttribute("aria-pressed")).toBe("true");
-      } finally { delete document.hidden; }
-    }, 30000);
-  }
-  it("ページのキャッシュから戻った(pageshow・persisted)ときも止まっている ctx を閉じる。persisted でない pageshow では閉じない", async () => {
+    } finally { delete document.hidden; }
+  }, 30000);
+  // 【便CX】殻は殻で鳴らす: 隠れたら殻も止める(metroStop)・戻っただけでは鳴らさない・作り直した面で押すと新しい run で殻を始める
+  it("殻: 鳴らしたまま裏へ → 隠れたら殻も止める(今の run の metroStop)→ 戻ると止まったまま(勝手に metroStart しない)→ 押すと新しい run で殻を始める", async () => {
     asShell();
+    mod = await loadApp();
+    await render();
+    await waitMic();
+    await openMetroShell();
+    await waitFor(() => nativeCalls("metroStart").length === 1, "1回目");
+    const run1 = nativeCalls("metroStart")[0][1].run;
+    try {
+      await setHidden(true);
+      expect(metroToggle().getAttribute("aria-pressed")).toBe("false");
+      await waitFor(() => nativeCalls("metroStop").some(([, o]) => o.run === run1), "隠れたら殻も止める");
+      await setHidden(false);
+      await tick(300);
+      expect(nativeCalls("metroStart").length).toBe(1);                   // 勝手に鳴り出さない
+      await waitFor(() => metroToggle(), "作り直した面");
+      expect(metroToggle().getAttribute("aria-pressed")).toBe("false");
+      await click(metroToggle());
+      await waitFor(() => nativeCalls("metroStart").length === 2, "押すと殻で鳴らす");
+      expect(nativeCalls("metroStart")[1][1].run).not.toBe(run1);
+      expect(metroToggle().getAttribute("aria-pressed")).toBe("true");
+      expect([gum, masterGains.length]).toEqual([0, 0]);
+    } finally { delete document.hidden; }
+  }, 30000);
+  // (【便CX】次の2つは止まっている Web の AudioContext を捨てる dropIdleMetroCtx の検査。殻は Web の AudioContext を作らなくなったので Web で見る)
+  it("Web: ページのキャッシュから戻った(pageshow・persisted)ときも止まっている ctx を閉じる。persisted でない pageshow では閉じない", async () => {
     mod = await loadApp();
     await render();
     const ctx1 = await openMetroAndStart();
@@ -426,8 +510,7 @@ describe("【便CQ】裏から戻ったときのメトロノーム: 止まった
     await click(metroToggle());
     await waitFor(() => masterGains.some((c) => c !== ctx1 && c.master), "押すと新しい ctx", 5000);
   }, 30000);
-  it("鳴らしている ctx には触れない(戻りの知らせだけが来ても、鳴っている ctx を閉じない)", async () => {
-    asShell();
+  it("Web: 鳴らしている ctx には触れない(戻りの知らせだけが来ても、鳴っている ctx を閉じない)", async () => {
     mod = await loadApp();
     await render();
     const ctx1 = await openMetroAndStart();
@@ -439,60 +522,42 @@ describe("【便CQ】裏から戻ったときのメトロノーム: 止まった
       expect(metroToggle().getAttribute("aria-pressed")).toBe("true");
     } finally { delete document.hidden; }
   }, 30000);
+  it("殻: 鳴らしている間に「見えている」の知らせだけが来ても止めない(殻へ metroStop を送らない)", async () => {
+    asShell();
+    mod = await loadApp();
+    await render();
+    await waitMic();
+    await openMetroShell();
+    await waitFor(() => nativeCalls("metroStart").length === 1, "鳴らす");
+    const restored = new Event("pageshow"); restored.persisted = true;
+    await mod.act(async () => { window.dispatchEvent(restored); });
+    try {
+      await setHidden(false);
+      await settle();
+      expect(nativeCalls("metroStop").length).toBe(0);
+      expect(metroToggle().getAttribute("aria-pressed")).toBe("true");
+    } finally { delete document.hidden; }
+  }, 30000);
 });
 
-describe("【便CQ】マイクが入っているときのメトロノームの音量(殻)", () => {
-  // メトロノームの ctx の resume だけを手で解決できるようにする(マイクの ctx は描画の時点で running なので resume を呼ばない)
-  let pending = [];
-  const deferMetroResume = () => {
-    const P = window.AudioContext.prototype;
-    const orig = P.resume;
-    P.resume = function () {
-      if (this.isMic) return orig.call(this);
-      this.resumes = (this.resumes || 0) + 1;
-      this.state = "suspended";   // 解決するまでは鳴っていない(本物の resume 待ちと同じ)
-      return new Promise((r) => { pending.push({ ctx: this, run: () => { if (this.state !== "closed") this.state = "running"; r(); } }); });
-    };
-  };
-  const routes = () => cap.log.filter((x) => x === "FicusAudioSession.routeToSpeaker").length;
-  it("鳴らし始めで1回、鳴り始めた(resume が解決した)後にもう1回 routeToSpeaker を呼ぶ", async () => {
-    asShell();
-    pending = [];
-    deferMetroResume();
-    mod = await loadApp();
-    await render();
-    await waitFor(() => routes() === 1, "マイクの直後");
-    await openMetroAndStart();
-    await waitFor(() => routes() === 2, "鳴らし始め");
-    await settle();
-    expect(routes()).toBe(2);                                               // まだ鳴り始めていない間は呼ばない
-    expect(pending.length).toBeGreaterThan(0);
-    await mod.act(async () => { pending.splice(0).forEach((p) => p.run()); });
-    await waitFor(() => routes() === 3, "鳴り始めた後");
-  }, 30000);
-  it("鳴り始める前に止めたら、あとで resume が解決しても呼ばない", async () => {
-    asShell();
-    pending = [];
-    deferMetroResume();
-    mod = await loadApp();
-    await render();
-    await waitFor(() => routes() === 1, "マイクの直後");
-    await openMetroAndStart();
-    await waitFor(() => routes() === 2, "鳴らし始め");
-    await click(metroToggle());                                              // 止める
-    await mod.act(async () => { pending.splice(0).forEach((p) => p.run()); });
-    await settle();
-    expect(routes()).toBe(2);
-  }, 30000);
-  it("getUserMedia に渡す制約は音声処理を3つとも切る(echoCancellation / noiseSuppression / autoGainControl = false)", async () => {
+// (【便CX】【便CQ】の「鳴り始めた後にもう一度 routeToSpeaker」の検査は、routeToSpeaker ごと消した。殻はもう WebKit で鳴らさない)
+describe("【便CQ】マイクの制約", () => {
+  it("Web: getUserMedia に渡す制約は音声処理を3つとも切る(echoCancellation / noiseSuppression / autoGainControl = false)", async () => {
     const calls = [];
     const stream = { getTracks: () => [track], getAudioTracks: () => [track] };
     Object.defineProperty(window.navigator, "mediaDevices", { value: { getUserMedia: async (c) => { calls.push(c); return stream; } }, configurable: true });
-    asShell();
     mod = await loadApp();
     await render();
     await waitFor(() => calls.length > 0, "getUserMedia");
     expect(calls[0]).toEqual({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+  }, 30000);
+  it("殻: getUserMedia を呼ばない(殻のタップは音声処理を通さない = 板の micSettings は ec / ns / agc とも no)", async () => {
+    asShell();
+    mod = await loadApp();
+    await render();
+    await waitMic();
+    await settle();
+    expect(gum).toBe(0);
   }, 30000);
 });
 
@@ -525,88 +590,49 @@ function countGetUserMedia() {
   return box;
 }
 
-describe("【便CQ 差し戻し】鳴り始めた後の routeToSpeaker は、いまの ctx のときだけ(R4)", () => {
-  let pending = [];
-  const deferMetroResume = () => {
-    const P = window.AudioContext.prototype;
-    const orig = P.resume;
-    P.resume = function () {
-      if (this.isMic) return orig.call(this);
-      this.resumes = (this.resumes || 0) + 1;
-      this.state = "suspended";
-      return new Promise((r) => { pending.push({ ctx: this, run: () => { if (this.state !== "closed") this.state = "running"; r(); } }); });
-    };
-  };
-  const routes = () => cap.log.filter((x) => x === "FicusAudioSession.routeToSpeaker").length;
-  it("鳴り始める前に止めて押し直し、別の ctx に替わったあとで古い ctx の resume が解決しても呼ばない。新しい ctx の解決では呼ぶ", async () => {
-    asShell();
-    pending = [];
-    deferMetroResume();
+// (【便CX】R4「鳴り始めた後の routeToSpeaker は、いまの ctx のときだけ」の検査は、routeToSpeaker ごと消した)
+
+describe("【便CQ 差し戻し】戻ったときに捨てた ctx を二度閉じない(R5: ref を空にする)", () => {
+  // 【便CX】殻は Web の AudioContext を作らなくなったので Web で見る(殻の時計の口は殻の metroStop の検査が見る)
+  it("Web: 鳴らす → 裏 → 戻る → 押す で、古い ctx の close はちょうど1回・閉じた ctx を閉じ直さない", async () => {
+    countCloses();
     mod = await loadApp();
     await render();
-    await waitFor(() => routes() === 1, "マイクの直後");
     const ctx1 = await openMetroAndStart();
-    await waitFor(() => routes() === 2, "1回目の鳴らし始め");
-    await click(metroToggle());                                              // 止める
-    await click(metroToggle());                                              // 押し直す(ctx1 は suspended なので作り直す)
-    await waitFor(() => routes() === 3, "2回目の鳴らし始め");
-    await waitFor(() => masterGains.some((c) => c !== ctx1 && c.master), "2つ目の ctx", 5000);
-    const ctx2 = masterGains.find((c) => c !== ctx1 && c.master);
-    expect(ctx2).toBeTruthy();
-    expect(metroToggle().getAttribute("aria-pressed")).toBe("true");
-    const p1 = pending.filter((p) => p.ctx === ctx1);
-    const p2 = pending.filter((p) => p.ctx === ctx2);
-    expect([p1.length, p2.length]).toEqual([1, 1]);
-    await mod.act(async () => { p1.forEach((p) => p.run()); });
-    await settle();
-    expect(routes()).toBe(3);                                               // 古い ctx の解決では呼ばない
-    await mod.act(async () => { p2.forEach((p) => p.run()); });
-    await waitFor(() => routes() === 4, "新しい ctx の解決で呼ぶ");
+    try {
+      await setHidden(true);
+      await setHidden(false);
+      await settle();
+      await waitFor(() => metroToggle(), "メトロノームの面");
+      await click(metroToggle());
+      await waitFor(() => masterGains.some((c) => c !== ctx1 && c.master), "押すと新しい ctx", 5000);
+      await settle();
+      expect(ctx1.closes).toBe(1);
+      expect(window.__closedTwice).toBe(0);
+    } finally { delete document.hidden; }
   }, 30000);
 });
 
-describe("【便CQ 差し戻し】戻ったときに捨てた ctx を二度閉じない(R5: ref を空にする)", () => {
-  for (const shell of [true, false]) {
-    it(`${shell ? "殻" : "Web"}: 鳴らす → 裏 → 戻る → 押す で、古い ctx の close はちょうど1回・閉じた ctx を閉じ直さない`, async () => {
-      if (shell) asShell();
-      countCloses();
-      mod = await loadApp();
-      await render();
-      const ctx1 = await openMetroAndStart();
-      try {
-        await setHidden(true);
-        await setHidden(false);
-        await settle();
-        await waitFor(() => metroToggle(), "メトロノームの面(殻は作り直したあと)");
-        await click(metroToggle());
-        await waitFor(() => masterGains.some((c) => c !== ctx1 && c.master), "押すと新しい ctx", 5000);
-        await settle();
-        expect(ctx1.closes).toBe(1);
-        expect(window.__closedTwice).toBe(0);
-      } finally { delete document.hidden; }
-    }, 30000);
-  }
-});
-
 describe("【便CQ 統括の決定A】裏から戻ったとき: 殻は計測タブの中身を作り直す(タブを離れて戻るのと同じ)・マイクは1回だけ取り直す", () => {
-  it("殻: 戻ると MeasureView を作り直す(面のボタンが別の要素になる)・隠れたらトラックを止め、戻ったら getUserMedia はちょうど1回", async () => {
+  it("殻: 戻ると MeasureView を作り直す(面のボタンが別の要素になる)・隠れたら殻のマイクを止め、戻ったら micStart はちょうど1回", async () => {
     asShell();
-    const gum = countGetUserMedia();
     mod = await loadApp();
     await render();
-    await openMetroAndStart();
+    await waitMic();
+    await openMetroShell();
+    await waitFor(() => nativeCalls("metroStart").length === 1, "鳴らす");
     await click(metroToggle());                                              // 止めておく
     const before = metroToggle();
-    const live = track;
-    gum.n = 0;
+    const n0 = micStarts();
+    const id = nativeCalls("micStart").at(-1)[1].id;
     try {
       await setHidden(true);
-      expect(live.readyState).toBe("ended");                                 // 隠れたらマイクを止める(既存)
+      await waitFor(() => nativeCalls("micStop").some(([, o]) => o.id === id), "隠れたらマイクを止める(既存)");
       await setHidden(false);
       await waitFor(() => metroToggle() && metroToggle() !== before, "作り直された面", 5000);
-      await waitFor(() => gum.n >= 1, "戻ったら取り直す");
+      await waitFor(() => micStarts() >= n0 + 1, "戻ったら取り直す");
       await tick(300);
-      expect(gum.n).toBe(1);                                                // 二重に取り直さない
+      expect(micStarts()).toBe(n0 + 1);                                     // 二重に取り直さない
       expect(metroToggle().getAttribute("aria-pressed")).toBe("false");     // 勝手に鳴らない
     } finally { delete document.hidden; }
   }, 30000);
@@ -629,23 +655,22 @@ describe("【便CQ 統括の決定A】裏から戻ったとき: 殻は計測タ�
   }, 30000);
   it("殻: タブを離れて戻る道と、裏から戻る道で、マイクの取り直しの回数が同じ(どちらも1回)", async () => {
     asShell();
-    const gum = countGetUserMedia();
     mod = await loadApp();
     await render();
-    await waitFor(() => cap.log.includes("FicusAudioSession.routeToSpeaker"), "マイク");
-    gum.n = 0;
+    await waitMic();
+    const n0 = micStarts();
     await click(nav("リード"));
     await settle();
     await click(nav("計測"));
-    await waitFor(() => gum.n >= 1, "タブで戻る");
+    await waitFor(() => micStarts() >= n0 + 1, "タブで戻る");
     await tick(300);
-    const byTab = gum.n;
+    const byTab = micStarts() - n0;
     try {
       await setHidden(true);
       await setHidden(false);
-      await waitFor(() => gum.n >= byTab + 1, "裏から戻る");
+      await waitFor(() => micStarts() >= n0 + byTab + 1, "裏から戻る");
       await tick(300);
-      expect([byTab, gum.n - byTab]).toEqual([1, 1]);
+      expect([byTab, micStarts() - n0 - byTab]).toEqual([1, 1]);
     } finally { delete document.hidden; }
   }, 30000);
 });
@@ -662,17 +687,23 @@ describe("【便CQ 統括の決定B】音の診断の板(計測タブで下部�
   };
   const panel = () => document.querySelector("[data-audio-diag]");
   const val = (k) => document.querySelector(`[data-audio-diag] [data-diag-key="${k}"]`)?.textContent;
-  it("殻: 長押しで開き、音のセッション(category・mode・options・policy・out・outputVolume)・メトロノーム・戻り・マイクを出す。閉じるで消える", async () => {
+  it("殻: 長押しで開き、音のセッション・メトロノーム(殻の時計)・戻り・殻のマイク・殻のエンジン・予約・入力・時計・描いたクリックを出す。閉じるで消える", async () => {
     asShell();
     cap.session = {
-      category: "AVAudioSessionCategoryPlayAndRecord", mode: "AVAudioSessionModeVideoChat",
-      options: 0x4 | 0x8 | 0x20 | 0x40, routeSharingPolicy: 1,
-      outputs: ["Speaker"], inputs: ["MicrophoneBuiltIn"], outputVolume: 0.8125, otherAudioPlaying: false,
+      category: "AVAudioSessionCategoryPlayAndRecord", mode: "AVAudioSessionModeDefault",
+      options: 0x8 | 0x20, routeSharingPolicy: 0,
+      outputs: ["Speaker"], inputs: ["MicrophoneBuiltIn"], outputVolume: 0.7, otherAudioPlaying: false,
     };
-    countGetUserMedia();
+    cap.nativeInfo = {
+      engineRunning: true, activated: true, micOn: true, metroOn: true, configChanges: 2, rebuilds: 1, lastError: "configurationChange",
+      scheduled: 12, played: 10, playing: true, lastRender: true, tick: "ok", chunks: 33, inputRate: 48000, inputDb: -45.8,
+      via: "sink", cbFrames: 256, cbMax: 256, sendMs: 21.4, sendMaxMs: 22.1, overruns: 0,
+    };
     mod = await loadApp();
     await render();
-    await openMetroAndStart();
+    await waitMic();
+    await openMetroShell();
+    await waitFor(() => nativeCalls("metroStart").length === 1, "鳴らす");
     try {
       await setHidden(true);
       await tick(50);
@@ -680,19 +711,24 @@ describe("【便CQ 統括の決定B】音の診断の板(計測タブで下部�
     } finally { delete document.hidden; }
     await waitFor(() => metroToggle(), "メトロノームの面");
     await click(metroToggle());                                              // 戻ったあとの START
+    await waitFor(() => nativeCalls("metroStart").length === 2, "戻ったあとの殻の開始");
     expect(panel()).toBe(null);
     await press(500);
-    await waitFor(() => panel() && val("category") === "PlayAndRecord", "板と音のセッション", 5000);
-    expect(val("mode")).toBe("VideoChat");
-    expect(val("options")).toBe("0x6c allowBluetoothHFP defaultToSpeaker allowBluetoothA2DP allowAirPlay");
-    expect(val("policy")).toBe("longFormAudio(1)");
-    expect(val("out")).toBe("Speaker");
-    expect(val("outputVolume")).toBe("0.81");
-    expect(val("metro")).toMatch(/^on=yes ctx=running t=\d+\.\d{3}$/);
-    expect(val("lastStart")).toMatch(/rebuilt=yes prev=none stalled=no$/);  // 戻ったときに捨てたので、押したときは新しく作った
+    await waitFor(() => panel() && val("category") === "PlayAndRecord" && /^running=/.test(val("nativeEngine") || ""), "板と音のセッション", 5000);
+    expect(val("mode")).toBe("Default");
+    expect(val("options")).toBe("0x28 defaultToSpeaker allowBluetoothA2DP");
+    expect(val("outputVolume")).toBe("0.70");
+    expect(val("metro")).toMatch(/^on=yes ctx=running t=\d+\.\d{3} phase=-?\d+\.\d{2}$/);
+    expect(val("lastStart")).toMatch(/rebuilt=yes prev=none stalled=no$/);  // 作り直した面で押したので、殻の時計の口も新しい
     expect(val("lastReturn")).toMatch(/ bg=\d+\.\ds #1$/);
     expect(val("mic")).toMatch(/^ctx=running track=live muted=no enabled=yes/);
     expect(val("micSettings")).toBe("ec=no ns=no agc=no");
+    expect(val("micTrack")).toBe("label=native:builtInMic id=native");
+    expect(val("nativeEngine")).toBe("running=yes act=yes mic=yes metro=yes cfg=2 rb=1 err=configurationChange");
+    expect(val("nativeSched")).toBe("sched=12 played=10 play=yes lrt=yes tick=ok");
+    expect(val("nativeIn")).toMatch(/^-45\.8 dBFS @48000 via=sink cb=256\/256 send=21\/22ms chunks=33 js=\d+ age=\d+ms$/);
+    expect(val("nativeClock")).toMatch(/^±\d+\.\dms rtt=\d+\.\dms syncs=\d+$/);
+    expect(val("nativeBuf")).toBe("0.500/0.500/0.500 @48000");
     await click([...panel().querySelectorAll("button")].find((b) => b.textContent === "閉じる"));
     expect(panel()).toBe(null);
   }, 30000);
@@ -700,7 +736,7 @@ describe("【便CQ 統括の決定B】音の診断の板(計測タブで下部�
     asShell();
     mod = await loadApp();
     await render();
-    await waitFor(() => cap.log.includes("FicusAudioSession.routeToSpeaker"), "マイク");
+    await waitMic();
     await press(100);
     await settle();
     expect(panel()).toBe(null);
@@ -710,14 +746,14 @@ describe("【便CQ 統括の決定B】音の診断の板(計測タブで下部�
     await settle();
     expect(panel()).toBe(null);
   }, 30000);
-  it("殻のビルドが古い(sessionInfo が無い)と「要ビルド」", async () => {
+  it("殻のビルドが古い(sessionInfo・audioInfo が無い)と「要ビルド」", async () => {
     asShell();
     cap.session = null;
     mod = await loadApp();
     await render();
-    await waitFor(() => cap.log.includes("FicusAudioSession.routeToSpeaker"), "マイク");
+    await waitMic();
     await press(500);
-    await waitFor(() => panel() && /要ビルド/.test(val("session") || ""), "要ビルド", 5000);
+    await waitFor(() => panel() && /要ビルド/.test(val("session") || "") && /要ビルド/.test(val("nativeEngine") || ""), "要ビルド", 5000);
   }, 30000);
   it("Web: session は n/a (web)", async () => {
     mod = await loadApp();
@@ -730,14 +766,13 @@ describe("【便CQ 統括の決定B】音の診断の板(計測タブで下部�
 
 // ------------------------------------------------------------------
 // 【便CT 2026-10-13】板の試し口(本人の実機「マイクがあると、まだ小さい」の聞き比べ)。
-// 【守っているもの】作り物の殻と Web Audio の上で: mode のボタンが殻の setTestMode へその名前で届き、板の testMode と mode の行に出る /
-//   gain のボタンがメトロノームのマスターに 基の値(殻 1.0・Web 2.6)× 倍率 を入れ、止めて鳴らし直しても残る / どちらも保存しない
-//   (kv と localStorage が1文字も変わらない・アプリを読み直すと mode は default・倍率は x1)/ 直近のクリックのピークの行が数を出す /
-//   Web では mode は n/a。
-// 【守っていないもの】実機でモードが本当に替わること・どのモードで大きく聞こえるか・ピークの値が実機の出口と同じか(どれも実機待ち。
-//   Swift はここでは走らない。綴りは pitch-test K.6)。
+// 【便CX 2026-10-19】mode(殻のセッションのモード)と「鳴らし方」は消した。gain(Web のメトロノームのマスターの倍率)と直近のクリックのピークは Web だけに残した
+//   (殻のクリックは殻で鳴るので Web のマスターは届かない・殻のクリックの音は変えない決まり)。
+// 【守っているもの】作り物の Web Audio の上で: gain のボタンがメトロノームのマスターに 基の値 2.6 × 倍率 を入れ、止めて鳴らし直しても残る / 保存しない
+//   (kv と localStorage が1文字も変わらない・アプリを読み直すと x1)/ 直近のクリックのピークの行が数を出す / 閉じたら戻し・片付け / 殻では試し口も行も出さない。
+// 【守っていないもの】ピークの値が実機の出口と同じか(実機待ち)。
 // ------------------------------------------------------------------
-describe("【便CT】診断の板の試し口(mode・gain・直近のクリックのピーク)", () => {
+describe("【便CT】診断の板の試し口(gain・直近のクリックのピーク)── 【便CX】Web だけ", () => {
   const press = async (ms) => {
     const btn = nav("計測");
     await mod.act(async () => { btn.dispatchEvent(new Event("pointerdown", { bubbles: true })); });
@@ -749,74 +784,62 @@ describe("【便CT】診断の板の試し口(mode・gain・直近のクリッ�
   };
   const panel = () => document.querySelector("[data-audio-diag]");
   const val = (k) => document.querySelector(`[data-audio-diag] [data-diag-key="${k}"]`)?.textContent;
-  const modeBtn = (m) => document.querySelector(`[data-audio-diag] [data-diag-mode="${m}"]`);
   const gainBtn = (x) => document.querySelector(`[data-audio-diag] [data-diag-gain="${x}"]`);
   const saved = () => JSON.stringify({
     kv: [...(fake._peek("windToneLabDB", "kv")?.entries() ?? [])],
     ls: Object.keys(window.localStorage).sort().map((k) => [k, window.localStorage.getItem(k)]),
   });
-  const SESSION = {
-    category: "AVAudioSessionCategoryPlayAndRecord", mode: "AVAudioSessionModeDefault", options: 0x28, routeSharingPolicy: 0,
-    outputs: ["Speaker"], inputs: ["MicrophoneBuiltIn"], outputVolume: 0.3, otherAudioPlaying: false,
-  };
-  it("殻: mode は setTestMode へ届き板に出る・gain は マスター = 1.0 × 倍率(鳴らし直しても残る)・どちらも保存しない・読み直すと default / x1", async () => {
-    asShell();
-    cap.session = { ...SESSION };
+  it("Web: gain は マスター = 2.6 × 倍率(鳴らす前に選んでも新しく組む鎖に当たる・鳴らし直しても残る)・保存しない・読み直すと x1・ピークの行・mode の試し口は無い", async () => {
     mod = await loadApp();
     await render();
-    const ctx = await openMetroAndStart();
-    expect(ctx.master.gain.value).toBe(1);
+    await waitFor(() => document.querySelector('button[aria-label="メトロノーム"]'), "計測タブ");
     await press(500);
-    await waitFor(() => panel() && val("mode") === "Default", "板", 5000);
-    expect(val("testMode")).toBe("default → —");
+    await waitFor(() => panel() && val("session") === "n/a (web)", "板", 5000);
     expect(val("metroGain")).toBe("x1");
+    expect(val("testMode")).toBe(undefined);
+    expect(panel().querySelector("[data-diag-mode]")).toBe(null);
+    // 鳴らす前に x1.6 を選ぶ → START で作る ctx の鎖(getMetroMasterInput)が 2.6 × 1.6 で組まれる
+    await click(gainBtn("1.6"));
+    const ctx = await openMetroAndStart();
+    expect(ctx.master.gain.value).toBeCloseTo(2.6 * 1.6, 12);
     await settle();
-    const before = saved();
+    const before = saved(); // 面を開いた・鳴らした記録(既存)の後で控え、試し口の操作で1文字も変わらないことを見る
+    await click(gainBtn("1"));
+    expect(ctx.master.gain.value).toBeCloseTo(2.6, 12);
     await click(gainBtn("1.3"));
-    expect(ctx.master.gain.value).toBeCloseTo(1.3, 12);
+    expect(ctx.master.gain.value).toBeCloseTo(2.6 * 1.3, 12);
     await waitFor(() => val("metroGain") === "x1.3", "倍率の行", 3000);
-    await click(modeBtn("measurement"));
-    await waitFor(() => val("testMode") === "measurement → Measurement" && val("mode") === "Measurement", "モードの行", 3000);
-    expect(cap.log.filter((x) => x.startsWith("FicusAudioSession.setTestMode"))).toEqual(["FicusAudioSession.setTestMode:measurement"]);
     // 直近のクリックのピーク(作り物の分析は ±0.001 の雑音を返す)
     await waitFor(() => /^\d\.\d{3} max=\d\.\d{3}$/.test(val("clickPeak") || ""), "ピークの行", 3000);
-    // 止めて鳴らし直しても倍率は残る(同じ ctx でも、作り直した ctx でも)
+    // 止めて鳴らし直しても倍率は残る
     await click(metroToggle());
     await click(metroToggle());
     await settle();
     const now = masterGains.filter((c) => c.master).at(-1);
-    expect(now.master.gain.value).toBeCloseTo(1.3, 12);
+    expect(now.master.gain.value).toBeCloseTo(2.6 * 1.3, 12);
     await settle();
     expect(saved()).toBe(before);
-    // 読み直す(アプリを開き直す)と default / x1
+    // 読み直す(アプリを開き直す)と x1
     await mod.act(async () => root.unmount());
     host.remove();
     masterGains = [];
-    cap.session = { ...SESSION };
     mod = await loadApp();
     await render();
-    // 面の開閉は保存される(kv の showMetroPanel)ので、開いていればそのまま鳴らす
     await waitFor(() => document.querySelector('button[aria-label="メトロノーム"]'), "計測タブ");
     await settle();
     if (!metroToggle()) await click(document.querySelector('button[aria-label="メトロノーム"]'));
     await waitFor(() => metroToggle(), "メトロノームの面");
     await click(metroToggle());
     await waitFor(() => masterGains.some((c) => c.master), "読み直した ctx", 5000);
-    const ctx2 = masterGains.find((c) => c.master);
-    expect(ctx2.master.gain.value).toBe(1);
+    expect(masterGains.find((c) => c.master).master.gain.value).toBe(2.6);
     await press(500);
-    await waitFor(() => panel() && val("mode") === "Default", "読み直した板", 5000);
-    expect(val("testMode")).toBe("default → —");
-    expect(val("metroGain")).toBe("x1");
+    await waitFor(() => panel() && val("metroGain") === "x1", "読み直した板", 5000);
   }, 40000);
-  // 【便CT 審査 統括の裁定】板を閉じたら試し口を元に戻す(gain ×1・殻の mode default)・ピークの読み取り(20ms)を止める・分析の節点を外す
-  it("殻: 閉じると gain は x1・mode は default に戻り、ピークの読み取りが止まり、分析の節点がマスターから外れる", async () => {
-    asShell();
-    cap.session = { ...SESSION };
+  // 【便CT 審査 統括の裁定】板を閉じたら試し口を元に戻す(gain ×1)・ピークの読み取り(20ms)を止める・分析の節点を外す
+  it("Web: 閉じると gain は x1 に戻り、ピークの読み取りが止まり、分析の節点がマスターから外れる", async () => {
     mod = await loadApp();
     await render();
     const ctx = await openMetroAndStart();
-    // 分析の節点の読み取りの回数と、マスターからの付け外しを控える
     let reads = 0;
     const taps = [];
     const disc = [];
@@ -830,470 +853,265 @@ describe("【便CT】診断の板の試し口(mode・gain・直近のクリッ�
     };
     ctx.master.disconnect = (n) => { disc.push(n); };
     await press(500);
-    await waitFor(() => panel() && val("mode") === "Default", "板", 5000);
+    await waitFor(() => panel() && val("session") === "n/a (web)", "板", 5000);
     await waitFor(() => reads > 0, "ピークを読み始める", 3000);
     await click(gainBtn("1.6"));
-    await click(modeBtn("measurement"));
-    await waitFor(() => val("testMode") === "measurement → Measurement", "モードの行", 3000);
-    expect(ctx.master.gain.value).toBeCloseTo(1.6, 12);
+    expect(ctx.master.gain.value).toBeCloseTo(2.6 * 1.6, 12);
     await click([...panel().querySelectorAll("button")].find((b) => b.textContent === "閉じる"));
     expect(panel()).toBe(null);
     await settle();
-    // 戻し: gain は基の値 × 1、殻へ default を頼む
-    expect(ctx.master.gain.value).toBe(1);
-    expect(cap.log.filter((x) => x.startsWith("FicusAudioSession.setTestMode")).at(-1)).toBe("FicusAudioSession.setTestMode:default");
-    // 片付け: 付けた分析の節点はマスターから外れ、読み取りは止まる
+    expect(ctx.master.gain.value).toBeCloseTo(2.6, 12);
     expect(taps.length).toBeGreaterThan(0);
     expect(taps.every((a) => disc.includes(a))).toBe(true);
     expect(ctx.__metroPeakTap ?? null).toBe(null);
     const atClose = reads;
     await tick(300);
     expect(reads).toBe(atClose);
-    // 開き直すと x1 / default のまま
     await press(500);
-    await waitFor(() => panel() && val("testMode") === "default → Default" && val("metroGain") === "x1", "開き直した板", 5000);
+    await waitFor(() => panel() && val("metroGain") === "x1", "開き直した板", 5000);
   }, 40000);
-  it("Web: mode は n/a (web)(殻を呼ばない)・gain は マスター = 2.6 × 倍率(鳴らす前に選んでも、新しく組む鎖に当たる)", async () => {
+  it("殻: 試し口(gain・mode・鳴らし方)のボタンも metroGain / clickPeak / testMode / playback の行も出さない", async () => {
+    asShell();
+    cap.session = { category: "AVAudioSessionCategoryPlayAndRecord", mode: "AVAudioSessionModeDefault", options: 0x28, routeSharingPolicy: 0, outputs: ["Speaker"], inputs: ["MicrophoneBuiltIn"], outputVolume: 0.3, otherAudioPlaying: false };
     mod = await loadApp();
     await render();
-    await waitFor(() => document.querySelector('button[aria-label="メトロノーム"]'), "計測タブ");
+    await waitMic();
     await press(500);
-    await waitFor(() => panel() && val("session") === "n/a (web)", "板", 5000);
-    await click(modeBtn("videoRecording"));
-    await waitFor(() => val("testMode") === "videoRecording → n/a (web)", "Web のモードの行", 3000);
-    // 鳴らす前に x1.6 を選ぶ → START で作る ctx の鎖(getMetroMasterInput)が 2.6 × 1.6 で組まれる
-    await click(gainBtn("1.6"));
-    const ctx = await openMetroAndStart();
-    expect(ctx.master.gain.value).toBeCloseTo(2.6 * 1.6, 12);
-    await click(gainBtn("1"));
-    expect(ctx.master.gain.value).toBeCloseTo(2.6, 12);
-    await click(gainBtn("1.3"));
-    expect(ctx.master.gain.value).toBeCloseTo(2.6 * 1.3, 12);
-    expect(cap.log.some((x) => x.includes("setTestMode"))).toBe(false);
+    await waitFor(() => panel() && val("category") === "PlayAndRecord", "板", 5000);
+    expect(panel().querySelectorAll("[data-diag-gain], [data-diag-mode], [data-diag-playback]").length).toBe(0);
+    for (const k of ["metroGain", "clickPeak", "testMode", "playback", "webCtx"]) expect(val(k)).toBe(undefined);
+    expect(val("nativeEngine")).toBeTruthy();
   }, 30000);
 });
 
 // ------------------------------------------------------------------
-// 【便CU 2026-10-17】板の試し口「鳴らし方」(web / nativeClick / nativeBoth)。本人の実機: 殻のセッションのモード 5種も ×1/1.3/1.6 も聞こえる音量が変わらなかった。
-// 【守っているもの】作り物の殻と Web Audio の上で: nativeClick を選ぶと、描いた3段(base64・sampleRate)を殻へ1回渡し、今のメトロノームの設定の
-//   1小節の並び(♩=120・4/4 → 0.5 秒ごとに 強 拍 拍 拍)で殻のクリックを始め、Web のマスターは 0(止めない)/ メトロノームを止めると殻の停止 /
-//   web に戻すとマスターは基の値 / nativeBoth は殻の取り込みを始めてから(その時 Web のトラックはまだ live)Web のトラックを stop し、nativeIn を出す・
-//   その間の画面のタップでは Web のマイクを取り直さない / 閉じると殻の取り込みとクリックを止め、Web のマイクを取り直す(getUserMedia がもう1回)/
-//   Web では試し口も行も出さず、殻の新しいメソッドを1回も呼ばない。
-// 【守っていないもの】殻の AVAudioEngine が鳴る・取れる・大きく聞こえること(実機待ち。Swift はここでは走らない。綴りは pitch-test K.14)・
-//   描いたクリックの本当の値(作り物の OfflineAudioContext は決まった標本を返すだけ。値の検査は audioDiagNative.test.js、端末の値は板の nativeBuf)。
+// 【便CX 2026-10-19】殻の計測の音を本番で殻(AVAudioEngine)が扱う(本人の実機で確定: WebKit の取り込みと play-and-record の AudioContext が、
+//   アプリ全体の音量を通話の段に縛っていた)。
+// 【守っているもの】作り物の殻の上で: 殻では getUserMedia を呼ばず・Web の AudioContext を作らず・navigator.audioSession.type を play-and-record にしない
+//   (マイク・メトロノーム・録音・タブの往復・裏から戻る を通して)/ 拍の表示(振り子の位相)が殻の時計に合う(往復の片道を不揃いにしても 10ms 以内)/
+//   テンポは同じ run で次の拍から・拍子は新しい run で小節の頭から・止めると今の run / 権限の拒否は今と同じ案内 / 殻が諦めたら既存の復旧の入口で取り直す /
+//   中断は JS では取り直さない / 塊が途切れたら既存の無音の見張りが取り直す / 殻がメトロノームを鳴らせなければ止める / 録音で殻のマイクを取り直さない /
+//   Web は殻のメソッドを1回も呼ばず今のまま(getUserMedia・AudioContext・play-and-record)。
+// 【守っていないもの】殻のエンジンが本当に鳴る・取れる・作り直す・大きく聞こえること・ブリッジの実際の往復(実機待ち。Swift はここでは走らない)。
 // ------------------------------------------------------------------
-describe("【便CU】診断の板の試し口「鳴らし方」(殻の AVAudioEngine)", () => {
-  const press = async (ms) => {
-    const btn = nav("計測");
-    await mod.act(async () => { btn.dispatchEvent(new Event("pointerdown", { bubbles: true })); });
-    await tick(ms);
-    await mod.act(async () => {
-      btn.dispatchEvent(new Event("pointerup", { bubbles: true }));
-      btn.click();
-    });
-  };
-  const panel = () => document.querySelector("[data-audio-diag]");
-  const val = (k) => document.querySelector(`[data-audio-diag] [data-diag-key="${k}"]`)?.textContent;
-  const pbBtn = (p) => document.querySelector(`[data-audio-diag] [data-diag-playback="${p}"]`);
-  const closeBtn = () => [...panel().querySelectorAll("button")].find((b) => b.textContent === "閉じる");
-  const SESSION = {
-    category: "AVAudioSessionCategoryPlayAndRecord", mode: "AVAudioSessionModeDefault", options: 0x28, routeSharingPolicy: 0,
-    outputs: ["Speaker"], inputs: ["MicrophoneBuiltIn"], outputVolume: 0.05, otherAudioPlaying: true,
-  };
-  const INFO = { engineRunning: true, clickOn: true, inputOn: false, lastError: "", configChanges: 0, activated: true, scheduled: 12, played: 10, playing: true, lastRender: true, tick: "ok", rebuilds: 1 };
-  // 作り物の OfflineAudioContext: 鎖は組めるだけ。描いた結果は、助走(0.12 秒)の後ろに決まった標本(末尾の 0 は落ちる)
-  const RENDERED = [0, 0.5, -0.25, 0, 0];
-  const installOffline = () => {
-    const node = () => ({ connect: (d) => d, disconnect() {} });
-    const p = () => ({ value: 0 });
-    window.OfflineAudioContext = class {
-      constructor(ch, length, sampleRate) { this.sampleRate = sampleRate; this.length = length; this.destination = node(); }
-      createBuffer(ch, len) { const d = new Float32Array(len); return { length: len, getChannelData: () => d }; }
-      createBufferSource() { return { ...node(), buffer: null, start() {} }; }
-      createBiquadFilter() { return { ...node(), type: "", frequency: p(), Q: p() }; }
-      createGain() { return { ...node(), gain: { value: 1, setValueAtTime() {}, exponentialRampToValueAtTime() {} } }; }
-      createDynamicsCompressor() { return { ...node(), threshold: p(), knee: p(), ratio: p(), attack: p(), release: p() }; }
-      startRendering() {
-        const d = new Float32Array(this.length);
-        d.set(RENDERED, Math.round(this.sampleRate * 0.12));
-        return Promise.resolve({ getChannelData: () => d });
-      }
-    };
-  };
-  const decode = (b64) => {
-    const bin = atob(b64);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    return Array.from(new Float32Array(bytes.buffer));
-  };
-  const names = () => cap.native.map((c) => c[0]);
-  afterEach(() => { delete window.OfflineAudioContext; try { delete window.navigator.audioSession; } catch { /* */ } });
-  // 【便CW】作り物の ctx を本物に寄せる: suspend すると state が suspended になり、時計(currentTime)も止まる(resume で続きから進む)
-  const freezeClocks = () => {
-    const P = window.AudioContext.prototype;
-    P.suspend = function () { if (this.state !== "closed" && this._susAt == null) { this._susAt = performance.now(); this.state = "suspended"; } return Promise.resolve(); };
-    const origResume = P.resume;
-    P.resume = function () {
-      if (this._susAt != null) { this._paused = (this._paused || 0) + performance.now() - this._susAt; this._susAt = null; }
-      return origResume.call(this);
-    };
-    Object.defineProperty(P, "currentTime", { configurable: true, get() { const now = this._susAt != null ? this._susAt : performance.now(); return (now - this._t0 - (this._paused || 0)) / 1000; } });
-  };
-  // type を置いた順を控える([値, その時の cap.native の長さ])
-  let typeLog = [];
-  const withAudioSession = () => {
-    typeLog = [];
-    let v = "auto";
-    const as = {};
-    Object.defineProperty(as, "type", { get() { return v; }, set(x) { v = x; typeLog.push([x, cap.native.length]); }, configurable: true });
-    Object.defineProperty(window.navigator, "audioSession", { value: as, configurable: true });
-  };
+describe("【便CX】殻の計測の音は殻で扱う", () => {
+  const defineAudioSession = () => Object.defineProperty(window.navigator, "audioSession", { value: { type: "auto" }, configurable: true, writable: true });
+  const dropAudioSession = () => { try { delete window.navigator.audioSession; } catch { /* */ } };
+  const later = () => { const orig = performance.now.bind(performance); vi.spyOn(performance, "now").mockImplementation(() => orig() + 1e6); }; // 復旧のクールダウン(起動直後の 5 秒)の外
 
-  it("殻: nativeClick は描いた3段を渡して今の並びで始め、Web のマスターは 0・止めると停止・web でマスターが戻る・閉じると殻の停止", async () => {
+  it("殻: getUserMedia を呼ばず・Web の AudioContext を作らず・audioSession.type を play-and-record にしない(マイク・メトロノーム・録音・タブの往復・裏から戻る)", async () => {
     asShell();
-    installOffline();
-    cap.session = { ...SESSION };
-    cap.nativeInfo = { ...INFO };
-    mod = await loadApp();
-    await render();
-    const ctx = await openMetroAndStart();
-    await press(500);
-    await waitFor(() => panel() && val("playback") === "web", "板", 5000);
-    expect(["web", "nativeClick", "nativeBoth"].every((p) => pbBtn(p))).toBe(true);
-    expect(cap.native).toEqual([]);                                          // 選ぶまでは殻のエンジンを1回も呼ばない
-    await click(pbBtn("nativeClick"));
-    await waitFor(() => names().includes("start"), "殻のクリックの開始", 5000);
-    const load = cap.native.find((c) => c[0] === "load")[1];
-    expect(load.sampleRate).toBe(48000);
-    for (const k of ["accent", "beat", "sub"]) expect(decode(load[k])).toEqual([0, 0.5, -0.25]);
-    expect(cap.native.find((c) => c[0] === "start")[1]).toEqual({ stepSec: 0.5, kinds: ["accent", "beat", "beat", "beat"] });
-    expect(names().filter((n) => n === "load").length).toBe(1);
-    expect(ctx.master.gain.value).toBe(0);                                   // Web のメトロノームはミュート(止めない)
-    expect(ctx.state).toBe("running");
-    expect(metroToggle().getAttribute("aria-pressed")).toBe("true");
-    await waitFor(() => val("playback") === "nativeClick" && val("nativeEngine") === "running=yes act=yes click=yes in=no cfg=0 err=—", "板の行", 5000);
-    expect(val("nativeBuf")).toBe("0.500/0.500/0.500 @48000");
-    expect(val("nativeSched")).toBe("sched=12 played=10 play=yes lrt=yes cfg=0 rb=1 tick=ok");
-    expect(val("outputVolume")).toBe("0.05");
-    expect(val("nativeIn")).toBe(undefined);                                 // nativeBoth のときだけ
-    // メトロノームを止める → 殻のクリックも止める
-    await click(metroToggle());
-    await waitFor(() => cap.native.at(-1)?.[0] === "stop", "殻の停止", 3000);
-    // 鳴らし直すと、また今の並びで始める(描いた3段は渡し直さない)
-    await click(metroToggle());
-    await waitFor(() => cap.native.at(-1)?.[0] === "start", "殻の開始(2回目)", 3000);
-    expect(names().filter((n) => n === "load").length).toBe(1);
-    // 閉じる → 殻のクリックを止め、Web のマスターは基の値へ戻る
-    const before = cap.native.length;
-    await click(closeBtn());
-    expect(panel()).toBe(null);
-    await waitFor(() => cap.native.length > before && cap.native.at(-1)[0] === "stop", "閉じたら殻の停止", 3000);
-    const now = masterGains.filter((c) => c.master).at(-1);
-    await waitFor(() => now.master.gain.value === 1, "殻を止め終わってからマスターが戻る", 3000);
-    // 開き直すと web のまま
-    await press(500);
-    await waitFor(() => panel() && val("playback") === "web", "開き直した板", 5000);
-    expect(pbBtn("web").getAttribute("aria-pressed")).toBe("true");
+    defineAudioSession();
+    try {
+      mod = await loadApp();
+      await render();
+      await waitMic();
+      await openMetroShell();
+      await waitFor(() => nativeCalls("metroStart").length === 1, "殻で鳴らす");
+      await click(recButton());
+      await waitFor(() => document.querySelector('button[aria-label="録音を停止"]'), "録音中");
+      await click(recButton());
+      await click(metroToggle());
+      await click(nav("リード"));
+      await settle();
+      await click(nav("計測"));
+      await waitFor(() => micStarts() === 2, "戻ると殻のマイク");
+      try {
+        await setHidden(true);
+        await setHidden(false);
+        await waitFor(() => micStarts() === 3, "裏から戻ると殻のマイク");
+      } finally { delete document.hidden; }
+      await openMetroShell();
+      await waitFor(() => nativeCalls("metroStart").length === 2, "作り直した面で殻で鳴らす");
+      await settle();
+      expect(gum).toBe(0);
+      expect(masterGains.length).toBe(0);
+      expect(navigator.audioSession.type).toBe("auto");
+    } finally { dropAudioSession(); }
   }, 40000);
 
-  it("殻: web に戻すと殻を止め、マスターは基の値 × 倍率へ戻る", async () => {
+  it("殻: 拍の表示(振り子の位相)が殻の時計に合う ── 殻が知らせたクリックの host time と、合わせた時計で数えた位相のずれが 10ms 以内(往復の片道を不揃いにしても)", async () => {
     asShell();
-    installOffline();
-    cap.session = { ...SESSION };
-    cap.nativeInfo = { ...INFO };
+    cap.clock.delayMs = 8; // 殻は呼ばれた瞬間の時刻を返し、答えは 8ms 遅れて届く(往復の真ん中と 4ms ずれる)
     mod = await loadApp();
     await render();
-    const ctx = await openMetroAndStart();
-    await press(500);
-    await waitFor(() => panel() && val("playback") === "web", "板", 5000);
-    await click(document.querySelector('[data-audio-diag] [data-diag-gain="1.3"]'));
-    await click(pbBtn("nativeClick"));
-    await waitFor(() => names().includes("start"), "殻のクリックの開始", 5000);
-    expect(ctx.master.gain.value).toBe(0);
-    await click(pbBtn("web"));
-    await waitFor(() => cap.native.at(-1)?.[0] === "stop", "殻の停止", 3000);
-    expect(ctx.master.gain.value).toBeCloseTo(1.3, 12);
-  }, 40000);
-
-  it("殻: nativeBoth は殻の取り込みを始めてから Web のトラックを stop し nativeIn を出す・その間のタップで取り直さない・閉じると殻を止めてマイクを取り直す", async () => {
-    asShell();
-    installOffline();
-    cap.session = { ...SESSION };
-    cap.nativeInfo = { ...INFO };
-    const gum = countGetUserMedia();
-    mod = await loadApp();
-    await render();
-    const ctx = await openMetroAndStart();
-    await waitFor(() => gum.n >= 1 && track.readyState === "live", "Web のマイク");
-    await press(500);
-    await waitFor(() => panel() && val("playback") === "web", "板", 5000);
-    const live = track;
-    const stateAtInStart = [];
-    cap.onInStart = () => { stateAtInStart.push(live.readyState); };
-    gum.n = 0;
-    await click(pbBtn("nativeBoth"));
-    await waitFor(() => names().includes("start"), "殻のクリックの開始", 5000);
-    expect(names().slice(0, 1)).toEqual(["inStart"]);
-    expect(stateAtInStart).toEqual(["live"]);                                // 殻の取り込みを始めた時、Web のトラックはまだ動いている
-    expect(live.readyState).toBe("ended");                                   // そのあと Web のトラックを止めた
-    expect(live.stopped).toBe(1);
-    expect(ctx.master.gain.value).toBe(0);
-    cap.nativeInfo = { ...INFO, inputOn: true, inputDb: -42 };
-    await waitFor(() => val("playback") === "nativeBoth" && val("nativeIn") === "-42.0 dBFS", "nativeIn の行", 5000);
-    expect(val("nativeEngine")).toBe("running=yes act=yes click=yes in=yes cfg=0 err=—");
-    // その間、画面のタップ(既存の復旧の入口)でも Web のマイクを取り直さない
-    await mod.act(async () => { document.body.dispatchEvent(new Event("pointerdown", { bubbles: true })); });
-    await tick(300);
-    expect(gum.n).toBe(0);
-    // 閉じる → 殻のクリックを先に止め(二重に鳴らさない)、殻の取り込みを止め、Web のマイクを取り直す
-    const before = cap.native.length;
-    await click(closeBtn());
-    await waitFor(() => names().slice(before).includes("inStop"), "閉じたら殻の取り込みを止める", 5000);
-    expect(names().slice(before)).toEqual(["stop", "inStop"]);
-    await waitFor(() => gum.n >= 1 && track !== live && track.readyState === "live", "Web のマイクが戻る", 5000);
-    await tick(300);
-    expect(gum.n).toBe(1);
-  }, 40000);
-
-  it("殻: 戻す道で二重に鳴らない — 殻のクリックが止まった時点ではまだ Web のマスターは 0・Web のマイクも取り直していない", async () => {
-    asShell();
-    installOffline();
-    cap.session = { ...SESSION };
-    cap.nativeInfo = { ...INFO };
-    const gum = countGetUserMedia();
-    mod = await loadApp();
-    await render();
-    const ctx = await openMetroAndStart();
-    await waitFor(() => gum.n >= 1, "Web のマイク");
-    await press(500);
-    await waitFor(() => panel() && val("playback") === "web", "板", 5000);
-    await click(pbBtn("nativeBoth"));
-    await waitFor(() => names().includes("start"), "殻のクリックの開始", 5000);
-    // 殻のクリックの停止が呼ばれた瞬間の Web の状態を控える
-    const atStop = [];
-    const gumBefore = gum.n;
-    const orig = cap.native.push.bind(cap.native);
-    cap.native.push = (x) => { if (x[0] === "stop") atStop.push({ master: ctx.master.gain.value, gum: gum.n - gumBefore, inStop: names().includes("inStop") }); return orig(x); };
-    await click(pbBtn("web"));
-    await waitFor(() => gum.n > gumBefore && track.readyState === "live", "Web のマイクが戻る", 5000);
-    await waitFor(() => ctx.master.gain.value === 1, "マスターが戻る", 3000);
-    expect(atStop).toEqual([{ master: 0, gum: 0, inStop: false }]);
-  }, 40000);
-
-  it("殻: nativeBoth の間に録音を始めると、鳴らし方は web に戻り(殻のクリックと取り込みを止める)、録音のための取得だけでマイクを取る", async () => {
-    asShell();
-    installOffline();
-    cap.session = { ...SESSION };
-    cap.nativeInfo = { ...INFO };
-    const gum = countGetUserMedia();
-    mod = await loadApp();
-    await render();
-    await openMetroAndStart();
-    await waitFor(() => gum.n >= 1, "Web のマイク");
-    await press(500);
-    await waitFor(() => panel() && val("playback") === "web", "板", 5000);
-    await click(pbBtn("nativeBoth"));
-    await waitFor(() => names().includes("start") && track.readyState === "ended", "nativeBoth", 5000);
-    const before = cap.native.length;
-    gum.n = 0;
-    await click(recButton());
-    await waitFor(() => document.querySelector('button[aria-label="録音を停止"]'), "録音が始まる", 5000);
-    await waitFor(() => names().slice(before).includes("inStop"), "殻の取り込みを止める", 5000);
-    expect(names().slice(before)).toEqual(["stop", "inStop"]);
-    await waitFor(() => val("playback") === "web", "板の表示も web", 3000);
-    expect(pbBtn("web").getAttribute("aria-pressed")).toBe("true");
-    await tick(300);
-    expect(gum.n).toBe(1);                                                   // 録音の開始が取った1回だけ(板の側で二重に取らない)
-    expect(track.readyState).toBe("live");
-  }, 40000);
-
-  it("殻: 閉じたとき recoverMic がクールダウンで断っても、予備の道(startListening)で Web のマイクが戻る", async () => {
-    asShell();
-    installOffline();
-    cap.session = { ...SESSION };
-    cap.nativeInfo = { ...INFO };
-    const gum = countGetUserMedia();
-    mod = await loadApp();
+    await waitMic();
+    await openMetroShell();
+    await waitFor(() => nativeCalls("metroStart").length === 1, "殻で鳴らす");
+    const { run, v, stepSec } = nativeCalls("metroStart")[0][1];
+    expect(stepSec).toBe(0.5);
+    const hostNow = () => performance.now() / 1000 + cap.clock.offsetSec; // 殻の本当の時計
+    const h0 = hostNow() + 0.05;
+    await emitNative("metroClicks", { run, clicks: [
+      { h: h0, s: 0, k: "accent", i: 0, v },
+      { h: h0 + 0.5, s: 24000, k: "beat", i: 1, v },
+    ] });
     const diag = await import("../audioDiag.jsx");
-    await render();
-    await openMetroAndStart();
-    await waitFor(() => gum.n >= 1 && track.readyState === "live", "Web のマイク");
-    await press(500);
-    await waitFor(() => panel() && val("playback") === "web", "板", 5000);
-    // 直前に1回、既存の復旧(トラックの mute)を走らせる → 以後 1 秒(タップの再試行のクールダウン)は recoverMic が断る
-    const n0 = gum.n;
-    await mod.act(async () => { track.onmute(); });
-    await waitFor(() => gum.n > n0 && track.readyState === "live", "既存の復旧が終わる", 3000);
-    await tick(20);
-    expect(diag.AUDIO_DIAG.lastMicRecover.reason).toBe("track-muted");
-    await click(pbBtn("nativeBoth"));
-    await waitFor(() => names().includes("inStart") && track.readyState === "ended", "nativeBoth", 3000);
-    const n1 = gum.n;
-    await click(closeBtn());
-    await waitFor(() => gum.n > n1 && track.readyState === "live", "予備の道で Web のマイクが戻る", 3000);
-    expect(diag.AUDIO_DIAG.lastMicRecover.reason).toBe("track-muted");     // recoverMic は断った(走っていれば diag-playback-web になる)
-    await tick(300);
-    expect(gum.n).toBe(n1 + 1);
-  }, 40000);
-
-  // 【便CV】殻の音が出ていないままミュートを続けない。nativeClickStart が失敗したら、Web のマスターを戻し、板に native=silent と出す
-  it("殻: nativeClickStart が reject されると、Web のマスターは基の値へ戻り、板に native=silent(start) と出る(選びは nativeClick のまま)", async () => {
-    asShell();
-    installOffline();
-    cap.session = { ...SESSION };
-    cap.nativeInfo = { ...INFO };
-    cap.failStart = true;
-    mod = await loadApp();
-    await render();
-    const ctx = await openMetroAndStart();
-    await press(500);
-    await waitFor(() => panel() && val("playback") === "web", "板", 5000);
-    await click(pbBtn("nativeClick"));
-    await waitFor(() => /native=silent\(start\)/.test(val("nativeEngine") || ""), "native=silent", 5000);
-    expect(ctx.master.gain.value).toBe(1);
-    expect(val("playback")).toBe("nativeClick");
-    expect(val("nativeEngine")).toMatch(/js=start: engine not running/);
-    // 起動し直した新しい ctx も無音にしない(止めて鳴らし直す = 本番の START と同じ道)
+    // 2つ目の拍頭(gBeat 1)が錨: 位相 = 1 + (今 − (h0 + 0.5)) / 0.5
+    const errs = [];
+    for (let k = 0; k < 5; k++) {
+      const phase = diag.AUDIO_DIAG.getMetro().phase;
+      const want = 1 + (hostNow() - (h0 + 0.5)) / 0.5;
+      errs.push(Math.abs(phase - want) * 0.5 * 1000); // ミリ秒
+      await tick(20);
+    }
+    expect(Math.max(...errs)).toBeLessThanOrEqual(10);
+    // 前の run の知らせは錨を動かさない(止めてから鳴らし直した後に、古い予約の知らせが遅れて届いた形)
     await click(metroToggle());
     await click(metroToggle());
-    await settle();
-    const now = masterGains.filter((c) => c.master).at(-1);
-    expect(now.master.gain.value).toBe(1);
-    // 選び直すと silent は消え、また 0 になる
-    cap.failStart = false;
-    await click(pbBtn("nativeClick"));
-    await waitFor(() => !/native=silent/.test(val("nativeEngine") || "") && now.master.gain.value === 0, "選び直し", 5000);
-  }, 40000);
-  it("殻: 予約が進まない(nativeAudioInfo の scheduled が動かない)と、3秒ほどで native=silent(noSched)・Web のマスターが戻る", async () => {
-    asShell();
-    installOffline();
-    cap.session = { ...SESSION };
-    cap.nativeInfo = { ...INFO, scheduled: 0, tick: "noRender", lastRender: false };
-    mod = await loadApp();
-    await render();
-    const ctx = await openMetroAndStart();
-    await press(500);
-    await waitFor(() => panel() && val("playback") === "web", "板", 5000);
-    await click(pbBtn("nativeClick"));
-    await waitFor(() => names().includes("start"), "殻のクリックの開始", 5000);
-    await waitFor(() => val("nativeSched") === "sched=0 played=10 play=yes lrt=no cfg=0 rb=1 tick=noRender", "予約の様子の行", 5000);
-    expect(ctx.master.gain.value).toBe(0);
-    await waitFor(() => /native=silent\(noSched\)/.test(val("nativeEngine") || ""), "native=silent(noSched)", 9000);
-    expect(ctx.master.gain.value).toBe(1);
-  }, 40000);
-
-  // 【便CW】nativeSolo: 加えて Web の AudioContext を止め、navigator.audioSession.type を auto に
-  it("殻: nativeSolo は殻の取り込みのあと Web のマイクを止め、メトロノームの ctx を suspend・type を auto(板に webCtx / web.audioSession)・止めている間は予約しない。戻すと resume・type・マイクが戻り、予約は一気に鳴らない", async () => {
-    asShell();
-    installOffline();
-    freezeClocks();
-    countClickStarts();
-    withAudioSession();
-    cap.session = { ...SESSION };
-    cap.nativeInfo = { ...INFO };
-    const gum = countGetUserMedia();
-    mod = await loadApp();
-    await render();
-    const ctx = await openMetroAndStart();
-    await waitFor(() => gum.n >= 1 && track.readyState === "live", "Web のマイク");
-    expect(navigator.audioSession.type).toBe("play-and-record");    // START と取り込みが置く(既存)
-    const shellHandler = ctx.onstatechange;
-    expect(typeof shellHandler).toBe("function");
-    await press(500);
-    await waitFor(() => panel() && val("playback") === "web", "板", 5000);
-    expect(pbBtn("nativeSolo")).toBeTruthy();
-    const live = track;
-    await click(pbBtn("nativeSolo"));
-    await waitFor(() => ctx.state === "suspended", "メトロノームの ctx を止める", 5000);
-    expect(names().slice(0, 1)).toEqual(["inStart"]);
-    expect(live.readyState).toBe("ended");                          // Web のマイクも止める
-    expect(navigator.audioSession.type).toBe("auto");
-    expect(ctx.onstatechange).toBe(null);                            // 殻の「止まったら resume」は外す
-    await waitFor(() => val("playback") === "nativeSolo" && val("webCtx") === "metro=suspended mic=none" && val("web.audioSession") === "auto", "板の行", 5000);
-    expect(val("outputVolume")).toBe("0.05");
-    expect(val("nativeIn")).toBeDefined();
-    // 止めている間は時計が止まるので、Web のスケジューラは予約しない(溜めない)
-    const held = ctx.started || 0;
-    await tick(700);
-    expect(ctx.started || 0).toBe(held);
-    // その間、画面のタップ(既存の復旧の入口 recoverMic)でも Web のマイクを取り直さない(nativeBoth と同じ門)
-    const g0 = gum.n;
-    await mod.act(async () => { document.body.dispatchEvent(new Event("pointerdown", { bubbles: true })); });
-    await tick(300);
-    expect(gum.n).toBe(g0);
-    // 戻す: resume と type はその場で。予約は一気に鳴らない(150ms で高々2つ。♩=120 なら0か1)
-    gum.n = 0;
-    const before = cap.native.length;
-    const typeMark = typeLog.length;
-    await click(pbBtn("web"));
-    expect(ctx.state).toBe("running");
-    expect(navigator.audioSession.type).toBe("play-and-record");
-    // type はボタンを押したその場で戻す(殻のクリックの停止より前。あとの Web のマイクの取り直しが置くのを待たない)
-    expect(typeLog.slice(typeMark)[0]).toEqual(["play-and-record", before]);
-    const s1 = ctx.started || 0;
-    await tick(150);
-    expect((ctx.started || 0) - s1).toBeLessThanOrEqual(2);
-    await waitFor(() => names().slice(before).includes("inStop"), "殻の取り込みを止める", 5000);
-    expect(names().slice(before)).toEqual(["stop", "inStop"]);
-    await waitFor(() => gum.n >= 1 && track !== live && track.readyState === "live", "Web のマイクが戻る", 5000);
-    await waitFor(() => ctx.master.gain.value === 1, "マスターが戻る", 3000);
-    expect(ctx.onstatechange).toBe(shellHandler);
-    await waitFor(() => val("webCtx") === "metro=running mic=running", "板の行(戻った)", 5000);
-  }, 40000);
-
-  it("殻: nativeSolo の間に録音を始めると web に戻る(止めていた ctx を resume・殻を止める)", async () => {
-    asShell();
-    installOffline();
-    freezeClocks();
-    withAudioSession();
-    cap.session = { ...SESSION };
-    cap.nativeInfo = { ...INFO };
-    const gum = countGetUserMedia();
-    mod = await loadApp();
-    await render();
-    const ctx = await openMetroAndStart();
-    await waitFor(() => gum.n >= 1, "Web のマイク");
-    await press(500);
-    await waitFor(() => panel() && val("playback") === "web", "板", 5000);
-    await click(pbBtn("nativeSolo"));
-    await waitFor(() => ctx.state === "suspended" && track.readyState === "ended", "nativeSolo", 5000);
-    const before = cap.native.length;
-    await click(recButton());
-    await waitFor(() => document.querySelector('button[aria-label="録音を停止"]'), "録音が始まる", 5000);
-    expect(ctx.state).toBe("running");
-    await waitFor(() => names().slice(before).includes("inStop"), "殻の取り込みを止める", 5000);
-    expect(names().slice(before)).toEqual(["stop", "inStop"]);
-    await waitFor(() => val("playback") === "web", "板も web", 3000);
-  }, 40000);
-
-  it("殻のビルドが古い(新しいメソッドが無い)と nativeEngine は「要ビルド」", async () => {
-    asShell();
-    cap.session = { ...SESSION };
-    cap.nativeInfo = null;
-    mod = await loadApp();
-    await render();
-    await waitFor(() => cap.log.includes("FicusAudioSession.routeToSpeaker"), "マイク");
-    await press(500);
-    await waitFor(() => panel() && /^n\/a \(要ビルド: UNIMPLEMENTED\)/.test(val("nativeEngine") || ""), "要ビルド", 5000);
+    await waitFor(() => nativeCalls("metroStart").length === 2, "鳴らし直す");
+    const run2 = nativeCalls("metroStart")[1][1].run;
+    await emitNative("metroClicks", { run, clicks: [{ h: hostNow() - 5, s: 0, k: "accent", i: 0, v }] });
+    const p = diag.AUDIO_DIAG.getMetro().phase;
+    expect(p).toBeLessThan(1);           // 鳴らし直した直後の位相(0 拍目の手前)のまま。古い錨(5 秒前)なら 10 を越える
+    expect(run2).not.toBe(run);
   }, 30000);
 
-  it("Web: 鳴らし方の試し口も行も出さず、殻の新しいメソッドを呼ばない", async () => {
-    installOffline();
+  it("殻: テンポの変更は同じ run の metroUpdate(次の拍から・並びの位置を続ける)・拍子の変更は新しい run で小節の頭から(0.08 秒後)・止めると今の run の metroStop", async () => {
+    asShell();
     mod = await loadApp();
     await render();
-    const ctx = await openMetroAndStart();
-    await press(500);
-    await waitFor(() => panel() && val("session") === "n/a (web)", "板", 5000);
-    await tick(1200);
-    expect(document.querySelector("[data-audio-diag] [data-diag-test='playback']")).toBe(null);
-    expect(document.querySelector("[data-audio-diag] [data-diag-playback]")).toBe(null);
-    for (const k of ["playback", "nativeEngine", "nativeBuf", "nativeIn"]) expect(val(k)).toBe(undefined);
-    expect(cap.native).toEqual([]);
-    expect(ctx.master.gain.value).toBeCloseTo(2.6, 12);
-    await click(closeBtn());
+    await waitMic();
+    await openMetroShell();
+    await waitFor(() => nativeCalls("metroStart").length === 1, "殻で鳴らす");
+    const run1 = nativeCalls("metroStart")[0][1].run;
+    await click(document.querySelector('button[aria-label="テンポを上げる"]'));
+    await waitFor(() => nativeCalls("metroUpdate").length === 1, "テンポの変更");
+    const u1 = nativeCalls("metroUpdate")[0][1];
+    expect([u1.run, u1.restart, u1.kinds]).toEqual([run1, false, ["accent", "beat", "beat", "beat"]]);
+    expect(u1.stepSec).toBeCloseTo(60 / 121, 12);
+    await click(document.querySelectorAll('button[aria-label="テンポと拍子"]')[0]);
+    await waitFor(() => document.querySelector('button[aria-label="拍子 3/4"]'), "拍子のシート");
+    await click(document.querySelector('button[aria-label="拍子 3/4"]'));
+    await waitFor(() => nativeCalls("metroUpdate").some(([, o]) => o.restart), "拍子の変更");
+    const u2 = nativeCalls("metroUpdate").find(([, o]) => o.restart)[1];
+    expect(u2.run).not.toBe(run1);
+    expect([u2.leadSec, u2.kinds]).toEqual([0.08, ["accent", "beat", "beat"]]);
+    expect(nativeCalls("metroStart").length).toBe(1);                       // 鳴らし直さない(殻の中で頭から置き直す)
+    // 止める(START/STOP は面にある。シートが上に開いていても押せる)
+    const lastRun = nativeCalls("metroUpdate").at(-1)[1].run;
+    const toggles = [...document.querySelectorAll('button[aria-label="メトロノームの開始/停止"]')];
+    await click(toggles[0]);
+    await waitFor(() => nativeCalls("metroStop").length >= 1, "止める");
+    expect(nativeCalls("metroStop").at(-1)[1]).toEqual({ run: lastRun });
+  }, 30000);
+
+  it("殻: 権限の拒否(殻の micStart が断る)→ 今と同じ拒否の案内(見出し・設定の案内の文言)・殻のマイクは動いていない", async () => {
+    asShell();
+    cap.mic.fail = "denied";
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      mod = await loadApp();
+      await render();
+      await waitFor(() => document.body.textContent.includes("マイクの使用が許可されていません"), "拒否の案内");
+      expect(document.body.textContent).toContain("設定 › Ficus › マイク を「許可」にすると計測できます");
+      expect(cap.feed.id).toBe(null);
+      expect(gum).toBe(0);
+    } finally { vi.restoreAllMocks(); }
+  }, 30000);
+
+  it("殻: 殻が作り直しを諦めた(audioState failed・このマイク)→ 既存の復旧の入口(recoverMic)で殻のマイクを取り直す", async () => {
+    asShell();
+    later();
+    try {
+      mod = await loadApp();
+      await render();
+      await waitMic();
+      await settle();
+      const id1 = nativeCalls("micStart")[0][1].id;
+      await emitNative("audioState", { state: "failed", reason: "loop", mic: true, metro: false, id: id1, run: 0 });
+      await waitFor(() => micStarts() >= 2, "取り直す");
+      const diag = await import("../audioDiag.jsx");
+      expect(diag.AUDIO_DIAG.lastMicRecover?.reason).toBe("track-ended");
+      expect(nativeCalls("micStop").some(([, o]) => o.id === id1)).toBe(true);
+      expect(nativeCalls("micStart")[1][1].id).not.toBe(id1);
+      expect(gum).toBe(0);
+    } finally { vi.restoreAllMocks(); }
+  }, 30000);
+
+  it("殻: 中断(audioState interrupted)では JS は取り直さない(殻が中断の終わりに作り直す)", async () => {
+    asShell();
+    later();
+    try {
+      mod = await loadApp();
+      await render();
+      await waitMic();
+      await settle();
+      const id1 = nativeCalls("micStart")[0][1].id;
+      const before = cap.native.length;
+      await emitNative("audioState", { state: "interrupted", reason: "began", mic: true, metro: false, id: id1, run: 0 });
+      await tick(300);
+      expect(cap.native.slice(before).filter(([k]) => k.startsWith("mic"))).toEqual([]);
+    } finally { vi.restoreAllMocks(); }
+  }, 30000);
+
+  it("殻: 殻のマイクの塊が途切れたら、解析には無音(0)が渡り、既存の無音の見張りが既存の復旧の入口で取り直す", async () => {
+    asShell();
+    later();
+    try {
+      mod = await loadApp();
+      await render();
+      await waitMic();
+      await settle();
+      cap.feed.off = true; // 殻が黙った
+      await waitFor(() => micStarts() >= 2, "無音の見張りが取り直す", 8000);
+      const diag = await import("../audioDiag.jsx");
+      expect(diag.AUDIO_DIAG.lastMicRecover?.reason).toBe("silence-watchdog");
+    } finally { vi.restoreAllMocks(); }
+  }, 30000);
+
+  it("殻: 殻がメトロノームを鳴らせなかった(殻の開始の失敗 / 作り直しを諦めた)→ ON のまま無音にせず止める", async () => {
+    asShell();
+    cap.metroFail = "engine not running";
+    mod = await loadApp();
+    await render();
+    await waitMic();
+    await openMetroShell();
+    await waitFor(() => nativeCalls("metroStart").length === 1, "殻の開始(失敗)");
+    await waitFor(() => metroToggle().getAttribute("aria-pressed") === "false", "止める");
+    cap.metroFail = null;
+    await click(metroToggle());
+    await waitFor(() => nativeCalls("metroStart").length === 2 && metroToggle().getAttribute("aria-pressed") === "true", "押し直すと鳴る");
+    const run = nativeCalls("metroStart")[1][1].run;
+    await emitNative("audioState", { state: "failed", reason: "loop", mic: false, metro: true, id: "", run });
+    await waitFor(() => metroToggle().getAttribute("aria-pressed") === "false", "諦めたら止める");
+  }, 30000);
+
+  it("殻: 録音の開始・停止で殻のマイクを取り直さない。録音中に隠れたら録音を終わらせ、殻のマイクも止める", async () => {
+    asShell();
+    mod = await loadApp();
+    await render();
+    await waitMic();
+    await waitFor(() => document.querySelector('button[aria-label="録音する"]'), "録音のボタン");
     await settle();
-    expect(cap.native).toEqual([]);
+    const id1 = nativeCalls("micStart")[0][1].id;
+    await click(recButton());
+    await waitFor(() => document.querySelector('button[aria-label="録音を停止"]'), "録音中");
+    await click(recButton());
+    await settle();
+    expect([micStarts(), nativeCalls("micStop").length]).toEqual([1, 0]);
+    await click(recButton());
+    await waitFor(() => document.querySelector('button[aria-label="録音を停止"]'), "録音中");
+    try {
+      await setHidden(true);
+      await waitFor(() => nativeCalls("micStop").some(([, o]) => o.id === id1), "隠れたら殻のマイクを止める");
+      expect(document.querySelector('button[aria-label="録音を停止"]')).toBe(null);
+    } finally { delete document.hidden; }
+  }, 30000);
+
+  it("Web: 殻のメソッドを1回も呼ばない・getUserMedia と AudioContext と play-and-record は今のまま", async () => {
+    defineAudioSession();
+    try {
+      mod = await loadApp();
+      await render();
+      await waitFor(() => gum >= 1, "getUserMedia");
+      const ctx = await openMetroAndStart();
+      expect(ctx.master.gain.value).toBe(2.6);
+      await settle();
+      expect(cap.native).toEqual([]);
+      expect(masterGains.some((c) => c.isMic)).toBe(true);
+      expect(navigator.audioSession.type).toBe("play-and-record");
+    } finally { dropAudioSession(); }
   }, 30000);
 });
 
@@ -1383,42 +1201,30 @@ describe("【便CS】マイクはいつも内蔵マイク(取り直し・見つ�
       expect(box.tracks[0].stopped).toBe(0);
     } finally { clearTouch(); }
   }, 30000);
-  it("殻: 内蔵マイクの名前はネイティブの availableInputs から(label に iPhone が無くても)取り直す", async () => {
-    asShell();
-    const name = "内蔵のマイク";
-    cap.session = { availableInputs: [{ portType: "BluetoothHFP", name: "AirPods Pro" }, { portType: "MicrophoneBuiltIn", name }] };
-    const box = installDevices([BT_D, { ...MIC_D, label: name }], BT_D.deviceId);
-    mod = await loadApp();
-    await render();
-    await waitFor(() => box.calls.length >= 2 && cap.log.includes("FicusAudioSession.routeToSpeaker"), "取り直し");
-    expect(box.calls).toEqual([{ audio: MIC_C }, exactCall(MIC_D.deviceId)]);
-  }, 30000);
-  it("殻: 機器の一覧が変わったら(devicechange)殻へ内蔵マイクを求める(routeToSpeaker)。JS では取り直さない。マイクを止めている間は呼ばない", async () => {
+  // 【便CX】殻は getUserMedia を呼ばない(入力は殻が setPreferredInput builtInMic で本体のマイクに保ち、経路が変われば殻が自分で当て直す)。
+  // 便CS の「殻は availableInputs の名前で取り直す」「devicechange で routeToSpeaker」の検査は、その道ごと消えたので置き換えた
+  it("殻: getUserMedia を呼ばない(入力は殻が本体のマイクに保つ)。機器の一覧が変わっても(devicechange)JS は殻を呼ばず取り直さない", async () => {
     asShell();
     setTouch(5);
     try {
-      const box = installDevices([MIC_D], MIC_D.deviceId);
+      cap.session = { availableInputs: [{ portType: "BluetoothHFP", name: "AirPods Pro" }, { portType: "MicrophoneBuiltIn", name: "内蔵のマイク" }] };
+      const box = installDevices([BT_D, MIC_D], BT_D.deviceId);
       mod = await loadApp();
       await render();
-      await waitFor(() => cap.log.includes("FicusAudioSession.routeToSpeaker"), "マイク");
+      await waitMic();
       await settle();
-      const routes = () => cap.log.filter((x) => x === "FicusAudioSession.routeToSpeaker").length;
-      const before = routes();
+      const before = cap.native.length;
       box.devices = [MIC_D, BT_D];
-      box.defaultId = BT_D.deviceId;
-      track.deviceId = BT_D.deviceId;                                 // 入力がイヤホンへ替わった
       await box.fire();
-      await waitFor(() => routes() === before + 1, "devicechange で routeToSpeaker");
       await settle();
-      expect(box.calls.length).toBe(1);                               // 殻はネイティブが戻す。JS は取り直さない
+      expect(box.calls).toEqual([]);
+      expect(cap.native.length).toBe(before);
       await click(nav("リード"));                                     // 殻はタブを離れるとマイクを止める
       await settle();
-      expect(box.tracks[0].readyState).toBe("ended");
-      expect(box.tracks[0].onconfigurationchange).toBe(null);         // 【便CS 審査】止めるときに内蔵マイクの知らせも外す
-      const stopped = routes();
+      expect(nativeCalls("micStop").length).toBe(1);
       await box.fire();
       await settle();
-      expect(routes()).toBe(stopped);
+      expect(box.calls).toEqual([]);
     } finally { clearTouch(); }
   }, 30000);
   it("Web: 取り込み中にイヤホンへ替わったら(devicechange)内蔵マイクで取り直す。iOS が替え続けても、取り直しは devicechange 1回につき1回まで", async () => {
@@ -1509,7 +1315,7 @@ describe("【便CS】診断の板: 入力の候補・優先の入力・使って
     await mod.act(async () => { btn.dispatchEvent(new Event("pointerup", { bubbles: true })); btn.click(); });
   };
   const val = (k) => document.querySelector(`[data-audio-diag] [data-diag-key="${k}"]`)?.textContent;
-  it("殻: inputs = availableInputs の portType:名前・preferredIn・micTrack = label と deviceId の先頭 8 文字", async () => {
+  it("殻: inputs = availableInputs の portType:名前・preferredIn・micTrack = 殻のマイク(label native:builtInMic・id native)", async () => {
     asShell();
     setTouch(5);
     try {
@@ -1522,12 +1328,12 @@ describe("【便CS】診断の板: 入力の候補・優先の入力・使って
       installDevices([MIC_D, BT_D], MIC_D.deviceId);
       mod = await loadApp();
       await render();
-      await waitFor(() => cap.log.includes("FicusAudioSession.routeToSpeaker"), "マイク");
+      await waitMic();
       await press(500);
       await waitFor(() => val("inputs") && val("inputs") !== "…", "板", 5000);
       expect(val("inputs")).toBe("MicrophoneBuiltIn:iPhone マイク / BluetoothHFP:AirPods Pro");
       expect(val("preferredIn")).toBe("MicrophoneBuiltIn:iPhone マイク");
-      expect(val("micTrack")).toBe("label=iPhone マイク id=mic1abcd");
+      expect(val("micTrack")).toBe("label=native:builtInMic id=native");
     } finally { clearTouch(); }
   }, 30000);
   it("殻: 優先の入力が無い(nil = 空の辞書)は none・古い殻のビルド(項目が無い)は「—」", async () => {
@@ -1535,7 +1341,7 @@ describe("【便CS】診断の板: 入力の候補・優先の入力・使って
     cap.session = { category: "AVAudioSessionCategoryPlayAndRecord", availableInputs: [], preferredInput: {} };
     mod = await loadApp();
     await render();
-    await waitFor(() => cap.log.includes("FicusAudioSession.routeToSpeaker"), "マイク");
+    await waitMic();
     await press(500);
     await waitFor(() => val("preferredIn"), "板", 5000);
     expect([val("inputs"), val("preferredIn")]).toEqual(["none", "none"]);
@@ -1599,67 +1405,45 @@ describe("【便CS 審査】録音・クールダウン・世代", () => {
       expect(box.calls[2]).toEqual(exactCall(MIC_D.deviceId));
     } finally { clearTouch(); vi.restoreAllMocks(); }
   }, 30000);
-  it("殻: 録音中は devicechange から routeToSpeaker を呼ばない → 録音が終わったら呼ぶ", async () => {
+  // 【便CX】殻の「録音中は devicechange から routeToSpeaker を呼ばない」「enabled = false なら呼ばない」の検査は、routeToSpeaker ごと消えた
+  // (殻は経路の変化で自分で入力の規則を当て直す)。殻では録音中・録音後も JS は殻を呼ばないことを見る
+  it("殻: 録音中に機器の一覧が変わっても、録音が終わっても、JS は殻を呼ばず取り直さない(殻が経路の変化で自分で当て直す)", async () => {
     asShell();
     setTouch(5);
     try {
       const box = installDevices([MIC_D], MIC_D.deviceId);
       mod = await loadApp();
       await render();
-      await waitFor(() => cap.log.includes("FicusAudioSession.routeToSpeaker") && document.querySelector('button[aria-label="録音する"]'), "録音のボタン");
+      await waitFor(() => micStarts() >= 1 && document.querySelector('button[aria-label="録音する"]'), "録音のボタン");
       await settle();
       await click(document.querySelector('button[aria-label="録音する"]'));
       await waitFor(() => document.querySelector('button[aria-label="録音を停止"]'), "録音中");
-      const before = routes();
+      const before = cap.native.length;
       toBt(box);
       await box.fire();
       await settle();
-      expect(routes()).toBe(before);
       await click(document.querySelector('button[aria-label="録音を停止"]'));
-      await waitFor(() => routes() === before + 1, "録音が終わったら呼ぶ");
       await settle();
-      expect(routes()).toBe(before + 1);
+      await tick(100);
+      expect(cap.native.slice(before)).toEqual([]);
+      expect(box.calls).toEqual([]);
     } finally { clearTouch(); }
   }, 30000);
-  it("殻: トラックが live でも enabled = false なら devicechange で routeToSpeaker を呼ばない", async () => {
+  it("殻: マイクを待っている間(OS の許可の画面など)にタブを離れたら、取れた殻のマイクは使わずに止める(同じ id の micStop・案内も出さない)", async () => {
     asShell();
-    setTouch(5);
-    try {
-      const box = installDevices([MIC_D], MIC_D.deviceId);
-      mod = await loadApp();
-      await render();
-      await waitFor(() => cap.log.includes("FicusAudioSession.routeToSpeaker"), "マイク");
-      await settle();
-      const before = routes();
-      track.enabled = false;
-      await box.fire();
-      await settle();
-      expect(routes()).toBe(before);
-      track.enabled = true;                                           // 戻せば呼ぶ(この試験が「何も起きない」で通っていないことの確かめ)
-      await box.fire();
-      await waitFor(() => routes() === before + 1, "enabled なら呼ぶ");
-    } finally { clearTouch(); }
-  }, 30000);
-  it("殻: マイクを待っている間にタブを離れたら、取れたマイクは使わずに止める(routeToSpeaker も呼ばない)", async () => {
-    asShell();
-    setTouch(5);
-    try {
-      const box = installDevices([MIC_D], MIC_D.deviceId);
-      let release;
-      box.gate = new Promise((r) => { release = r; });
-      mod = await loadApp();
-      await render();
-      await waitFor(() => box.calls.length >= 1, "getUserMedia を待っている");
-      await click(nav("リード"));
-      await settle();
-      box.gate = null;
-      await mod.act(async () => { release(); });
-      await waitFor(() => box.tracks.length >= 1, "マイクが取れた");
-      await settle();
-      expect(box.tracks[0].readyState).toBe("ended");
-      expect(box.tracks[0].stopped).toBe(1);
-      expect(cap.log.includes("FicusAudioSession.routeToSpeaker")).toBe(false);
-    } finally { clearTouch(); }
+    let release;
+    cap.mic.queue = [{ gate: new Promise((r) => { release = r; }) }];
+    mod = await loadApp();
+    await render();
+    await waitFor(() => micStarts() >= 1, "micStart を待っている");
+    const id1 = nativeCalls("micStart")[0][1].id;
+    await click(nav("リード"));
+    await settle();
+    await mod.act(async () => { release(); });
+    await waitFor(() => nativeCalls("micStop").some(([, o]) => o.id === id1), "取れたマイクを止める");
+    await settle();
+    expect(cap.feed.id).toBe(null);
+    expect(document.body.textContent).not.toContain("マイクの使用が許可されていません");
   }, 30000);
 });
 
@@ -1667,39 +1451,62 @@ describe("【便CS 審査】録音・クールダウン・世代", () => {
 // 【便CS 再審査】置き換えられた取得(MIC_START_SUPERSEDED)は失敗ではない: 画面復帰・recoverMic は何もしない・古い失敗は新しい成功を上書きしない
 // ------------------------------------------------------------------
 describe("【便CS 再審査】置き換えられた取得", () => {
-  for (const shell of [true, false]) {
-    it(`${shell ? "殻" : "Web"}: 隠れる → 見える → 取得を待っている間にリードへ → 取得が終わる で、live のトラックは0本・recoverMic は走らない`, async () => {
-      if (shell) asShell();
-      setTouch(5);
+  it("殻: 隠れる → 見える → 殻のマイクを待っている間にリードへ → 取得が終わる で、殻のマイクは止まったまま・recoverMic は走らない", async () => {
+    asShell();
+    mod = await loadApp();
+    await render();
+    await waitMic();
+    await settle();
+    const diag = await import("../audioDiag.jsx");
+    let release;
+    try {
+      await setHidden(true);
+      await settle();
+      cap.mic.queue = [{ gate: new Promise((r) => { release = r; }) }];
+      await setHidden(false);
+      await waitFor(() => micStarts() >= 2, "戻ったら取り直しを待つ");
+      await click(nav("リード"));
+      await settle();
+      await mod.act(async () => { release(); });
+      await settle();
+      await tick(300);
+      await settle();
+    } finally { delete document.hidden; }
+    expect(cap.feed.id).toBe(null);                                   // 動いている殻のマイクは無い
+    expect(micStarts()).toBe(2);                                      // 取り直しの取り直し(recoverMic)をしない
+    expect(diag.AUDIO_DIAG.lastMicRecover).toBe(null);
+    expect(document.body.textContent).not.toContain("マイクを再接続できませんでした");
+  }, 30000);
+  it("Web: 隠れる → 見える → 取得を待っている間にリードへ → 取得が終わる で、live のトラックは0本・recoverMic は走らない", async () => {
+    setTouch(5);
+    try {
+      const box = installDevices([MIC_D], MIC_D.deviceId);
+      mod = await loadApp();
+      await render();
+      await waitFor(() => box.calls.length >= 1 && document.querySelector('button[aria-label="メトロノーム"]'), "マイク");
+      await settle();
+      const diag = await import("../audioDiag.jsx");
+      let release;
       try {
-        const box = installDevices([MIC_D], MIC_D.deviceId);
-        mod = await loadApp();
-        await render();
-        await waitFor(() => box.calls.length >= 1 && document.querySelector('button[aria-label="メトロノーム"]'), "マイク");
+        await setHidden(true);
         await settle();
-        const diag = await import("../audioDiag.jsx");
-        let release;
-        try {
-          await setHidden(true);
-          await settle();
-          box.gate = new Promise((r) => { release = r; });
-          await setHidden(false);
-          await waitFor(() => box.calls.length >= 2, "戻ったら取り直しを待つ");
-          await click(nav("リード"));
-          await settle();
-          box.gate = null;
-          await mod.act(async () => { release(); });
-          await settle();
-          await tick(300);
-          await settle();
-        } finally { delete document.hidden; }
-        expect(box.live().length).toBe(0);
-        expect(box.calls.length).toBe(2);                             // 取り直しの取り直し(recoverMic)をしない
-        expect(diag.AUDIO_DIAG.lastMicRecover).toBe(null);
-        expect(document.body.textContent).not.toContain("マイクを再接続できませんでした");
-      } finally { clearTouch(); }
-    }, 30000);
-  }
+        box.gate = new Promise((r) => { release = r; });
+        await setHidden(false);
+        await waitFor(() => box.calls.length >= 2, "戻ったら取り直しを待つ");
+        await click(nav("リード"));
+        await settle();
+        box.gate = null;
+        await mod.act(async () => { release(); });
+        await settle();
+        await tick(300);
+        await settle();
+      } finally { delete document.hidden; }
+      expect(box.live().length).toBe(0);
+      expect(box.calls.length).toBe(2);                             // 取り直しの取り直し(recoverMic)をしない
+      expect(diag.AUDIO_DIAG.lastMicRecover).toBe(null);
+      expect(document.body.textContent).not.toContain("マイクを再接続できませんでした");
+    } finally { clearTouch(); }
+  }, 30000);
   it("Web: 起動の取得を待っている間にリードへ(一時停止)→ 取得が終わっても使わずに止める", async () => {
     setTouch(5);
     try {
@@ -1719,31 +1526,25 @@ describe("【便CS 再審査】置き換えられた取得", () => {
       expect(box.tracks[0].stopped).toBe(1);
     } finally { clearTouch(); }
   }, 30000);
-  it("殻: 古い取得の失敗(待っている間に置き換えられた)は、新しい取得の成功を上書きしない(エラーを出さない・マイクは動いたまま)", async () => {
+  it("殻: 古い取得の失敗(待っている間に置き換えられた)は、新しい取得の成功を上書きしない(エラーを出さない・殻のマイクは動いたまま)", async () => {
     asShell();
-    setTouch(5);
-    try {
-      const box = installDevices([MIC_D], MIC_D.deviceId);
-      let release;
-      box.gate = new Promise((r) => { release = r; });
-      box.gateFails = true;
-      mod = await loadApp();
-      await render();
-      await waitFor(() => box.calls.length >= 1, "1回目の取得を待っている");
-      box.gate = null;
-      box.gateFails = false;
-      await click(nav("リード"));                                     // 殻は止める(1回目は置き換えられる)
-      await settle();
-      await click(nav("計測"));                                       // 2回目の取得はすぐ成功する
-      await waitFor(() => box.live().length === 1, "2回目の成功");
-      await settle();
-      await mod.act(async () => { release(); });                     // 1回目が今ごろ失敗で終わる
-      await settle();
-      await tick(100);
-      expect(document.body.textContent).not.toContain("マイクの使用が許可されていません");
-      expect(box.live().length).toBe(1);
-      expect(document.querySelector('button[aria-label="録音する"]')).not.toBe(null);
-    } finally { clearTouch(); }
+    let release;
+    cap.mic.queue = [{ gate: new Promise((r) => { release = r; }), fail: "denied" }];
+    mod = await loadApp();
+    await render();
+    await waitFor(() => micStarts() >= 1, "1回目の取得を待っている");
+    await click(nav("リード"));                                     // 殻は止める(1回目は置き換えられる)
+    await settle();
+    await click(nav("計測"));                                       // 2回目の取得はすぐ成功する
+    await waitFor(() => micStarts() >= 2 && cap.feed.id, "2回目の成功");
+    const id2 = nativeCalls("micStart")[1][1].id;
+    await settle();
+    await mod.act(async () => { release(); });                     // 1回目が今ごろ失敗で終わる
+    await settle();
+    await tick(100);
+    expect(document.body.textContent).not.toContain("マイクの使用が許可されていません");
+    expect(cap.feed.id).toBe(id2);
+    expect(document.querySelector('button[aria-label="録音する"]')).not.toBe(null);
   }, 30000);
 });
 
@@ -1817,4 +1618,131 @@ describe("【便CS 再審査】置き換えられた取得は「失敗」では�
       } finally { clearTouch(); vi.restoreAllMocks(); }
     }, 30000);
   }
+});
+
+// ------------------------------------------------------------------
+// 【便CX 審査】殻の除外・小節線・振り子の拍の数を、殻の時計の値(micData の host・metroClicks の h)で確かめる。
+// 【守っているもの】除外の予定は殻の host time で積む(perf の時計で積むと、殻の入力の時刻と比べられず除外が効かない)/ 小節線は perf の時計に直して積む
+//   (host のミリ秒で積むと録音の開始と比べられず消える)/ 殻が作り直しで拍を飛ばしても・予約し直しても、振り子の拍の数は続く。
+// 【守っていないもの】実機の殻の時刻の正しさ(実機待ち)。
+// ------------------------------------------------------------------
+describe("【便CX 審査】殻の除外・小節線・振り子の拍の数は殻の時計で効く", () => {
+  const hostNow = () => performance.now() / 1000 + cap.clock.offsetSec;
+  const saveDialog = () => document.querySelector('[aria-label="この録音を保存しますか？"]');
+  const startShellMetro = async () => {
+    asShell();
+    mod = await loadApp();
+    await render();
+    await waitMic();
+    await openMetroShell();
+    await waitFor(() => nativeCalls("metroStart").length === 1, "殻で鳴らす");
+    return nativeCalls("metroStart")[0][1];
+  };
+  it("(b) 録音中、殻の入力の時刻がずっとクリックの窓の中なら、フレームを1つも記録しない(保存の確認が出ない)。窓の外なら記録する(出る)", async () => {
+    const { run, v } = await startShellMetro();
+    await waitFor(() => recButton(), "録音のボタン");
+    const t0 = hostNow();
+    const clicks = [];
+    let n = 0;
+    for (let h = t0 - 0.2; h < t0 + 3.0; h += 0.05) clicks.push({ h, s: 0, k: "beat", i: 1, v, n: n++ });
+    await emitNative("metroClicks", { run, clicks });
+    await click(recButton());
+    await waitFor(() => document.querySelector('button[aria-label="録音を停止"]'), "録音中");
+    await tick(600);
+    await click(recButton());
+    await settle();
+    expect(saveDialog()).toBe(null);                                     // クリックの窓の中のフレームは記録しない
+    while (hostNow() < t0 + 3.2) await tick(50);                         // クリックが過ぎるまで待つ
+    await click(recButton());
+    await waitFor(() => document.querySelector('button[aria-label="録音を停止"]'), "録音中(2回目)");
+    await tick(600);
+    await click(recButton());
+    await waitFor(() => saveDialog(), "窓の外なら記録する");
+  }, 30000);
+  it("(c) 録音中に殻がアクセントを知らせると、保存される小節線は録音の開始からの秒", async () => {
+    const { run, v } = await startShellMetro();
+    await waitFor(() => recButton(), "録音のボタン");
+    await settle();
+    const recPerf = performance.now();
+    await click(recButton());
+    await waitFor(() => document.querySelector('button[aria-label="録音を停止"]'), "録音中");
+    const hostAtRec = recPerf / 1000 + cap.clock.offsetSec;
+    await emitNative("metroClicks", { run, clicks: [
+      { h: hostAtRec + 0.3, s: 0, k: "accent", i: 0, v, n: 0 },
+      { h: hostAtRec + 0.8, s: 0, k: "accent", i: 0, v, n: 4 },
+    ] });
+    while (performance.now() - recPerf < 1100) await tick(50);
+    await click(recButton());
+    await waitFor(() => saveDialog(), "保存の確認");
+    await click([...saveDialog().querySelectorAll("button")].find((b) => b.textContent.trim() === "登録"));
+    await waitFor(() => fake._peek("windToneLabDB", "sessions")?.size >= 1, "保存");
+    const saved = [...fake._peek("windToneLabDB", "sessions").values()];
+    expect(saved.length).toBe(1);
+    const b = saved[0].barlines;
+    expect(b.length).toBe(2);
+    expect(Math.abs(b[0] - 0.3)).toBeLessThan(0.05);
+    expect(Math.abs(b[1] - 0.8)).toBeLessThan(0.05);
+  }, 30000);
+  it("作り直しで殻が拍を飛ばしても(skipped)・同じ通し番号で予約し直しても、振り子の拍の数は続く(位相のずれ 10ms 以内)", async () => {
+    const { run, v } = await startShellMetro();
+    const h0 = hostNow() + 0.05;
+    await emitNative("metroClicks", { run, clicks: [{ h: h0, s: 0, k: "accent", i: 0, v, n: 0 }, { h: h0 + 0.5, s: 24000, k: "beat", i: 1, v, n: 1 }] });
+    await emitNative("metroClicks", { run, clicks: [
+      { h: h0 + 0.5, s: 0, k: "beat", i: 1, v, n: 1 },        // 予約し直した(同じ番号)
+      { h: h0 + 1.0, s: -1, k: "skipped", i: 2, v, n: 2 },    // 作り直しの間に過ぎた拍(鳴らさない)
+      { h: h0 + 1.5, s: 0, k: "beat", i: 3, v, n: 3 },
+    ] });
+    const diag = await import("../audioDiag.jsx");
+    const phase = diag.AUDIO_DIAG.getMetro().phase;
+    const want = 3 + (hostNow() - (h0 + 1.5)) / 0.5;               // 錨は 4 つ目の拍頭(gBeat 3)
+    expect(Math.abs(phase - want) * 500).toBeLessThanOrEqual(10);
+  }, 30000);
+});
+
+// ------------------------------------------------------------------
+// 【便CX 再審査】入力の標本化周波数が途中で替わっても(経路の変化で殻が作り直した等)、トラックを終わらせず新しい周波数で解析を続ける。
+// 【守っているもの】録音中: 替わった後の塊が録音のフレームに入る(音量が無音の -200dB でない)・殻のマイクを取り直さない /
+//   録音していないとき: 替わった後も無音の見張りが取り直さない(解析に塊が入り続けている)・殻のマイクを取り直さない。
+// ------------------------------------------------------------------
+describe("【便CX 再審査】入力の標本化周波数が途中で替わっても解析を続ける", () => {
+  const later = () => { const orig = performance.now.bind(performance); vi.spyOn(performance, "now").mockImplementation(() => orig() + 1e6); };
+  const saveDialog = () => document.querySelector('[aria-label="この録音を保存しますか？"]');
+  it("録音中に 48k → 44.1k: 替わった後の塊が録音のフレームに入る(音量が出ている)・殻のマイクを取り直さない", async () => {
+    asShell();
+    mod = await loadApp();
+    await render();
+    await waitMic();
+    await waitFor(() => recButton(), "録音のボタン");
+    await settle();
+    await click(recButton());
+    await waitFor(() => document.querySelector('button[aria-label="録音を停止"]'), "録音中");
+    cap.mic.rate = 44100;                                              // ここから殻は 44.1k の塊を送る(録音の開始の直後)
+    await tick(1300);
+    await click(recButton());
+    await waitFor(() => saveDialog(), "保存の確認");
+    await click([...saveDialog().querySelectorAll("button")].find((b) => b.textContent.trim() === "登録"));
+    await waitFor(() => fake._peek("windToneLabDB", "sessions")?.size >= 1, "保存");
+    const saved = [...fake._peek("windToneLabDB", "sessions").values()][0];
+    // 替わってから 0.5 秒より後のフレーム(窓が新しい標本で埋まった後)が、無音(-150dB 以下)でなく記録されている
+    const lateFrames = saved.frames.filter((f) => f.t > 0.7);
+    expect(lateFrames.length).toBeGreaterThan(0);
+    expect(lateFrames.every((f) => f.volumeDb > -150)).toBe(true);
+    expect(micStarts()).toBe(1);
+  }, 30000);
+  it("録音していないとき 48k → 44.1k: 無音の見張りが取り直さない(解析に塊が入り続ける)・殻のマイクを取り直さない", async () => {
+    asShell();
+    later();
+    try {
+      mod = await loadApp();
+      await render();
+      await waitMic();
+      await settle();
+      cap.mic.rate = 44100;
+      await tick(2600);                                                // 途切れ(1000ms)+ 無音の見張り(1500ms)より長く待つ
+      const diag = await import("../audioDiag.jsx");
+      expect(diag.AUDIO_DIAG.lastMicRecover).toBe(null);
+      expect(micStarts()).toBe(1);
+      expect(nativeCalls("micStop").length).toBe(0);
+    } finally { vi.restoreAllMocks(); }
+  }, 30000);
 });
