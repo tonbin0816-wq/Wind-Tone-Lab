@@ -6,7 +6,7 @@ import {
 } from "../App.jsx";
 import {
   NativeMicContext, createHostClock, createNativeMetronome, nativeFloat32ToBase64, nativeBandpassCoefficients,
-  NATIVE_MIC_STALE_MS, NATIVE_CLOCK_SYNC_MS,
+  NATIVE_MIC_STALE_MS, NATIVE_CLOCK_SYNC_MS, NATIVE_AUDIO,
   nativeRebuildDecision, nativeRebuildDelay, nativeGridSkip, NATIVE_REBUILD_MAX_FAILURES, nativeEvents,
 } from "./nativeAudio.js";
 
@@ -794,5 +794,60 @@ describe("【便CX 審査】作り直しても拍の格子を続ける(殻の gr
     // 作り直し: まだ鳴っていなかった n=1 から予約し直し(同じ番号)、間に過ぎた n=2 は skipped、n=3 から鳴らす
     api.emit("metroClicks", { run: r.run, clicks: [{ h: 1.5, k: "beat", i: 1, v: r.v, n: 1 }, { h: 2, k: "skipped", i: 0, v: r.v, n: 2 }, { h: 2.5, k: "beat", i: 1, v: r.v, n: 3 }] });
     expect(got.map((c) => [c.n, c.k])).toEqual([[0, "accent"], [1, "beat"], [2, "skipped"], [3, "beat"]]);
+  });
+});
+
+// 【便CY 2026-10-20】殻が最後に知らせた状態(audioState)を控える(NATIVE_AUDIO.state。診断の板の nativeState・micRecover の st=)。記録だけ ──
+// 受け手へはそのまま渡し、今までの道(failed → 取り直し)は変えない。
+describe("【便CY】殻が最後に知らせた状態を控える(NATIVE_AUDIO.state)", () => {
+  it("audioState の知らせで 状態・理由・mic・metro・時刻 を控える(最後の1つ)。ほかの知らせ・state の無い知らせでは控えず、受け手には今までどおり渡す", async () => {
+    NATIVE_AUDIO.state = null;
+    const api = fakeApi();
+    const ev = nativeEvents(api);
+    await ev.ready;
+    const got = [];
+    const seen = [];   // 受け手が読んだ時点の NATIVE_AUDIO.state(取り直しの始めが st= で読むのと同じ)
+    const off = ev.subscribe("audioState", (d) => { got.push(d.state ?? "none"); seen.push(NATIVE_AUDIO.state && NATIVE_AUDIO.state.state); });
+    api.emit("micData", { id: "x", pcm: "", sample: 0, host: 1, rate: RATE, frames: 0 });
+    expect(NATIVE_AUDIO.state).toBe(null);
+    api.emit("audioState", { state: "interrupted", reason: "began", mic: true, metro: false, id: "x", run: 0 });
+    expect(NATIVE_AUDIO.state).toMatchObject({ state: "interrupted", reason: "began", mic: true, metro: false });
+    expect(typeof NATIVE_AUDIO.state.at).toBe("number");
+    api.emit("audioState", {});
+    expect(NATIVE_AUDIO.state.state).toBe("interrupted");
+    // 【審査】failed / running を受けたら、受け手へ渡し終えた後に下ろす(古い interrupted を残さない)。受け手は渡している最中は読める
+    api.emit("audioState", { state: "failed", reason: "loop", mic: true, metro: true, id: "x", run: 3 });
+    expect(NATIVE_AUDIO.state).toBe(null);
+    api.emit("audioState", { state: "interrupted", reason: "began", mic: true, metro: false, id: "x", run: 3 });
+    api.emit("audioState", { state: "running", reason: "rebuilt", mic: true, metro: false, id: "x", run: 3 });
+    expect(NATIVE_AUDIO.state).toBe(null);
+    expect(got).toEqual(["interrupted", "none", "failed", "interrupted", "running"]);
+    expect(seen).toEqual(["interrupted", "interrupted", "failed", "interrupted", "running"]);
+    off();
+  });
+  it("【審査】受け手が投げても、failed / running の後は状態を下ろす", async () => {
+    const api = fakeApi();
+    const ev = nativeEvents(api);
+    await ev.ready;
+    const off = ev.subscribe("audioState", () => { throw new Error("boom"); });
+    expect(() => api.emit("audioState", { state: "failed", reason: "loop", mic: true, metro: false, id: "x", run: 0 })).toThrow("boom");
+    expect(NATIVE_AUDIO.state).toBe(null);
+    off();
+  });
+  it("【審査】micStop(マイクの口を止める・閉じる)で interrupted を下ろす。failed の受け手の中(_endTrack → _stop)では下ろさない = 取り直しの始めが st=failed を読める", async () => {
+    const api = fakeApi();
+    const nowRef = { t: 0 };
+    const { ctx, stream } = await startMic(api, nowRef);
+    NATIVE_AUDIO.state = { state: "interrupted", reason: "began", mic: true, metro: false, at: Date.now() };
+    ctx.close();
+    expect(NATIVE_AUDIO.state).toBe(null);
+    const api2 = fakeApi();
+    const { ctx: ctx2, stream: stream2 } = await startMic(api2, nowRef);
+    let readInOnended = null;
+    stream2.getTracks()[0].onended = () => { readInOnended = NATIVE_AUDIO.state && NATIVE_AUDIO.state.state; };
+    api2.emit("audioState", { state: "failed", reason: "loop", mic: true, metro: false, id: ctx2._id, run: 0 });
+    expect(readInOnended).toBe("failed");
+    expect(NATIVE_AUDIO.state).toBe(null);
+    void stream;
   });
 });

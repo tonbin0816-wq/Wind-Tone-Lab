@@ -56,6 +56,8 @@ export function nativeGridSkip(next, now, step) {
 export const NATIVE_AUDIO = {
   mic: { id: null, chunks: 0, rate: null, lastHostMs: null, lastRecvAt: null, error: "" },
   metro: { bufPeaks: null, error: "", clicks: 0, run: null },
+  // 【便CY】殻が最後に知らせた状態(audioState。interrupted / running / failed と理由・いつ〈Date.now()〉・マイクとメトロノームが動いていたか)。記録だけ
+  state: null,
 };
 
 // ---- base64 ⇔ Float32 ----
@@ -251,8 +253,20 @@ export function nativeEvents(api) {
   if (e) return e;
   const subs = {};
   for (const name of NATIVE_EVENT_NAMES) subs[name] = new Set();
+  const dispatch = (name) => (d) => {
+    // 【便CY】audioState は最後の1つを控える(診断の板の nativeState・micRecover の st=)。記録だけで、受け手へはそのまま渡す。
+    // 【審査】running(中断が終わった・作り直せた)と failed(諦めた)を受けたら、受け手へ渡し終えた後に下ろす(failed は受け手の中の取り直しの始めが st= で読む)。
+    // 古い interrupted を残さないため。micStop(NativeMicContext._stop)と裏へ行く(audioDiagNoteVisibility)でも下ろす。
+    const isState = name === "audioState" && d && typeof d.state === "string";
+    if (isState) NATIVE_AUDIO.state = { state: d.state, reason: String(d.reason ?? ""), mic: d.mic, metro: d.metro, at: Date.now() };
+    try {
+      for (const fn of [...subs[name]]) fn(d);
+    } finally {
+      if (isState && (d.state === "running" || d.state === "failed")) NATIVE_AUDIO.state = null;
+    }
+  };
   const ready = api && typeof api.on === "function"
-    ? Promise.all(NATIVE_EVENT_NAMES.map((name) => api.on(name, (d) => { for (const fn of [...subs[name]]) fn(d); }))).then(() => true, () => false)
+    ? Promise.all(NATIVE_EVENT_NAMES.map((name) => api.on(name, dispatch(name)))).then(() => true, () => false)
     : Promise.resolve(false);
   e = {
     subs,
@@ -348,6 +362,8 @@ export class NativeMicContext {
   _stop() {
     if (this._stopped) return;
     this._stopped = true;
+    // 【便CY 審査】micStop で、殻の最後の状態(interrupted など)を下ろす。failed は受け手へ渡している最中(_endTrack → onended → 取り直しの始めが st= で読む)なので、そのまま
+    if (NATIVE_AUDIO.state && NATIVE_AUDIO.state.state !== "failed") NATIVE_AUDIO.state = null;
     this._unlisten();
     if (this._api) Promise.resolve().then(() => this._api.micStop({ id: this._id })).catch(() => {});
   }

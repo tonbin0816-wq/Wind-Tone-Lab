@@ -20,6 +20,7 @@ const cap = vi.hoisted(() => ({
   log: [], factories: [], session: null, native: [], nativeInfo: null, listeners: {},
   mic: { queue: [], fail: null, rate: 48000 }, clock: { offsetSec: 1000, sampleRate: 48000, delayMs: 0 }, metroFail: null,
   feed: { id: null, timer: null, off: false, b64: null },
+  settings: { mode: "ok" },    // 【便CY】openSettings の答え("ok" / "unimplemented" = 古い殻のビルド)
 }));
 vi.mock("@capacitor-community/keep-awake", () => {
   cap.factories.push("keep-awake");
@@ -47,7 +48,7 @@ vi.mock("@capacitor/core", () => {
       const q = cap.mic.queue.length ? cap.mic.queue.shift() : null;
       if (q && q.gate) await q.gate;
       const fail = q ? q.fail : cap.mic.fail;
-      if (fail) throw Object.assign(new Error(fail), { code: "DENIED" });
+      if (fail) throw Object.assign(new Error(fail), fail === "denied" ? { code: "DENIED" } : {});   // 殻の reject(文) は code が無い。許可の拒否だけ code DENIED
       cap.feed.id = o.id;
       startFeed();
       return { sampleRate: cap.mic.rate };
@@ -62,6 +63,12 @@ vi.mock("@capacitor/core", () => {
       const host = performance.now() / 1000 + cap.clock.offsetSec;
       if (cap.clock.delayMs) await new Promise((r) => setTimeout(r, cap.clock.delayMs));
       return { host, sampleRate: cap.clock.sampleRate };
+    },
+    // 【便CY】iOS の設定アプリの、この App のページを開く。mode "unimplemented" は古い殻のビルド(UNIMPLEMENTED で断る)
+    openSettings: async () => {
+      cap.native.push(["openSettings", {}]);
+      if (cap.settings.mode === "unimplemented") throw Object.assign(new Error("not implemented"), { code: "UNIMPLEMENTED" });
+      return { opened: true };
     },
     audioInfo: async () => {
       if (!cap.nativeInfo) throw Object.assign(new Error("not implemented"), { code: "UNIMPLEMENTED" });
@@ -176,6 +183,7 @@ beforeEach(() => {
   cap.log.length = 0; cap.factories.length = 0; cap.session = null; masterGains = []; gum = 0; offlines = [];
   cap.native = []; cap.nativeInfo = null; cap.listeners = {}; cap.metroFail = null; // 配列ごと作り直す(試験が push を差し替えることがある)
   cap.mic = { queue: [], fail: null, rate: 48000 };
+  cap.settings = { mode: "ok" };
   cap.clock = { offsetSec: 1000, sampleRate: 48000, delayMs: 0 };
   if (cap.feed.timer) clearInterval(cap.feed.timer);
   cap.feed = { id: null, timer: null, off: false, b64: noiseChunkB64() };
@@ -1743,6 +1751,288 @@ describe("【便CX 再審査】入力の標本化周波数が途中で替わっ�
       expect(diag.AUDIO_DIAG.lastMicRecover).toBe(null);
       expect(micStarts()).toBe(1);
       expect(nativeCalls("micStop").length).toBe(0);
+    } finally { vi.restoreAllMocks(); }
+  }, 30000);
+});
+
+// ------------------------------------------------------------------
+// 【便CY 2026-10-20】マイクの失敗のカード(MIC_DENIED_MSG・MIC_RECOVER_FAILED_MSG の2つとも同じ作り)。本人の指示で「もう一度試す」をやめた:
+//   ・殻: 設定の案内の1行 + 「設定を開く」だけ。押すと殻の openSettings が1回(iOS の設定アプリの Ficus のページ)。「もう一度試す」は無い
+//   ・Web(殻でない): 案内の1行だけ(ボタン無し)
+//   ・カードを押したタップは document まで伝わる(stopPropagation なし)ので、復旧のジェスチャー経路(onGesture → recoverMic)は壊れない
+//   ・古い殻のビルド(openSettings が UNIMPLEMENTED)でも、押して落ちない
+//   ・失敗の理由は診断の板の micRecover の行に出る(NG start=… err=… ctx=… track=… と、殻の audioInfo の lastError など)
+// 【守っていないもの】iOS の設定アプリが実際に開くこと・設定で許可を替えて戻ったときの様子(実機待ち。Swift はここでは走らない。綴りは pitch-test K.14)。
+// ------------------------------------------------------------------
+describe("【便CY】マイクの失敗のカード: 殻は「設定を開く」・Web は案内の1行だけ", () => {
+  const later = () => { const orig = performance.now.bind(performance); vi.spyOn(performance, "now").mockImplementation(() => orig() + 1e6); }; // 復旧のクールダウン(起動直後の 5 秒)の外
+  const errorCard = () => document.querySelector('[role="dialog"][aria-label="エラー"]');
+  const cardButtons = () => (errorCard() ? [...errorCard().querySelectorAll("button")].map((b) => b.textContent.trim()) : null);
+  const HOWTO = "設定 › Ficus › マイク を「許可」にすると計測できます";
+  const failNextGetUserMedia = () => {
+    Object.defineProperty(window.navigator, "mediaDevices", { value: { getUserMedia: async () => { throw Object.assign(new Error("denied"), { name: "NotAllowedError" }); } }, configurable: true });
+  };
+
+  it("殻: 権限の拒否のカードは 案内の1行 + 「設定を開く」だけ(「もう一度試す」は無い)。押すと openSettings が1回・カードは閉じる", async () => {
+    asShell();
+    cap.mic.fail = "denied";
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      mod = await loadApp();
+      await render();
+      await waitFor(() => errorCard() && errorCard().textContent.includes("マイクの使用が許可されていません"), "拒否のカード");
+      expect(errorCard().textContent).toContain(HOWTO);
+      expect(cardButtons()).toEqual(["設定を開く"]);
+      expect(document.body.textContent).not.toContain("もう一度試す");
+      expect(nativeCalls("openSettings").length).toBe(0);
+      await click(errorCard().querySelector("button"));
+      await waitFor(() => nativeCalls("openSettings").length === 1, "設定を開く");
+      await settle();
+      expect(nativeCalls("openSettings").length).toBe(1);
+      expect(errorCard()).toBe(null);                    // 同じタップが親の onClick でカードを閉じる(今までのボタンと同じ)
+    } finally { vi.restoreAllMocks(); }
+  }, 30000);
+
+  it("殻: 「設定を開く」を押したタップは document まで伝わる ── 復旧のジェスチャー経路が動いて殻のマイクを取り直し、また断られれば再接続失敗のカード(同じ作り)", async () => {
+    asShell();
+    cap.mic.fail = "denied";
+    later();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      mod = await loadApp();
+      await render();
+      await waitFor(() => cardButtons() && cardButtons().length === 1, "拒否のカード");
+      expect(micStarts()).toBe(1);
+      const seen = [];
+      const spy = (e) => seen.push(e.type);
+      document.addEventListener("pointerdown", spy);
+      try {
+        await mod.act(async () => { errorCard().querySelector("button").dispatchEvent(new Event("pointerdown", { bubbles: true })); });
+      } finally { document.removeEventListener("pointerdown", spy); }
+      expect(seen).toEqual(["pointerdown"]);              // ボタンの上のタップが document に届いた(伝播を止めていない)
+      await waitFor(() => micStarts() >= 2, "ジェスチャーの復旧が殻のマイクを取り直す");
+      const diag = await import("../audioDiag.jsx");
+      expect(diag.AUDIO_DIAG.lastMicRecover?.reason).toBe("gesture-retry");   // 【審査】拒否のカードが出た時点で再試行待ち(urgent)にする
+      // 断られたままなので、再接続失敗のカード。MIC_DENIED_MSG と同じ作り(案内の1行 + 「設定を開く」だけ)
+      await waitFor(() => errorCard() && errorCard().textContent.includes("マイクを再接続できませんでした"), "再接続失敗のカード");
+      expect(errorCard().textContent).toContain(HOWTO);
+      expect(cardButtons()).toEqual(["設定を開く"]);
+      expect(document.body.textContent).not.toContain("もう一度試す");
+    } finally { vi.restoreAllMocks(); }
+  }, 30000);
+
+  it("殻: 再接続の失敗 → 板の micRecover の行に、始めるときの様子(chunkAge・st)と失敗の理由(start・err・ctx・track)と殻の lastError が出る", async () => {
+    asShell();
+    cap.nativeInfo = { lastError: "interruption began", engineRunning: false, micOn: false, configChanges: 1, rebuilds: 0 };
+    later();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      mod = await loadApp();
+      await render();
+      await waitMic();
+      await settle();
+      const id1 = nativeCalls("micStart")[0][1].id;
+      cap.mic.queue = [{ fail: "session: boom" }];       // 殻の micStart が code 無しの文で断る(取り直しの1回目)
+      await emitNative("audioState", { state: "failed", reason: "loop", mic: true, metro: false, id: id1, run: 0 });
+      await waitFor(() => errorCard() && errorCard().textContent.includes("マイクを再接続できませんでした"), "再接続失敗のカード");
+      expect(cardButtons()).toEqual(["設定を開く"]);
+      const diag = await import("../audioDiag.jsx");
+      await waitFor(() => diag.AUDIO_DIAG.lastMicRecover?.result?.native, "殻の audioInfo の答えが記録に足される");
+      const rows = Object.fromEntries(diag.audioDiagRows(null));
+      expect(rows.micRecover).toMatch(/^\d\d:\d\d:\d\d track-ended \[chunkAge=\d+ms gap=\d+ms st=failed\/loop\(\d+s前\)\] → NG start=false err=session: boom ctx=suspended track=none native: err=interruption began running=no mic=no cfg=1 rb=0$/);
+      expect(rows.nativeState).toBe("—");     // 【審査】failed は取り直しの始めが st= で読んだ後に下ろす(古い状態を板に残さない)
+    } finally { vi.restoreAllMocks(); }
+  }, 30000);
+
+  it("殻: 取り直しに成功したら micRecover の行は → ok", async () => {
+    asShell();
+    later();
+    try {
+      mod = await loadApp();
+      await render();
+      await waitMic();
+      await settle();
+      const id1 = nativeCalls("micStart")[0][1].id;
+      await emitNative("audioState", { state: "failed", reason: "loop", mic: true, metro: false, id: id1, run: 0 });
+      await waitFor(() => micStarts() >= 2, "取り直す");
+      const diag = await import("../audioDiag.jsx");
+      await waitFor(() => diag.AUDIO_DIAG.lastMicRecover?.result, "結果");
+      expect(Object.fromEntries(diag.audioDiagRows(null)).micRecover).toMatch(/ track-ended \[chunkAge=\d+ms gap=(\d+ms|—) st=failed\/loop\(\d+s前\)\] → ok$/);
+      expect(errorCard()).toBe(null);
+    } finally { vi.restoreAllMocks(); }
+  }, 30000);
+
+  it("殻: 取り直しの最中にタブを離れた(置き換えられた)ら、micRecover の行は → superseded・失敗のカードは出さない", async () => {
+    asShell();
+    later();
+    try {
+      mod = await loadApp();
+      await render();
+      await waitMic();
+      await settle();
+      const id1 = nativeCalls("micStart")[0][1].id;
+      let release;
+      cap.mic.queue = [{ gate: new Promise((r) => { release = r; }) }];     // 取り直しの micStart を待たせる
+      await emitNative("audioState", { state: "failed", reason: "loop", mic: true, metro: false, id: id1, run: 0 });
+      await waitFor(() => micStarts() >= 2, "取り直しの micStart");
+      await click(nav("リード"));                                            // 待っている間に計測タブを離れる(stopListening)
+      await settle();
+      release();
+      const diag = await import("../audioDiag.jsx");
+      await waitFor(() => diag.AUDIO_DIAG.lastMicRecover?.result, "結果");
+      expect(diag.AUDIO_DIAG.lastMicRecover.result.outcome).toBe("superseded");
+      expect(Object.fromEntries(diag.audioDiagRows(null)).micRecover).toMatch(/ track-ended \[chunkAge=\d+ms gap=(\d+ms|—) st=failed\/loop\(\d+s前\)\] → superseded$/);
+      expect(errorCard()).toBe(null);
+    } finally { vi.restoreAllMocks(); }
+  }, 30000);
+
+  it("殻: 古い殻のビルド(openSettings が UNIMPLEMENTED)でも、押して落ちない(何も起きないだけ・カードは閉じる)", async () => {
+    asShell();
+    cap.mic.fail = "denied";
+    cap.settings.mode = "unimplemented";
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      mod = await loadApp();
+      await render();
+      await waitFor(() => cardButtons() && cardButtons().length === 1, "拒否のカード");
+      await click(errorCard().querySelector("button"));
+      await waitFor(() => nativeCalls("openSettings").length === 1, "設定を開くを試みた");
+      await settle();
+      expect(nativeCalls("openSettings").length).toBe(1);
+      expect(errorCard()).toBe(null);
+      expect(document.body.textContent).toContain("計測");     // アプリは生きている
+    } finally { vi.restoreAllMocks(); }
+  }, 30000);
+
+  it("Web: 権限の拒否のカードは案内の1行だけ(ボタンが無い)・殻の openSettings は呼ばない", async () => {
+    failNextGetUserMedia();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      mod = await loadApp();
+      await render();
+      await waitFor(() => errorCard() && errorCard().textContent.includes("マイクの使用が許可されていません"), "拒否のカード");
+      expect(errorCard().textContent).toContain(HOWTO);
+      expect(cardButtons()).toEqual([]);
+      expect(document.body.textContent).not.toContain("もう一度試す");
+      expect(document.body.textContent).not.toContain("設定を開く");
+      expect(nativeCalls("openSettings").length).toBe(0);
+    } finally { vi.restoreAllMocks(); }
+  }, 30000);
+
+  // ---- 【便CY 審査】画面のタップによる取り直しのクールダウン(onGesture → recoverMic。再接続失敗のあとは urgent の gesture-retry) ----
+  const tapElement = (el) => mod.act(async () => { el.dispatchEvent(new Event("pointerdown", { bubbles: true })); });
+  it("殻: 再接続失敗のカード(再試行待ち)を押すと、ふつうの取り直しの 5 秒のクールダウンの中でも(1 秒を越えていれば)殻の micStart がもう一度呼ばれる(gesture-retry)。1 秒以内の連打は取り直さない", async () => {
+    asShell();
+    const orig = performance.now.bind(performance);
+    let shift = 1e6;                                                    // 起動直後の 5 秒の外。以降は shift を進めて時間を進める
+    vi.spyOn(performance, "now").mockImplementation(() => orig() + shift);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      mod = await loadApp();
+      await render();
+      await waitMic();
+      await settle();
+      const id1 = nativeCalls("micStart")[0][1].id;
+      cap.mic.queue = [{ fail: "session: boom" }];
+      await emitNative("audioState", { state: "failed", reason: "loop", mic: true, metro: false, id: id1, run: 0 });
+      await waitFor(() => errorCard() && errorCard().textContent.includes("マイクを再接続できませんでした"), "再接続失敗のカード");
+      const diag = await import("../audioDiag.jsx");
+      expect(diag.AUDIO_DIAG.getMic().needsRetry).toBe(true);
+      const before = micStarts();
+      expect(before).toBe(2);
+      await tapElement(errorCard());                                     // 1 秒以内: 取り直さない(連打の歯止め)
+      await settle();
+      expect(micStarts()).toBe(before);
+      shift += 2000;                                                     // 1 秒を越え、ふつうの 5 秒の中
+      await tapElement(errorCard());
+      await waitFor(() => micStarts() === before + 1, "gesture-retry が殻の micStart を呼ぶ");
+      expect(diag.AUDIO_DIAG.lastMicRecover.reason).toBe("gesture-retry");
+      await waitFor(() => errorCard() === null, "取れたのでカードが消える");
+    } finally { vi.restoreAllMocks(); }
+  }, 30000);
+
+  it("殻: 拒否のカードの最初のタップは、起動から 5 秒以内(0.5 秒)でもクールダウンに阻まれず殻のマイクを取り直す(gesture-retry)", async () => {
+    asShell();
+    cap.mic.fail = "denied";
+    vi.spyOn(performance, "now").mockImplementation(() => 500);        // 起動から 0.5 秒で止めた時計(micRecoverAtRef の初期値 0 だと、ふつうの 5 秒も gesture-retry の 1 秒も阻まれる)
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      mod = await loadApp();
+      await render();
+      await waitFor(() => errorCard() && errorCard().textContent.includes("マイクの使用が許可されていません"), "拒否のカード");
+      expect(micStarts()).toBe(1);
+      await tapElement(errorCard());                                     // カードを閉じる前の最初のタップ(暗幕・カードのどこでも同じ)
+      await waitFor(() => micStarts() === 2, "最初のタップで殻のマイクを取り直す");
+      const diag = await import("../audioDiag.jsx");
+      expect(diag.AUDIO_DIAG.lastMicRecover.reason).toBe("gesture-retry");
+    } finally { vi.restoreAllMocks(); }
+  }, 30000);
+
+  it("殻: 許可を替えて戻り(画面復帰)マイクが取れたら、再試行待ちの印は下りる ── 次のタップで要らない取り直しをしない", async () => {
+    asShell();
+    cap.mic.fail = "denied";
+    later();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      mod = await loadApp();
+      await render();
+      await waitFor(() => errorCard() && errorCard().textContent.includes("マイクの使用が許可されていません"), "拒否のカード");
+      const diag = await import("../audioDiag.jsx");
+      expect(diag.AUDIO_DIAG.getMic().needsRetry).toBe(true);
+      cap.mic.fail = null;                                               // 設定アプリで許可を替えた
+      Object.defineProperty(document, "hidden", { value: true, configurable: true });
+      try { await mod.act(async () => { document.dispatchEvent(new Event("visibilitychange")); }); } finally { delete document.hidden; }
+      await settle();
+      await mod.act(async () => { document.dispatchEvent(new Event("visibilitychange")); });
+      await waitFor(() => cap.feed.id, "画面復帰で殻のマイクが取れる");
+      await settle();
+      expect(errorCard()).toBe(null);
+      expect(diag.AUDIO_DIAG.getMic().needsRetry).toBe(false);
+      const n = micStarts();
+      await tapElement(document.body);                                   // 画面のどこかを押しても
+      await tick(300);
+      expect(micStarts()).toBe(n);                                       // 取り直さない
+    } finally { vi.restoreAllMocks(); }
+  }, 30000);
+
+  it("Web: 前の失敗の理由を引きずらない ── 取り直しが失敗の理由なしに不健康(AudioContext が running にならない)で終わったら err=—", async () => {
+    later();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const Base = window.AudioContext;
+      window.AudioContext = class extends Base { constructor() { super(); this.state = "suspended"; } resume() { return Promise.resolve(); } };   // いつまでも running にならない
+      let n = 0;
+      Object.defineProperty(window.navigator, "mediaDevices", { value: { getUserMedia: async () => {
+        if (n++ === 0) throw Object.assign(new Error("denied"), { name: "NotAllowedError" });   // 1回目(起動)だけ断られる
+        return { getTracks: () => [track], getAudioTracks: () => [track] };
+      } }, configurable: true });
+      mod = await loadApp();
+      await render();
+      await waitFor(() => errorCard() && errorCard().textContent.includes("マイクの使用が許可されていません"), "起動の拒否のカード");
+      const diag = await import("../audioDiag.jsx");
+      expect(diag.AUDIO_DIAG.lastMicStartError.text).toBe("denied");     // Error の message(code が無いとき)
+      await mod.act(async () => { document.body.dispatchEvent(new Event("pointerdown", { bubbles: true })); });   // 画面のタップ → 復旧
+      await waitFor(() => diag.AUDIO_DIAG.lastMicRecover?.result, "取り直しの結果");
+      expect(diag.AUDIO_DIAG.lastMicRecover.reason).toBe("gesture-retry");
+      expect(diag.AUDIO_DIAG.lastMicRecover.result.outcome).toBe("NG");
+      expect(diag.AUDIO_DIAG.lastMicRecover.result.detail).toMatch(/^start=ok err=— ctx=suspended track=/);   // 今回の取り直しは断られていない = 前の失敗の理由(denied)を出さない
+    } finally { vi.restoreAllMocks(); }
+  }, 30000);
+
+  it("Web: 再接続の失敗のカードも案内の1行だけ(ボタンが無い)", async () => {
+    later();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      mod = await loadApp();
+      await render();
+      await waitFor(() => gum >= 1 && track.onended, "Web のマイク");
+      await settle();
+      failNextGetUserMedia();
+      await mod.act(async () => { track.onended(); });     // トラックの終了 → recoverMic → 取り直しが断られる
+      await waitFor(() => errorCard() && errorCard().textContent.includes("マイクを再接続できませんでした"), "再接続失敗のカード");
+      expect(errorCard().textContent).toContain(HOWTO);
+      expect(cardButtons()).toEqual([]);
+      expect(document.body.textContent).not.toContain("もう一度試す");
     } finally { vi.restoreAllMocks(); }
   }, 30000);
 });

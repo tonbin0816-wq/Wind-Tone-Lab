@@ -18,6 +18,15 @@
 //   ・gain(×1 / ×1.3 / ×1.6)と clickPeak … Web だけに残した(Web Audio のメトロノームのマスターに掛けるもので、殻のクリックは殻で鳴るので届かない。
 //     殻のクリックの音は変えない決まり)。殻では出さない。
 //   ・板の行は本番の殻の状態を出す(nativeEngine / nativeSched / nativeIn / nativeClock / nativeBuf)。
+// 【便CY 2026-10-20】マイクの取り直し(recoverMic)の行 micRecover に、始めるときの様子と、終わったときの結果を足した(記録だけ):
+//   「HH:MM:SS 理由 [chunkAge=…ms gap=…ms st=…] → ok | NG start=… err=… ctx=… track=… native: err=… | superseded」
+//   ・chunkAge = 殻の塊が最後に届いてからの時間(殻だけ。無音の見張りが動いたとき、塊が途切れていたかが分かる)
+//   ・gap = 解析のフレームの直近の間隔(殻だけ。大きければ JS の主スレッドが止まっていた = 塊が積まれたまま古いと読まれた可能性。小さければ殻の塊の途切れ)
+//   ・st = 殻が最後に知らせた状態(interrupted/began など。電話・Siri の中断の最中だったかが分かる)
+//   ・NG の start= は startListening の答え(false = 殻の micStart が断った・始められなかった)・err= はその断りの理由(殻の文)・
+//     ctx= / track= は取り直した後の部品の状態・native: は殻の audioInfo の lastError など(殻だけ。後から届いたら足す)
+//   殻の最後の状態は nativeState の行にも出す。【審査】st= と nativeState には知らせてからの経過(4s前)を付ける。状態は micStop・裏へ行く・
+//   running を受けた・failed を受けた で下ろす(古い interrupted を残さない。failed は取り直しの始めが st= で読んだ後に下ろす)。
 import { useEffect, useRef, useState } from "react";
 import { shellAudioSessionInfo, shellNativeAudio } from "./shell/audio.js";
 import { isNativeShell } from "./shell/native.js";
@@ -37,7 +46,9 @@ export const AUDIO_DIAG = {
   lastBgSec: null,       // 最後に裏にいた秒数
   returns: 0,            // 戻った回数(この起動の中)
   lastStart: null,       // 直近の START: { at, prevState, stalled, rebuilt }
-  lastMicRecover: null,  // 直近のマイクの取り直し: { at, reason }
+  lastMicRecover: null,  // 直近のマイクの取り直し: { at, reason, pre, result: { at, outcome("ok" / "NG" / "superseded"), detail, native } }
+  lastFrameGapMs: null,  // 【便CY】解析のフレームの直近の間隔(ms)。取り直しの始めの gap= に出す
+  lastMicStartError: null, // 【便CY】直近の startListening の失敗の理由: { at, text }(殻の micStart の断りの文・getUserMedia のエラー名)
   getMetro: null,        // MeasureView が置く: () => ({ ctx, on })(殻の ctx は殻のメトロノームの時計の口)
   getMic: null,          // マイクの処理が置く: () => ({ ctxState, track(readyState / muted / enabled / label), settings, recovering, needsRetry })
   // 【便CT】試し口(保存しない。【便CX】Web だけ)
@@ -102,7 +113,11 @@ export function audioDiagDropPeakTap(ctx) {
 
 // 隠れた / 戻ったの時刻を控える(純粋に記録だけ)。
 export function audioDiagNoteVisibility(hidden, now = Date.now()) {
-  if (hidden) { AUDIO_DIAG.lastHiddenAt = now; return; }
+  if (hidden) {
+    AUDIO_DIAG.lastHiddenAt = now;
+    NATIVE_AUDIO.state = null; // 【便CY 審査】裏へ行ったら、殻の最後の状態(interrupted など)は古くなる。戻った後の板に残さない
+    return;
+  }
   AUDIO_DIAG.lastReturnAt = now;
   AUDIO_DIAG.returns += 1;
   AUDIO_DIAG.lastBgSec = AUDIO_DIAG.lastHiddenAt === null ? null : (now - AUDIO_DIAG.lastHiddenAt) / 1000;
@@ -111,7 +126,46 @@ export function audioDiagNoteStart(info) {
   AUDIO_DIAG.lastStart = { at: Date.now(), ...info };
 }
 export function audioDiagNoteMicRecover(reason) {
-  AUDIO_DIAG.lastMicRecover = { at: Date.now(), reason: String(reason) };
+  AUDIO_DIAG.lastMicRecover = { at: Date.now(), reason: String(reason), pre: audioDiagMicPre() };
+}
+// 【便CY 審査】知らせてからの経過(秒。「4s前」)。長いものは古い ── 殻はこの後の running / failed で下ろすが、取りこぼした知らせの跡かもしれない
+export function audioDiagAgo(at, nowMs = Date.now()) {
+  return typeof at === "number" ? `${Math.max(0, Math.round((nowMs - at) / 1000))}s前` : "—";
+}
+// 【便CY】取り直しを始めるときの殻の様子(殻だけ。Web は空)。塊が最後に届いてからの時間と、殻が最後に知らせた状態
+export function audioDiagMicPre(perfNow = performance.now(), nowMs = Date.now()) {
+  if (!isNativeShell()) return "";
+  const m = NATIVE_AUDIO.mic;
+  const age = typeof m.lastRecvAt === "number" ? `${Math.max(0, Math.round(perfNow - m.lastRecvAt))}ms` : "—";
+  const st = NATIVE_AUDIO.state;
+  const gap = typeof AUDIO_DIAG.lastFrameGapMs === "number" && AUDIO_DIAG.lastFrameGapMs > 0 ? `${Math.round(AUDIO_DIAG.lastFrameGapMs)}ms` : "—";
+  return `chunkAge=${age} gap=${gap} st=${st ? `${st.state}/${st.reason || "—"}(${audioDiagAgo(st.at, nowMs)})` : "—"}`;
+}
+// 【便CY】startListening が失敗した理由を控える(殻の micStart の断りの文 = code か message・Web は getUserMedia のエラー名)
+export function audioDiagNoteMicStartError(err) {
+  AUDIO_DIAG.lastMicStartError = err === null ? null : { at: Date.now(), text: String((err && (err.code || err.message || err.name)) || err).slice(0, 120) };
+}
+// 【便CY】取り直しの結果を、直近の取り直しの記録に足す。outcome = "ok" / "NG" / "superseded"。取り直しが始まっていなければ何もしない
+export function audioDiagNoteMicRecoverResult(outcome, detail = "") {
+  const r = AUDIO_DIAG.lastMicRecover;
+  if (!r) return;
+  r.result = { at: Date.now(), outcome, detail: String(detail) };
+}
+// 【便CY】失敗の詳細の一言(純関数)。start = startListening の答え・err = その失敗の理由・ctx / track = 取り直した後の部品の状態
+export function audioDiagMicRecoverDetail({ ok, err, ctxState, track }) {
+  const t = track ? `${track.readyState}${track.muted === true ? "/muted" : ""}` : "none";
+  return `start=${ok === true ? "ok" : String(ok)} err=${err || "—"} ctx=${ctxState || "none"} track=${t}`;
+}
+// 【便CY】殻だけ: 失敗の結果に、殻の audioInfo の lastError などを足す(読むだけ。返事が来たとき、まだ同じ取り直しの記録なら足す)
+export function audioDiagAddNativeToRecoverResult() {
+  const api = shellNativeAudio();
+  const rec = AUDIO_DIAG.lastMicRecover;
+  if (!api || !rec || !rec.result) return Promise.resolve();
+  const result = rec.result;
+  return api.info().then((ni) => {
+    if (!ni || ni.error || AUDIO_DIAG.lastMicRecover !== rec || rec.result !== result) return;
+    result.native = `native: err=${ni.lastError || "—"} running=${yn(ni.engineRunning)} mic=${yn(ni.micOn)} cfg=${ni.configChanges ?? 0} rb=${ni.rebuilds ?? 0}`;
+  }, () => {});
 }
 
 // App の根から1回だけ呼ぶ。戻り値は片付け。
@@ -171,7 +225,7 @@ const strip = (s, prefix) => (typeof s === "string" ? s.replace(prefix, "") : "�
 //                  ovr = 読み手が遅れて輪の分を捨てた回数(0 のとき出さない)
 //   nativeClock  … 殻の時計と performance.now() の対応のずれの上限(使っている標本の往復の半分)・往復・合わせた回数。往復が上限(20ms)を越える標本しか無ければ rtt>20
 //   nativeBuf    … 殻へ渡したクリックの3段のピーク @標本化周波数(この端末の OfflineAudioContext で描いた値)
-export function audioDiagNativeRows(ni, now = performance.now()) {
+export function audioDiagNativeRows(ni, now = performance.now(), nowMs = Date.now()) {
   const rows = [];
   const bad = ni === undefined ? "…" : !ni || ni.error ? `n/a (要ビルド: ${ni?.error ?? "?"})` : null;
   const jsErr = [NATIVE_AUDIO.mic.error && `mic: ${NATIVE_AUDIO.mic.error}`, NATIVE_AUDIO.metro.error && `metro: ${NATIVE_AUDIO.metro.error}`].filter(Boolean).join(" / ");
@@ -189,6 +243,9 @@ export function audioDiagNativeRows(ni, now = performance.now()) {
     : `— syncs=${c.state.syncs} fails=${c.state.fails}`]);
   const bp = NATIVE_AUDIO.metro.bufPeaks;
   rows.push(["nativeBuf", bp ? `${bp.accent.toFixed(3)}/${bp.beat.toFixed(3)}/${bp.sub.toFixed(3)} @${bp.rate}` : "—"]);
+  // 【便CY】殻が最後に知らせた状態(audioState。interrupted / running / failed と理由・いつ・マイクとメトロノームが動いていたか)
+  const ns = NATIVE_AUDIO.state;
+  rows.push(["nativeState", ns ? `${ns.state}/${ns.reason || "—"} ${clock(ns.at)}(${audioDiagAgo(ns.at, nowMs)}) mic=${yn(ns.mic)} metro=${yn(ns.metro)}` : "—"]);
   return rows;
 }
 
@@ -230,7 +287,10 @@ export function audioDiagRows(session, now = Date.now()) {
     ? `label=${mic.track.label || "—"} id=${st && st.deviceId ? String(st.deviceId).slice(0, AUDIO_DIAG_ID_HEAD) : "—"}`
     : "—"]);
   const r = AUDIO_DIAG.lastMicRecover;
-  rows.push(["micRecover", r ? `${clock(r.at)} ${r.reason}` : "—"]);
+  const rr = r && r.result;
+  rows.push(["micRecover", r
+    ? `${clock(r.at)} ${r.reason}${r.pre ? ` [${r.pre}]` : ""}${rr ? ` → ${rr.outcome}${rr.detail ? ` ${rr.detail}` : ""}${rr.native ? ` ${rr.native}` : ""}` : ""}`
+    : "—"]);
   let webType = "—";
   try { if (typeof navigator !== "undefined" && navigator.audioSession) webType = String(navigator.audioSession.type); } catch { /* noop */ }
   rows.push(["web.audioSession", webType]);

@@ -1384,6 +1384,44 @@ iPad との分岐を2か所に持つより上限を1つにしておくほうが�
     `analyzeMediaFile`（動画で WebCodecs も decodeAudioData も失敗したときの実時間の道）は、`<video>` を音量 0 の鎖で鳴らす AudioContext を作る（play-and-record ではなく、
     マイクも取らない）。データタブで始まり、殻ではデータタブにいる間マイクは止まっているので計測とは重ならないが、解析中に計測タブへ移ると並んで動く。殻へ移すほどの頻度ではないので
     手当てはしていない（実機で計測の音量に響くかは実機待ち）。オンボーディング・広告・コミュニティは音を鳴らさない。
+  - **マイクの失敗のカード（【便CY 2026-10-20 本人の指示】「もう一度試す」をやめた）**: `MIC_DENIED_MSG`（許可されていない）と `MIC_RECOVER_FAILED_MSG`（再接続できなかった）は
+    **同じ作り**のまま ── 見出し（`--c-danger`）+ 案内の1行 `MIC_DENIED_HOWTO`（「設定 › Ficus › マイク を「許可」にすると計測できます」。文言は変えない）+ 殻だけボタン。
+    - **殻（iOS アプリ）**: ボタンは「設定を開く」（B型ピル `.ctl-plain .ctl-pill`・青い見た目・位置・器はそのまま）。押すと殻の新しいメソッド `openSettings`
+      （`DispatchQueue.main` の上で `UIApplication.shared.open(UIApplication.openSettingsURLString)`。iOS の設定アプリの Ficus のページ）を呼ぶ。JS の呼び口は
+      `src/shell/audio.js` の `shellOpenSettings()`（`audioSession.native.js` の `openSettings`）。**古い殻のビルド**（`openSettings` が UNIMPLEMENTED）・開けなかったときは
+      落とさず何も起きない（`false`）。殻の `pluginMethods` は10（`openSettings` を足した）。このファイルで `DispatchQueue.main` を使うのは `openSettings` の1か所だけ
+      （音の知らせ・読み手・エンジンは今まで通り使わない）。
+    - **Web（殻でない）**: ボタンを出さない。案内の1行だけ。
+    - **再試行の入口は無くなっていない**: このカードは `stopPropagation` を一切書かない設計のまま ── 暗幕・カード・「設定を開く」のどれを押しても、タップは `document` まで伝わり、
+      復旧のジェスチャー経路（`onGesture` → `recoverMic`）がマイクを取り直す。**再接続に失敗した後も、許可が断られたカードも、urgent の `gesture-retry`**
+      （`MIC_RETRY_TAP_COOLDOWN_MS` = 1 秒しか空けない。ふつうの取り直しは `MIC_RECOVER_COOLDOWN_MS` = 5 秒）。【便CY 審査】拒否のカードが出るとき（`startListening` の失敗の枝）に、
+      再試行待ちの印（`micNeedsRetryRef`）を立て、`micRecoverAtRef` を「直近に取り直しは無かった」へ戻す ── 初期値 0 のままだと起動から 5 秒以内（urgent でも 1 秒以内）の最初のタップが
+      クールダウンに阻まれた。この印は `startListening` が取れたところで下ろす（許可を設定アプリで替えて戻ったあとの最初のタップが、要らない取り直しをしない）。
+      同じタップが親の `onClick` でカードを閉じる（今までと同じ）。設定で許可を替えて戻ると、既存の画面復帰（`handleVisibilityChange`）が取り直す（`startListening` の頭で `errorMsg` を消す）。
+    - 検査: `src/shell/shellApp.test.jsx` の【便CY】（殻のカードのボタン・押すと `openSettings` が1回・タップが document まで伝わりジェスチャーの復旧が走る・
+      古いビルドで落ちない・Web はボタン無し）・`src/shell/policy.test.js`（`shellOpenSettings`）・pitch-test 45 A-5 / 48.6 M8 / K.14（`openSettings` の綴りと `pluginMethods` の一致）。
+      **実機待ち**: 設定アプリが実際に開くこと・許可を替えて戻ったとき（iOS がアプリを終わらせて起動し直すか、そのまま戻るか）にカードが消えてマイクが取れること。
+    - **マイクの取り直し（`recoverMic`）の失敗を板で見る（【便CY】記録だけ。判定も画面も変えない）**: `micRecover` の行を
+      「`HH:MM:SS 理由 [chunkAge=…ms gap=…ms st=…] → ok | NG start=… err=… ctx=… track=… native: … | superseded`」にした。
+      `chunkAge` = 殻の塊が最後に届いてからの時間・`gap` = 解析のフレームの直近の間隔（`AUDIO_DIAG.lastFrameGapMs`。大きければ JS の主スレッドが止まっていた）・`st` = 殻が最後に知らせた状態
+      と**知らせてからの経過**（`interrupted/began(4s前)`。`nativeState` と同じ。**経過が長いものは古い** ── 中断の終わりの running を取りこぼした跡かもしれない）。
+      状態は **running を受けた・failed を受けた**（受け手へ渡し終えた後。failed は取り直しの始めが `st=` で読んだ後）・**micStop**（マイクの口を止める・閉じる）・**裏へ行く**で下ろす（古い interrupted を残さない）。
+      NG の `start` = `startListening` の答え（false = 殻の `micStart` が断った）・`err` = その断りの理由（殻の文。許可の拒否は `DENIED`）・
+      `ctx` / `track` = 取り直した後の部品の状態・`native:` = 殻の `audioInfo` の `lastError` / `engineRunning` / `micOn` / `cfg` / `rb`（殻だけ。返事が来たら足す）。
+      **本人の実機で「メトロノームとマイクが殻で動いている最中に『マイクを再接続できませんでした』が出た」件の原因は、確証が取れていない**（診断の板はその1分前は正常）。
+      殻の経路で `recoverMic` が失敗しうる道（候補。どれも確証なし・板の次の1枚で見分ける）:
+      ① **中断（電話・Siri・アラーム）の最中**: 殻のエンジンが止まり塊が途切れる → JS の無音の見張り（途切れ 1 秒 + 全ゼロ 1.5 秒 ≒ 2.5 秒）が `recoverMic` を走らせ、
+      中断の最中に `micStart` → 音のセッションを有効にできず殻が断る（殻の `micStop` が `micOn` を落とすので、中断の終わりの作り直しも走らない）。上の「中断の始まりでは
+      JS は取り直さない」と食い違う道。板: `st=interrupted/began(経過が数秒)`・`nativeState` が interrupted・`native: err=interruption began`・`chunkAge` が 2500ms 前後。
+      **`st=` の経過が長い（数十秒以上）ものは古い**: 中断の最中ではなく、終わりの知らせを取りこぼした跡 ── ① の読みには使わない。
+      ② **殻が作り直しを諦めた**（`failed` = 10 秒に 5 回の嵐、または失敗 5 回）→ onended → `recoverMic`。原因が続いていれば `micStart` も失敗する。
+      板: `st=failed/loop`（または失敗の文）・`err=` に殻の文（`session: …` / `start: …`）。
+      ③ **JS の主スレッドが 1.5 秒以上止まった直後の最初のフレーム**: 殻の塊は JS の知らせで届くので、止まっている間に積まれて、まだ処理されていない間は `NATIVE_MIC_STALE_MS`
+      （1 秒）を越えて「古い」と読まれ、解析には全ゼロが渡る。無音の見張りは `silentFrames × フレーム間隔` で測るので、間隔が長いと1フレームで足りてしまい動く
+      （Web は解析が音のスレッドの値を読むので起きない）。板: `gap` が 1500ms 以上・`chunkAge` が 1000ms 以上。
+      ④ 裏から戻った直後・経路の変化の直後に `micStart` が来て、音のセッションが整う前に断られる。板: `track-ended` ではなく `visibility-restore`、`err=session: …`。
+      `recoverMic` の判定（`isMicStreamUsable`・`ctx.state === "running"`・`audioCtxRef.current.state`）は、
+      殻の `NativeMicContext` でも `start()` が済めば成り立つ（`state` は `running`・トラックは `live` で `muted` でない）ので、部品の state の誤判定で失敗している道は見つからなかった。
   - **古い殻のビルド**: 殻のメソッドが無い（ios-dev を建て直していない）と `micStart` が UNIMPLEMENTED で断られ、マイクは拒否の案内になる（メトロノームは鳴らない）。
     **ネイティブの変更なので ios-dev の再ビルドが要る**（本番版は JS も殻に入るので食い違わない）。
   - 検査: `src/shell/nativeAudio.test.js`（同じ波形の比べ・途切れ・時計・除外・拍頭・呼び出しの順）・`src/shell/shellApp.test.jsx` の【便CX】（殻で getUserMedia を呼ばない・
@@ -1543,7 +1581,7 @@ iPad との分岐を2か所に持つより上限を1つにしておくほうが�
   - 出すもの（項目名は英語のまま）: `time` / 殻の音のセッション `category` `mode` `options`（生の値と名前）`policy`（routeSharingPolicy）`out` `in` 【便CS】`inputs`（入力の候補 = `availableInputs` の `portType:名前` を「 / 」でつなぐ。空なら none）`preferredIn`（`preferredInput` の `portType:名前`。nil は殻が空の辞書で返し none。古い殻のビルドは項目が無く「—」）`outputVolume`
     `otherAudio` / `metro`（鳴っているか・ctx の state と currentTime）/ `lastStart`（直近の START の時刻・作り直したか・それまでの ctx の state・F-52 の時計の停止）/
     `lastHidden` / `lastReturn`（戻った時刻・裏にいた秒数・戻った回数）/ `mic`（解析の ctx の state・トラックの readyState / muted / enabled・取り直し中か・
-    再試行待ちか）/ `micSettings`（トラックの getSettings の echoCancellation / noiseSuppression / autoGainControl）/ 【便CS】`micTrack`（使っているマイクのトラックの label と、getSettings の deviceId の**先頭 8 文字**（`AUDIO_DIAG_ID_HEAD`。便CS の指示「先頭数文字」を 8 にした））/ `micRecover`（直近のマイクの取り直しの時刻と理由）/ `web.audioSession`（`navigator.audioSession.type`）。
+    再試行待ちか）/ `micSettings`（トラックの getSettings の echoCancellation / noiseSuppression / autoGainControl）/ 【便CS】`micTrack`（使っているマイクのトラックの label と、getSettings の deviceId の**先頭 8 文字**（`AUDIO_DIAG_ID_HEAD`。便CS の指示「先頭数文字」を 8 にした））/ `micRecover`（直近のマイクの取り直しの時刻と理由。【便CY】始めるときの様子と結果を足した ── 下の「マイクの失敗のカード」）/ `web.audioSession`（`navigator.audioSession.type`）。
   - **【便CX 2026-10-19】試し口の整理**（本番の殻のメトロノームとマイクが殻になったので）:
     - 鳴らし方（web / nativeClick / nativeBoth / nativeSolo）… **消した**（JS の `audioDiagSetPlayback` などと、殻の `nativeClick*` / `nativeInput*` / `nativeAudioInfo`）。聞き比べは済んだ。
     - mode（殻のセッションのモード 5種）… **消した**（殻の `setTestMode`・`desiredMode` も）。殻のセッションは本番の値（`.default`）に固定で、動いているエンジンのモードを替えると
@@ -1555,7 +1593,8 @@ iPad との分岐を2か所に持つより上限を1つにしておくほうが�
       `cfg` 構成の変化と中断の終わりの回数・`rb` 作り直しに成功した回数・`err` 殻の最後のエラー・`js=` JS 側の失敗）/ `nativeSched`（`sched` 予約した累計・`played` 再生し終わった累計・
       `play`・`lrt`・`tick`）/ `nativeIn`（直近の塊の入力レベル dBFS・入力の標本化周波数・【便CX 審査】`via` 取り方〈sink / tap〉・`cb=直近/最大` 1回の受け手のフレーム数・
       `send=直近/最大ms` 塊を送る間隔・殻が送った塊の数・JS が受けた数・最後に受けてからの時間・`ovr` 輪を捨てた回数〈あるときだけ〉）/
-      `nativeClock`（時計の対応のずれの上限 = 往復の半分・往復・合わせた回数・上限を越える往復しか無ければ `rtt>20`）/ `nativeBuf`（殻へ渡したクリックの3段のピーク @標本化周波数）。
+      `nativeClock`（時計の対応のずれの上限 = 往復の半分・往復・合わせた回数・上限を越える往復しか無ければ `rtt>20`）/ `nativeBuf`（殻へ渡したクリックの3段のピーク @標本化周波数）/ 【便CY】`nativeState`（殻が最後に知らせた状態 `audioState` = `状態/理由 時刻(経過) mic= metro=`。running・failed を受けた・micStop・裏へ行くと下ろす。
+      interrupted〈電話・Siri の中断〉・running/rebuilt〈作り直しに成功〉・failed〈諦めた〉。無ければ —）。
       `metro` の行に殻だけ `phase`（振り子の位相 = 拍の表示が読む値）を足した。殻の値は `audioInfo`（読むだけ）。古い殻のビルドは `n/a (要ビルド…)`。
     以下の便CT・便CU・便CV・便CW の記述は、その時点の試し口の記録として残す。
   - **試し口（【便CT 2026-10-13】聞き比べ用。ここだけは音を変える。どちらも保存しない = アプリを開き直せば default・×1）**: 板の下のボタン。

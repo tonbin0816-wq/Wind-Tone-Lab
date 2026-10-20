@@ -43,3 +43,13 @@ const NATIVE_AUDIO_API = {
 export function shellNativeAudio() {
   return isNativeShell() ? NATIVE_AUDIO_API : null;
 }
+
+// 【便CY 2026-10-20】マイクの失敗のカードの「設定を開く」: iOS の設定アプリの、この App のページ(設定 › Ficus)を開く。
+// Web では何もしない(false。動的 import もしない)。殻のビルドが古く openSettings が無い(UNIMPLEMENTED)・開けなかったときも、
+// 落とさず false を返す(押しても何も起きないだけ)。開けたら true。
+export function shellOpenSettings() {
+  if (!isNativeShell()) return Promise.resolve(false);
+  return import("./audioSession.native.js")
+    .then((m) => m.openSettings())
+    .then(() => true, () => false);
+}

@@ -58,14 +58,15 @@ import { REED_CATALOG, searchReeds } from "./community/catalog/gear.js";
 // 【殻 S2】殻(Capacitor の iOS アプリ)の中だけの分岐。どれも Capacitor に触れない(部品は *.native.js を動的 import)。
 import { isNativeShell } from "./shell/native.js";
 import { micActionOnTabLeave, METRO_MASTER_GAIN_SHELL } from "./shell/policy.js";
-import { shellAvailableInputs } from "./shell/audio.js";
+import { shellAvailableInputs, shellOpenSettings } from "./shell/audio.js";
 // 【便CX 2026-10-19】殻の計測の音(マイクとメトロノーム)は殻の AVAudioEngine で扱う(getUserMedia・Web の AudioContext を使わない)。
 // どれも Capacitor に触れない(殻の呼び口は shell/audio.js の動的 import)。Web では誰も呼ばない
 import { createNativeMicContext, createNativeMetronome, nativeHostClock } from "./shell/nativeAudio.js";
 // 【便CS】マイクはいつも端末の内蔵マイク(Bluetooth のイヤホン・有線のヘッドセットのマイクは使わない)
 import { preferBuiltInMicStream, trackLeftBuiltInMic } from "./builtInMic.js";
 // 【便CQ】音の診断の板(普段は見えない。計測タブで下部タブの「計測」を長押し)
-import { AUDIO_DIAG, AudioDiagPanel, useAudioDiagLongPress, installAudioDiagClock, audioDiagNoteStart, audioDiagNoteMicRecover, audioDiagApplyMetroGain } from "./audioDiag.jsx";
+import { AUDIO_DIAG, AudioDiagPanel, useAudioDiagLongPress, installAudioDiagClock, audioDiagNoteStart, audioDiagNoteMicRecover, audioDiagApplyMetroGain,
+  audioDiagNoteMicStartError, audioDiagNoteMicRecoverResult, audioDiagMicRecoverDetail, audioDiagAddNativeToRecoverResult } from "./audioDiag.jsx";
 // 【殻 S3】広告の帯(AdMob)の呼び口。Web では何もしない(部品は ads.native.js を動的 import)。
 import { shellStartAdsOnce, shellSetAdsHidden } from "./shell/ads.js";
 // 【便BZ 2026-10-07 統括の裁定】殻が --ad-h を後から置いたときの知らせ(環の縮み・計測タブの枠を測り直す)。
@@ -4643,6 +4644,7 @@ export default function WindToneLabPhaseMode() {
           const wNow = performance.now();
           const wInterval = lastFrameAtRef.current ? wNow - lastFrameAtRef.current : 0;
           lastFrameAtRef.current = wNow;
+          AUDIO_DIAG.lastFrameGapMs = wInterval; // 【便CY】直近のフレーム間隔(記録だけ。板の micRecover の gap=。JS の主スレッドが止まったあとの1フレームか、殻の塊の途切れかを見分ける)
           const wd = shouldRecoverFromSilence({
             volumeDb: vDb,
             prevSilentFrames: silentFramesRef.current,
@@ -4982,15 +4984,24 @@ export default function WindToneLabPhaseMode() {
       };
       tickRef.current = tick; // タブ切替後の再開(startListeningのマイク再利用パス)で使う
       tick();
+      // 【便CY 審査】取れたので再試行待ちの印を下ろす(拒否のカードの印が、許可を替えて戻った後の最初のタップで要らない取り直しを起こさない。recoverMic が不健康と見れば、その後で立て直す)。
+      // 再利用の道(上の isMicStreamUsable の枝。Web の一時停止からの再開)は触れない: そこへ来るのは取れているときだけで、拒否の印は立っていない
+      micNeedsRetryRef.current = false;
       return true;
     } catch (err) {
       // 【便CS 再審査】置き換えられた古い取得の失敗で、新しい取得の成功(isListening・errorMsg)を上書きしない。試みは終わったので micTried は立てる
       if (listenGenRef.current !== gen) { setMicTried(true); return MIC_START_SUPERSEDED; }
       // 詳細な原因(権限拒否・デバイスなし等)はコンソールにのみ残し、画面上のアラートは
       // 常に同じ簡潔な一文にする(原因の切り分けはユーザーの手を煩わせない)。
+      audioDiagNoteMicStartError(err); // 【便CY】板の micRecover の行の err=(取り直しの失敗の理由)
       console.error("getUserMedia failed:", err.name, err.message, err);
       setMicTried(true);   // 【殻 S3 → 便CG】マイクの試みが失敗で終わった(許可されなかった等)。成功の側と同じ(帯を始めるのは adsAllowed が立ったとき)
       setErrorMsg(MIC_DENIED_MSG);
+      // 【便CY 審査】拒否のカードを閉じる前の最初のタップは、クールダウンに阻まれず取り直す(urgent の gesture-retry)。
+      // micRecoverAtRef の初期値 0 は「起動から 5 秒以内」を阻んでいた。ここで「取り直しは直近に無かった」ことにし、再試行待ちの印(micNeedsRetryRef)を立てる。
+      // recoverMic の中から呼ばれたときは、recoverMic の finally が終了時刻で上書きする(連打の歯止めは今までどおり)。
+      micNeedsRetryRef.current = true;
+      micRecoverAtRef.current = -MIC_RECOVER_COOLDOWN_MS;
       setIsListening(false);
       return false;
     }
@@ -5058,10 +5069,13 @@ export default function WindToneLabPhaseMode() {
     silentFramesRef.current = 0;
     console.warn("mic recovery:", reason);
     audioDiagNoteMicRecover(reason); // 【便CQ】診断の板に出す(記録だけ)
+    // 【便CY】失敗の理由を板の micRecover の行に残す(記録だけ。判定も画面も変えない)。start= は startListening の答え・err= はその失敗の理由
+    const noteFailed = (detail) => { audioDiagNoteMicRecoverResult("NG", detail); audioDiagAddNativeToRecoverResult(); };
     try {
       stopListeningRef.current();
+      audioDiagNoteMicStartError(null); // この取り直しの失敗の理由だけを読む
       const ok = await startListeningRef.current();
-      if (ok === MIC_START_SUPERSEDED) return false; // 【便CS 再審査】待っている間に置き換えられた(タブを離れた等)。失敗の知らせは出さない
+      if (ok === MIC_START_SUPERSEDED) { audioDiagNoteMicRecoverResult("superseded"); return false; } // 【便CS 再審査】待っている間に置き換えられた(タブを離れた等)。失敗の知らせは出さない
       const ctx = audioCtxRef.current;
       // 【便CX】殻では作り直しに回さない(recoverAudioContext は Web の AudioContext を作る。殻のマイクの口は殻が作り直す)
       if (ok && ctx && ctx.state !== "running" && !isNativeShell()) {
@@ -5083,13 +5097,20 @@ export default function WindToneLabPhaseMode() {
       if (healthy) {
         micNeedsRetryRef.current = false;
         setErrorMsg("");
+        audioDiagNoteMicRecoverResult("ok");
         return true;
       }
       micNeedsRetryRef.current = true;
+      noteFailed(audioDiagMicRecoverDetail({
+        ok, err: AUDIO_DIAG.lastMicStartError && AUDIO_DIAG.lastMicStartError.text,
+        ctxState: audioCtxRef.current ? audioCtxRef.current.state : null,
+        track: streamRef.current?.getAudioTracks?.()[0] || null,
+      }));
       setErrorMsg(MIC_RECOVER_FAILED_MSG);
       return false;
-    } catch {
+    } catch (e) {
       micNeedsRetryRef.current = true;
+      noteFailed(`threw ${String((e && (e.code || e.message)) || e).slice(0, 120)}`);
       setErrorMsg(MIC_RECOVER_FAILED_MSG);
       return false;
     } finally {
@@ -5659,23 +5680,28 @@ export default function WindToneLabPhaseMode() {
         >
           <div style={{ width: "100%", maxWidth: "var(--page-max-w)", background: "var(--c-surface)", borderRadius: "var(--r-lg)", padding: "var(--sp-4)", boxShadow: "0 8px 24px rgba(15,23,42,0.18)" }}>
             <div className="sans" style={{ fontSize: "var(--fs-md)", fontWeight: 700, color: "var(--c-danger)" }}>{errorMsg}</div>
-            {/* 【A-5 / T5】マイク拒否のときだけ「何が起きたか」の下に
-                「どうすれば直るか」と「もう一度試す」を足す。他のエラーは従来どおり1行。
+            {/* 【A-5 / T5】マイク拒否のときだけ「何が起きたか」の下に「どうすれば直るか」を足す。他のエラーは従来どおり1行。
+                【便CY 2026-10-20 本人の指示】「もう一度試す」のボタンはやめた(押しても、許可が下りていなければ同じ失敗になるだけ)。
+                  殻(iOS アプリ)では、ボタンを「設定を開く」にして、押すと iOS の設定アプリの Ficus のページを開く(shellOpenSettings)。
+                  Web(殻でない)ではボタンを出さず、案内の1行だけ。この器は2つのメッセージ(MIC_RECOVER_FAILED_MSG・MIC_DENIED_MSG)で同じ作りのまま。
+                  再試行の入口は無くなっていない ── 画面のどこを押しても(暗幕・カード・このボタン)タップは document まで伝わり、
+                  復旧のジェスチャー経路(onGesture → recoverMic)が取り直す(再接続に失敗した後は即座に・それ以外は MIC_RECOVER_COOLDOWN_MS 空けて)。
                 【stopPropagation を書かないこと】この器は暗幕・カードのどちらを押しても
                 document までタップが伝播する前提で作られている(上のコメント参照)。
-                この再試行ボタンも伝播を止めない ── 押すと startListening が走り、
-                同じタップが親の onClick で errorMsg を閉じる。 */}
+                この「設定を開く」も伝播を止めない ── 押すと設定アプリを開き、同じタップが親の onClick で errorMsg を閉じる。 */}
             {ERROR_MEASURE_ONLY.includes(errorMsg) && (
               <>
                 <div className="sans" style={{ marginTop: "var(--sp-2)", fontSize: "var(--fs-xs)", color: "var(--c-ink-3)" }}>{MIC_DENIED_HOWTO}</div>
-                {/* B型 = .ctl-plain + .ctl-pill */}
-                <button
-                  onClick={() => { startListening(); }}
-                  className="sans ctl-plain ctl-pill"
-                  style={{ marginTop: "var(--sp-3)", width: "100%", minHeight: "var(--tap-min)", color: "var(--c-ink-2)", fontSize: "var(--fs-md)", fontWeight: 600, cursor: "pointer" }}
-                >
-                  もう一度試す
-                </button>
+                {isNativeShell() && (
+                  /* B型 = .ctl-plain + .ctl-pill */
+                  <button
+                    onClick={() => { shellOpenSettings(); }}
+                    className="sans ctl-plain ctl-pill"
+                    style={{ marginTop: "var(--sp-3)", width: "100%", minHeight: "var(--tap-min)", color: "var(--c-ink-2)", fontSize: "var(--fs-md)", fontWeight: 600, cursor: "pointer" }}
+                  >
+                    設定を開く
+                  </button>
+                )}
               </>
             )}
           </div>

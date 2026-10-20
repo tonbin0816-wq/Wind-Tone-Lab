@@ -15,6 +15,9 @@ export const metroUpdate = (o) => P.metroUpdate(o);
 export const metroStop = (o) => P.metroStop(o);
 export const audioClock = () => P.audioClock();
 export const audioInfo = () => P.audioInfo();
+// 【便CY 2026-10-20】iOS の設定アプリの、この App のページを開く(マイクの許可が断られているときの「設定を開く」)。src/shell/audio.js の shellOpenSettings からだけ呼ぶ。
+// 殻のビルドが古いと UNIMPLEMENTED で拒否される(shellOpenSettings が受けて何も起こさない)。
+export const openSettings = () => P.openSettings();
 // 殻からの知らせ("micData" / "metroClicks" / "audioState")の受け手の登録。答えは { remove() } の Promise。
 // 【便CX】登録の書き換えは bridge の列で行われ、殻の知らせとは同期しないので、nativeAudio.js の nativeEvents が最初の1回だけ呼ぶ(外さない)
 export const addListener = (event, fn) => P.addListener(event, fn);
