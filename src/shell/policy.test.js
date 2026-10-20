@@ -33,22 +33,15 @@ describe("METRO_MASTER_GAIN_SHELL ── 殻のメトロノームのマスター
 // 【便CX 2026-10-19】殻の計測の音の呼び口 shellNativeAudio(src/shell/audio.js)。Web では null(動的 import もしない)。
 // 殻では FicusAudioSession のメソッドをそのまま呼び、on(event, fn) は「受けるのをやめる関数」を返す。
 // (出口を寄せる shellRouteToSpeaker は消した: 殻はもう WebKit で取り込まず、殻のセッションは殻がエンジンを始める前に用意する)
-const reg = vi.hoisted(() => ({ names: [], calls: [], factory: 0, removed: 0, settings: "ok" }));
+const reg = vi.hoisted(() => ({ names: [], calls: [], factory: 0, removed: 0 }));
 vi.mock("@capacitor/core", () => {
   reg.factory++;
   return { registerPlugin: (name) => { reg.names.push(name); return {
     micStart: async (o) => { reg.calls.push(["micStart", o]); return { sampleRate: 48000 }; },
     addListener: async (ev) => { reg.calls.push(["addListener", ev]); return { remove: async () => { reg.removed++; } }; },
-    // 【便CY】settings = "ok" は開けた・"unimplemented" は古い殻のビルド(UNIMPLEMENTED で断る)・"fail" は開けなかった(殻の reject)
-    openSettings: async () => {
-      reg.calls.push(["openSettings"]);
-      if (reg.settings === "unimplemented") throw Object.assign(new Error("not implemented"), { code: "UNIMPLEMENTED" });
-      if (reg.settings === "fail") throw new Error("open failed");
-      return { opened: true };
-    },
   }; } };
 });
-afterEach(() => { delete window.Capacitor; reg.settings = "ok"; });
+afterEach(() => { delete window.Capacitor; });
 const settle = async () => { for (let i = 0; i < 10; i++) await new Promise((r) => setTimeout(r, 0)); };
 
 describe("shellNativeAudio ── 殻の計測の音の呼び口", () => {
@@ -69,32 +62,5 @@ describe("shellNativeAudio ── 殻の計測の音の呼び口", () => {
     off();
     await settle();
     expect([reg.factory, reg.names, reg.calls, reg.removed]).toEqual([1, ["FicusAudioSession"], [["micStart", { id: "m1" }], ["addListener", "micData"]], 1]);
-  });
-});
-
-// 【便CY 2026-10-20】マイクの失敗のカードの「設定を開く」の呼び口 shellOpenSettings(src/shell/audio.js)。Web では false(@capacitor/core を読みもしない)。
-// 殻では FicusAudioSession.openSettings を1回呼び、開けたら true。古い殻のビルド(UNIMPLEMENTED)・開けなかったときは落とさず false。
-describe("shellOpenSettings ── 設定アプリの Ficus のページを開く呼び口", () => {
-  it("Web(window.Capacitor 無し)では false・@capacitor/core を読みもしない", async () => {
-    const { shellOpenSettings } = await import("./audio.js");
-    expect(await shellOpenSettings()).toBe(false);
-    await new Promise((r) => setTimeout(r, 200));
-    await settle();
-    expect(reg.calls.filter(([n]) => n === "openSettings")).toEqual([]);
-  });
-  it("殻では openSettings を1回呼び、開けたら true", async () => {
-    window.Capacitor = { isNativePlatform: () => true, getPlatform: () => "ios" };
-    const { shellOpenSettings } = await import("./audio.js");
-    reg.calls.length = 0;
-    expect(await shellOpenSettings()).toBe(true);
-    expect(reg.calls.filter(([n]) => n === "openSettings").length).toBe(1);
-  });
-  it("古い殻のビルド(UNIMPLEMENTED)・開けなかった(殻の reject)ときは、落とさず false", async () => {
-    window.Capacitor = { isNativePlatform: () => true, getPlatform: () => "ios" };
-    const { shellOpenSettings } = await import("./audio.js");
-    reg.settings = "unimplemented";
-    expect(await shellOpenSettings()).toBe(false);
-    reg.settings = "fail";
-    expect(await shellOpenSettings()).toBe(false);
   });
 });

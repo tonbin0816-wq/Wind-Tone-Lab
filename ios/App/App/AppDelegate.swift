@@ -187,8 +187,7 @@ public class FicusAudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "metroUpdate", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "metroStop", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "audioClock", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "audioInfo", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "openSettings", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "audioInfo", returnType: CAPPluginReturnPromise)
     ]
 
     // 殻の音のセッションの選択肢(値の唯一の答え)。【本人裁定 2026-10-05】Bluetooth のイヤホンへは出す(allowBluetoothA2DP = 出力だけ Bluetooth)。
@@ -424,25 +423,6 @@ public class FicusAudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
             self.setMicId("")
             if !self.metroOn { self.teardownEngine() }
             call.resolve(["stopped": true])
-        }
-    }
-
-    // 【便CY 2026-10-20】iOS の設定アプリの、この App のページ(設定 › Ficus。マイクの許可はここ)を開く。マイクの許可が断られているときの
-    // 「設定を開く」から呼ぶ。UIApplication は main の上で触る(このファイルで DispatchQueue.main を使うのはここだけ。音の知らせ・読み手は使わない)。
-    // 答えは { opened: true }。開けなかったときは reject(JS は何も起きなくても落ちない)。
-    @objc func openSettings(_ call: CAPPluginCall) {
-        DispatchQueue.main.async {
-            guard let url = URL(string: UIApplication.openSettingsURLString) else {
-                call.reject("no settings url")
-                return
-            }
-            UIApplication.shared.open(url, options: [:]) { opened in
-                if opened {
-                    call.resolve(["opened": true])
-                } else {
-                    call.reject("open failed")
-                }
-            }
         }
     }
 

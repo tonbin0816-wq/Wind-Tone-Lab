@@ -22847,30 +22847,30 @@ console.log("\n========== 検証45: 便A 文言と補助文 ==========");
     // 2つとも**にした。以前はマイク拒否だけが3行で、再接続失敗は1行だった。
     // 分岐は集合そのものを読む ── 集合に足したメッセージが黙って1行に落ちない。
     const at = appCode.indexOf("{ERROR_MEASURE_ONLY.includes(errorMsg) && (");
-    const seg = at > 0 ? appCode.slice(at, at + 1400) : "";
-    check("45 A-5 / M8 3行構成は ERROR_MEASURE_ONLY の分岐で描く(2つとも同じ作り)", seg.length > 0);
+    // カードの案内の分岐そのもの(次の {topTab === "measure" && ( の手前まで)。1400 字の切り出しだと、後ろの画面の <button> を拾いうる
+    const segEnd = at > 0 ? appCode.indexOf('{topTab === "measure" && (', at) : -1;
+    const seg = at > 0 && segEnd > at ? appCode.slice(at, segEnd) : "";
+    // 暗幕(role="dialog")からカードの終わりまで
+    const dlgAt = appCode.indexOf('role="dialog" aria-label="エラー"');
+    const dlg = dlgAt > 0 && segEnd > dlgAt ? appCode.slice(dlgAt, segEnd) : "";
+    check("45 A-5 / M8 3行構成は ERROR_MEASURE_ONLY の分岐で描く(2つとも同じ作り)", seg.length > 0 && seg.length < 1200 && dlg.length > seg.length, `${seg.length} / ${dlg.length}`);
     check("45 A-5 / M8 マイク拒否だけを名指しする分岐は残っていない",
       !/errorMsg === MIC_DENIED_MSG/.test(appCode),
       (appCode.match(/errorMsg === MIC_DENIED_MSG/g) || []).length + "箇所");
     check("45 A-5 2行目に MIC_DENIED_HOWTO を描く", /\{MIC_DENIED_HOWTO\}/.test(seg));
-    // 【便CY 2026-10-20 本人の指示】「もう一度試す」はやめた。殻(iOS アプリ)だけ「設定を開く」(iOS の設定アプリの Ficus のページ)、Web は案内の1行だけ。
-    // 変異: 「もう一度試す」を戻す / Web にも出す(isNativeShell() の門を外す) / 押しても shellOpenSettings を呼ばない → 落ちる。
-    check("45 A-5 / 便CY 「もう一度試す」はカードから消えた(startListening を呼ぶボタンも無い)",
-      seg.length > 0 && !/もう一度試す/.test(seg) && !/startListening\(\)/.test(seg),
-      `${countOf(seg, "もう一度試す")}件`);
-    check("45 A-5 / 便CY 3行目は殻だけの「設定を開く」(isNativeShell() && の中・1つだけ)",
-      /\{isNativeShell\(\) && \(/.test(seg) && countOf(seg, "<button") === 1 && countOf(appCode, "設定を開く") === 1
-      && seg.indexOf("isNativeShell()") < seg.indexOf("<button") && seg.indexOf("<button") < seg.indexOf("設定を開く"));
-    check("45 A-5 / 便CY 「設定を開く」は shellOpenSettings を呼ぶ(src/shell/audio.js から import)",
-      /onClick=\{\(\) => \{ shellOpenSettings\(\); \}\}/.test(seg)
-      && /import \{ shellAvailableInputs, shellOpenSettings \} from "\.\/shell\/audio\.js";/.test(appCode),
-      (/onClick=\{[^\n]*/.exec(seg) || [""])[0]);
-    check("45 A-5 B型ピル(.ctl-plain .ctl-pill)で描く",
-      /className="sans ctl-plain ctl-pill"/.test(seg));
+    // 【便CY 2026-10-20 本人の指示】「もう一度試す」はやめた。【便CZ 2026-10-21 本人の指示】続けて入れた「設定を開く」(殻だけ)も、実機で押しても設定アプリへ遷移しなかったので消した。
+    // カードは案内の1行だけ(殻でも Web でも同じ・ボタンは無い・isNativeShell() の出し分けも無い)。
+    // 変異: ボタンを足す(「もう一度試す」を戻す / 「設定を開く」を戻す / 何かのボタンを足す)・伝播を止める → 落ちる。
+    check("45 A-5 / 便CZ カードにボタンが無い(案内の1行だけ。殻でも Web でも同じ = isNativeShell() の出し分けも startListening を呼ぶボタンも無い)",
+      seg.length > 0 && !/<button/.test(dlg) && !/isNativeShell\(\)/.test(seg) && !/もう一度試す/.test(dlg) && !/設定を開く/.test(dlg) && !/startListening\(\)/.test(seg),
+      `${countOf(dlg, "<button")}個`);
+    check("45 A-5 / 便CZ 「設定を開く」・openSettings・shellOpenSettings は App.jsx に1件も無い",
+      countOf(appCode, "設定を開く") === 0 && !/openSettings|shellOpenSettings/.test(appCode),
+      `${countOf(appCode, "設定を開く")}件`);
     // 【この器の前提を壊さない】暗幕もカードも document までタップを通す作りなので、
-    // 中に足したボタンが伝播を止めるとマイク復旧のジェスチャー経路が死ぬ。
-    check("45 A-5 再試行ボタンは伝播を止めない(stopPropagation を書かない)",
-      seg.length > 0 && !/stopPropagation/.test(seg));
+    // どこかが伝播を止めるとマイク復旧のジェスチャー経路が死ぬ。暗幕(onClick)からカードの終わりまで見る。
+    check("45 A-5 暗幕もカードも伝播を止めない(stopPropagation を書かない)・暗幕の onClick は errorMsg を閉じるだけ",
+      dlg.length > 0 && !/stopPropagation/.test(dlg) && /onClick=\{\(\) => setErrorMsg\(""\)\}/.test(dlg));
     // 【便CY 審査】画面のタップによる取り直し: 拒否のカードが出るとき(startListening の失敗の枝)に、再試行待ちの印を立て、取り直しの時刻を「直近に無かった」へ戻す
     // (micRecoverAtRef の初期値 0 だと、起動から 5 秒以内の最初のタップがクールダウンに阻まれる)。取れたら印を下ろす。再試行待ちのタップは urgent の gesture-retry。
     // 変異: 印を立てない / 時刻を戻さない / 取れても下ろさない / gesture-retry の枝を殺す / urgent を false にする → 落ちる。
@@ -23634,9 +23634,10 @@ console.log("\n========== 検証48: 便D 計測タブ(M1〜M10) ==========");
       && !/errorMsg === MIC_DENIED_MSG/.test(app48),
       (app48.match(/\{errorMsg [^\n]*&& \(/g) || []).join(" | ").slice(0, 200));
     const at = app48.indexOf("{ERROR_MEASURE_ONLY.includes(errorMsg) && (");
-    const seg = at > 0 ? app48.slice(at, at + 1400) : "";
-    check("48.6 M8 / 便CY 見出し / MIC_DENIED_HOWTO(2行)+ 殻だけ「設定を開く」(「もう一度試す」は無い)",
-      /\{MIC_DENIED_HOWTO\}/.test(seg) && /設定を開く/.test(seg) && !/もう一度試す/.test(seg)
+    const segEnd48 = at > 0 ? app48.indexOf('{topTab === "measure" && (', at) : -1;
+    const seg = at > 0 && segEnd48 > at ? app48.slice(at, segEnd48) : "";
+    check("48.6 M8 / 便CZ 見出し / MIC_DENIED_HOWTO(2行)だけ(ボタンは無い: 「もう一度試す」も「設定を開く」も)",
+      /\{MIC_DENIED_HOWTO\}/.test(seg) && seg.length < 1200 && !/<button/.test(seg) && !/もう一度試す/.test(seg) && !/設定を開く/.test(seg)
       && /\{errorMsg\}<\/div>/.test(app48.slice(Math.max(0, at - 400), at)));
   }
 
@@ -32760,10 +32761,10 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
   // --- K.12 App.jsx の殻の枝(Web の枝はそのまま) ------------------------------------------------------------------
   {
     // 【便CX 2026-10-19】殻の計測の音は殻(AVAudioEngine)が扱う: shellRouteToSpeaker は消え、殻の口(src/shell/nativeAudio.js)を静的に import する(Capacitor に触れない)
-    check("K.12 App.jsx: isNativeShell / micActionOnTabLeave・METRO_MASTER_GAIN_SHELL / shellAvailableInputs / 【便CX】createNativeMicContext・createNativeMetronome・nativeHostClock を shell から import する(【便CY】shellOpenSettings も)",
+    check("K.12 App.jsx: isNativeShell / micActionOnTabLeave・METRO_MASTER_GAIN_SHELL / shellAvailableInputs / 【便CX】createNativeMicContext・createNativeMetronome・nativeHostClock を shell から import する",
       /\nimport \{ isNativeShell \} from "\.\/shell\/native\.js";\n/.test(app)
       && /\nimport \{ micActionOnTabLeave, METRO_MASTER_GAIN_SHELL \} from "\.\/shell\/policy\.js";\n/.test(app)
-      && /\nimport \{ shellAvailableInputs, shellOpenSettings \} from "\.\/shell\/audio\.js";\n/.test(app)
+      && /\nimport \{ shellAvailableInputs \} from "\.\/shell\/audio\.js";\n/.test(app)
       && /\nimport \{ createNativeMicContext, createNativeMetronome, nativeHostClock \} from "\.\/shell\/nativeAudio\.js";\n/.test(app));
     check("K.12 topTab の effect: 計測タブなら start・殻(micActionOnTabLeave が stop)なら stopListening・それ以外は今までどおり pauseListening",
       /\n    if \(topTab === "measure" && !document\.hidden\) \{\n      startListeningRef\.current\(\);\n    \} else if \(micActionOnTabLeave\(isNativeShell\(\)\) === "stop"\) \{\n      stopListeningRef\.current\(\);\s*\n    \} else \{\n      pauseListeningRef\.current\(\);\n    \}\n/.test(app));
@@ -32891,33 +32892,20 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
         `${swiftKeys.join(",")} / ${jsKeys.join(",")}`);
     }
     // 【便CX 2026-10-19】殻の計測の音のメソッド(マイク・メトロノーム・時計・診断)。JS が呼ぶメソッドの集合(addListener は Capacitor の作法で pluginMethods に書かない)と
-    // Swift の pluginMethods が過不足なく一致すること。試し口の setTestMode・native*・routeToSpeaker は消した。【便CY 2026-10-20】設定アプリを開く openSettings を足した(10)
-    const CX_METHODS = ["sessionInfo", "micStart", "micStop", "metroLoad", "metroStart", "metroUpdate", "metroStop", "audioClock", "audioInfo", "openSettings"];
-    check("K.14 audioSession.native.js の registerPlugin の名前 = Swift の jsName(FicusAudioSession)・【便CX】【便CY】呼ぶメソッド10(マイク・メトロノーム・時計・診断・設定を開く)が Swift の pluginMethods と一致・知らせは P.addListener",
+    // Swift の pluginMethods が過不足なく一致すること。試し口の setTestMode・native*・routeToSpeaker は消した。
+    // 【便CZ 2026-10-21】便CY で足した設定アプリを開く openSettings は、実機で動かなかったので消した(9つに戻った)
+    const CX_METHODS = ["sessionInfo", "micStart", "micStop", "metroLoad", "metroStart", "metroUpdate", "metroStop", "audioClock", "audioInfo"];
+    check("K.14 audioSession.native.js の registerPlugin の名前 = Swift の jsName(FicusAudioSession)・【便CX】呼ぶメソッド9つ(マイク・メトロノーム・時計・診断)が Swift の pluginMethods と一致・知らせは P.addListener",
       jsName === "FicusAudioSession" && swiftJsName === jsName
       && JSON.stringify([...as.matchAll(/P\.(\w+)\(/g)].map((m) => m[1]).filter((n) => n !== "addListener").sort()) === JSON.stringify([...swiftMethods].sort())
       && JSON.stringify(swiftMethods) === JSON.stringify(CX_METHODS)
       && /export const addListener = \(event, fn\) => P\.addListener\(event, fn\);/.test(as)
       && CX_METHODS.every((n) => new RegExp(`@objc func ${n}\\(_ call: CAPPluginCall\\)`).test(swift)), `${jsName} / ${swiftJsName} / ${swiftMethods}`);
-    // 【便CY 2026-10-20】設定アプリを開く(マイクの失敗のカードの「設定を開く」)。Swift はここでは走らない。実際に設定アプリが開くかは実機待ち。
-    // 変異: main の外で呼ぶ / force unwrap にする / 開けなかったときに reject しない / JS が開けなかったときに落ちる(false を返さない) → 落ちる。
-    {
-      const scY = swift.split("\n").map((l) => l.replace(/\/\/.*$/, "")).join("\n");
-      const osFn = (/@objc func openSettings\(_ call: CAPPluginCall\) \{[\s\S]*?\n    \}\n/.exec(scY) || [""])[0];
-      check("K.14 【便CY】openSettings: main の上で UIApplication.openSettingsURLString を open し、開けたら resolve({opened: true})・開けなければ reject(force unwrap しない)",
-        osFn.length > 0 && /^\s*DispatchQueue\.main\.async \{/m.test(osFn)
-        && /guard let url = URL\(string: UIApplication\.openSettingsURLString\) else \{\n\s*call\.reject\("no settings url"\)\n\s*return\n\s*\}/.test(osFn)
-        && /UIApplication\.shared\.open\(url, options: \[:\]\) \{ opened in/.test(osFn)
-        && /call\.resolve\(\["opened": true\]\)/.test(osFn) && /call\.reject\("open failed"\)/.test(osFn)
-        && !/openSettingsURLString\)!/.test(osFn) && !/setActive|setCategory|[eE]ngine|micOn|metroOn|micRing|emit\(/.test(osFn),
-        osFn.replace(/\s+/g, " ").slice(0, 160));
-      const ad = codeOf(readS("src/shell/audio.js"));
-      const osJs = (/export function shellOpenSettings\(\) \{[\s\S]*?\n\}\n/.exec(ad) || [""])[0];
-      check("K.14 【便CY】shellOpenSettings: Web は動的 import もせず false・殻は openSettings を1回呼び、開けたら true・古いビルド(UNIMPLEMENTED)・開けなかったときも落とさず false",
-        osJs.length > 0 && /if \(!isNativeShell\(\)\) return Promise\.resolve\(false\);\n\s*return import\("\.\/audioSession\.native\.js"\)/.test(osJs)
-        && /\.then\(\(m\) => m\.openSettings\(\)\)\n\s*\.then\(\(\) => true, \(\) => false\);/.test(osJs),
-        osJs.replace(/\s+/g, " ").slice(0, 200));
-    }
+    // 【便CZ 2026-10-21】openSettings 一式(Swift の openSettings・pluginMethods の項目・audioSession.native.js・audio.js の shellOpenSettings・App.jsx の呼び手)は残っていない。
+    // 殻に openSettings が残っていても JS は呼ばない。変異: どれかを戻す → 落ちる。
+    check("K.14 【便CZ】openSettings 一式は残っていない(Swift・audioSession.native.js・audio.js・App.jsx・UIApplication.shared.open も無い)",
+      !/openSettings|shellOpenSettings|UIApplication\.shared\.open/.test(swift) && !/openSettings/.test(as)
+      && !/openSettings|shellOpenSettings/.test(codeOf(readS("src/shell/audio.js"))) && !/openSettings|shellOpenSettings/.test(codeOf(readS("src/App.jsx"))));
     // 【便CX】殻の AVAudioEngine の綴り(Swift はここでは走らない。鳴るか・取れるか・大きいかは実機待ち):
     //   入力は inputNode → AVAudioSinkNode(ハードウェアの形式)。受け手は輪へ写して知らせるだけ(確保・鍵・dispatch の async・AVAudioTime を呼ばない)。
     //   つなげない・始まらない・届かないときは installTap に戻る(付ける直前に removeTap・片付けでも外す・installTap は1か所)
@@ -32956,10 +32944,8 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
         && /if usedSink && !sinkUnavailable \{\n\s*sinkUnavailable = true\n[^\n]*\n\s*return startEngine\(\)/.test(start)
         && /asyncAfter\(deadline: \.now\(\) \+ FicusAudioSessionPlugin\.sinkCheckSec\)/.test(start) && /self\.sinkUnavailable = true\n\s*self\.lastError = "sink: no data"/.test(start)
         && /static let micTapFrames: AVAudioFrameCount = 4800\n/.test(sc)
-        // JS への知らせは emit の1か所。呼んだ列の上でそのまま送る(main へ回さない = main で JSON にしない)。
-        // 【便CY】DispatchQueue.main を使うのは openSettings(UIApplication は main で触る)の1か所だけ。音の知らせ・読み手・エンジンは使わない
-        && (sc.match(/notifyListeners\(/g) || []).length === 1 && /private func emit\(_ event: String, _ data: \[String: Any\]\) \{\n\s*notifyListeners\(event, data: data\)\n\s*\}/.test(emitFn) && !/DispatchQueue\.main/.test(emitFn)
-        && (sc.match(/DispatchQueue\.main/g) || []).length === 1 && /@objc func openSettings\(_ call: CAPPluginCall\) \{\n\s*DispatchQueue\.main\.async \{/.test(sc)
+        // JS への知らせは emit の1か所。呼んだ列の上でそのまま送る(main へ回さない = main で JSON にしない)
+        && (sc.match(/notifyListeners\(/g) || []).length === 1 && /private func emit\(_ event: String, _ data: \[String: Any\]\) \{\n\s*notifyListeners\(event, data: data\)\n\s*\}/.test(emitFn) && !/DispatchQueue\.main/.test(sc)
         // 【便CX 再審査】JS から micStart が来るたびに sink をもう一度試す(作り直しの最中は戻したまま)。tap で取っているエンジンは作り直す
         && /self\.sinkUnavailable = false\n\s*if let err = self\.ensureMic\(\) \{/.test(sc)
         && /private func ensureMic\(\) -> String\? \{\n\s*if let engine = engine, engine\.isRunning, engineHasInput, sinkNode != nil \{\n\s*return nil\n\s*\}/.test(sc)

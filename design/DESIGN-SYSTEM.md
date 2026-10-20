@@ -1384,23 +1384,24 @@ iPad との分岐を2か所に持つより上限を1つにしておくほうが�
     `analyzeMediaFile`（動画で WebCodecs も decodeAudioData も失敗したときの実時間の道）は、`<video>` を音量 0 の鎖で鳴らす AudioContext を作る（play-and-record ではなく、
     マイクも取らない）。データタブで始まり、殻ではデータタブにいる間マイクは止まっているので計測とは重ならないが、解析中に計測タブへ移ると並んで動く。殻へ移すほどの頻度ではないので
     手当てはしていない（実機で計測の音量に響くかは実機待ち）。オンボーディング・広告・コミュニティは音を鳴らさない。
-  - **マイクの失敗のカード（【便CY 2026-10-20 本人の指示】「もう一度試す」をやめた）**: `MIC_DENIED_MSG`（許可されていない）と `MIC_RECOVER_FAILED_MSG`（再接続できなかった）は
-    **同じ作り**のまま ── 見出し（`--c-danger`）+ 案内の1行 `MIC_DENIED_HOWTO`（「設定 › Ficus › マイク を「許可」にすると計測できます」。文言は変えない）+ 殻だけボタン。
-    - **殻（iOS アプリ）**: ボタンは「設定を開く」（B型ピル `.ctl-plain .ctl-pill`・青い見た目・位置・器はそのまま）。押すと殻の新しいメソッド `openSettings`
-      （`DispatchQueue.main` の上で `UIApplication.shared.open(UIApplication.openSettingsURLString)`。iOS の設定アプリの Ficus のページ）を呼ぶ。JS の呼び口は
-      `src/shell/audio.js` の `shellOpenSettings()`（`audioSession.native.js` の `openSettings`）。**古い殻のビルド**（`openSettings` が UNIMPLEMENTED）・開けなかったときは
-      落とさず何も起きない（`false`）。殻の `pluginMethods` は10（`openSettings` を足した）。このファイルで `DispatchQueue.main` を使うのは `openSettings` の1か所だけ
-      （音の知らせ・読み手・エンジンは今まで通り使わない）。
-    - **Web（殻でない）**: ボタンを出さない。案内の1行だけ。
-    - **再試行の入口は無くなっていない**: このカードは `stopPropagation` を一切書かない設計のまま ── 暗幕・カード・「設定を開く」のどれを押しても、タップは `document` まで伝わり、
+  - **マイクの失敗のカード（【便CY 2026-10-20】「もう一度試す」をやめた・【便CZ 2026-10-21】「設定を開く」も消した）**: `MIC_DENIED_MSG`（許可されていない）と `MIC_RECOVER_FAILED_MSG`（再接続できなかった）は
+    **同じ作り**のまま ── 見出し（`--c-danger`）+ 案内の1行 `MIC_DENIED_HOWTO`（「設定 › Ficus › マイク を「許可」にすると計測できます」。文言は変えない）**だけ**。
+    ボタンは無い。殻でも Web でも同じ（`isNativeShell()` の出し分けも無い）。器・位置・文言・「タップは `document` まで伝播させる」決まりは変えていない。
+    - **「設定を開く」を消した理由**: 便CY で足した、iOS の設定アプリの Ficus のページを開くボタン（殻の `openSettings`＝`UIApplication.shared.open(openSettingsURLString)`）は、
+      **実機で押しても設定アプリへ遷移しなかった**（本人の実機の結果）。**理由は未確定**（ブリッジの呼び出し・`UIApplication.open` の完了・URL のどれかは調べていない）。
+      動かないものを置いておく意味は無いので、`openSettings` 一式（Swift の `openSettings` と `pluginMethods` の項目・`audioSession.native.js` の `openSettings`・
+      `audio.js` の `shellOpenSettings`・App.jsx の呼び手）を消した。殻の `pluginMethods` は9に戻った。**JS だけ push すれば動く**: 殻のビルドに `openSettings` が残っていても JS は呼ばない
+      （殻のビルドが古くても新しくても同じ）。設定アプリへ案内する手を戻すなら、実機で遷移しなかった理由を先に見る。
+    - **再試行の入口は無くなっていない**: このカードは `stopPropagation` を一切書かない設計のまま ── 暗幕・カードのどちらを押しても、タップは `document` まで伝わり、
       復旧のジェスチャー経路（`onGesture` → `recoverMic`）がマイクを取り直す。**再接続に失敗した後も、許可が断られたカードも、urgent の `gesture-retry`**
       （`MIC_RETRY_TAP_COOLDOWN_MS` = 1 秒しか空けない。ふつうの取り直しは `MIC_RECOVER_COOLDOWN_MS` = 5 秒）。【便CY 審査】拒否のカードが出るとき（`startListening` の失敗の枝）に、
       再試行待ちの印（`micNeedsRetryRef`）を立て、`micRecoverAtRef` を「直近に取り直しは無かった」へ戻す ── 初期値 0 のままだと起動から 5 秒以内（urgent でも 1 秒以内）の最初のタップが
-      クールダウンに阻まれた。この印は `startListening` が取れたところで下ろす（許可を設定アプリで替えて戻ったあとの最初のタップが、要らない取り直しをしない）。
+      クールダウンに阻まれた。この印は `startListening` が取れたところで下ろす（本人が設定アプリで許可を替えて戻ったあとの最初のタップが、要らない取り直しをしない）。
       同じタップが親の `onClick` でカードを閉じる（今までと同じ）。設定で許可を替えて戻ると、既存の画面復帰（`handleVisibilityChange`）が取り直す（`startListening` の頭で `errorMsg` を消す）。
-    - 検査: `src/shell/shellApp.test.jsx` の【便CY】（殻のカードのボタン・押すと `openSettings` が1回・タップが document まで伝わりジェスチャーの復旧が走る・
-      古いビルドで落ちない・Web はボタン無し）・`src/shell/policy.test.js`（`shellOpenSettings`）・pitch-test 45 A-5 / 48.6 M8 / K.14（`openSettings` の綴りと `pluginMethods` の一致）。
-      **実機待ち**: 設定アプリが実際に開くこと・許可を替えて戻ったとき（iOS がアプリを終わらせて起動し直すか、そのまま戻るか）にカードが消えてマイクが取れること。
+    - 検査: `src/shell/shellApp.test.jsx` の【便CZ】（殻と Web の両方で、カードにボタンが無い・暗幕でもカードでも押すと閉じて click が document まで伝わる・カードの上の pointerdown が
+      document まで伝わってジェスチャーの復旧が動く〈殻は micStart・Web は getUserMedia をもう一度呼ぶ〉・殻の `openSettings` は呼ばれない）・pitch-test 45 A-5 / 48.6 M8 /
+      K.14（`openSettings` 一式が残っていない・`DispatchQueue.main` を1つも使わない）。**実機待ち**: カードの案内どおりに設定アプリで許可を替えて戻ったとき（iOS がアプリを終わらせて
+      起動し直すか、そのまま戻るか）にカードが消えてマイクが取れること。
     - **マイクの取り直し（`recoverMic`）の失敗を板で見る（【便CY】記録だけ。判定も画面も変えない）**: `micRecover` の行を
       「`HH:MM:SS 理由 [chunkAge=…ms gap=…ms st=…] → ok | NG start=… err=… ctx=… track=… native: … | superseded`」にした。
       `chunkAge` = 殻の塊が最後に届いてからの時間・`gap` = 解析のフレームの直近の間隔（`AUDIO_DIAG.lastFrameGapMs`。大きければ JS の主スレッドが止まっていた）・`st` = 殻が最後に知らせた状態

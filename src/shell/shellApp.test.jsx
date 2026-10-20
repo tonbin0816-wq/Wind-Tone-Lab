@@ -20,7 +20,6 @@ const cap = vi.hoisted(() => ({
   log: [], factories: [], session: null, native: [], nativeInfo: null, listeners: {},
   mic: { queue: [], fail: null, rate: 48000 }, clock: { offsetSec: 1000, sampleRate: 48000, delayMs: 0 }, metroFail: null,
   feed: { id: null, timer: null, off: false, b64: null },
-  settings: { mode: "ok" },    // 【便CY】openSettings の答え("ok" / "unimplemented" = 古い殻のビルド)
 }));
 vi.mock("@capacitor-community/keep-awake", () => {
   cap.factories.push("keep-awake");
@@ -64,12 +63,8 @@ vi.mock("@capacitor/core", () => {
       if (cap.clock.delayMs) await new Promise((r) => setTimeout(r, cap.clock.delayMs));
       return { host, sampleRate: cap.clock.sampleRate };
     },
-    // 【便CY】iOS の設定アプリの、この App のページを開く。mode "unimplemented" は古い殻のビルド(UNIMPLEMENTED で断る)
-    openSettings: async () => {
-      cap.native.push(["openSettings", {}]);
-      if (cap.settings.mode === "unimplemented") throw Object.assign(new Error("not implemented"), { code: "UNIMPLEMENTED" });
-      return { opened: true };
-    },
+    // 【便CZ】便CY で足した openSettings は実機で動かなかったので JS は呼ばない。殻のビルドに残っていても呼ばれないことを見るための見張り(呼ばれたら nativeCalls に残る)
+    openSettings: async () => { cap.native.push(["openSettings", {}]); return { opened: true }; },
     audioInfo: async () => {
       if (!cap.nativeInfo) throw Object.assign(new Error("not implemented"), { code: "UNIMPLEMENTED" });
       return cap.nativeInfo;
@@ -183,7 +178,6 @@ beforeEach(() => {
   cap.log.length = 0; cap.factories.length = 0; cap.session = null; masterGains = []; gum = 0; offlines = [];
   cap.native = []; cap.nativeInfo = null; cap.listeners = {}; cap.metroFail = null; // 配列ごと作り直す(試験が push を差し替えることがある)
   cap.mic = { queue: [], fail: null, rate: 48000 };
-  cap.settings = { mode: "ok" };
   cap.clock = { offsetSec: 1000, sampleRate: 48000, delayMs: 0 };
   if (cap.feed.timer) clearInterval(cap.feed.timer);
   cap.feed = { id: null, timer: null, off: false, b64: noiseChunkB64() };
@@ -1756,24 +1750,26 @@ describe("【便CX 再審査】入力の標本化周波数が途中で替わっ�
 });
 
 // ------------------------------------------------------------------
-// 【便CY 2026-10-20】マイクの失敗のカード(MIC_DENIED_MSG・MIC_RECOVER_FAILED_MSG の2つとも同じ作り)。本人の指示で「もう一度試す」をやめた:
-//   ・殻: 設定の案内の1行 + 「設定を開く」だけ。押すと殻の openSettings が1回(iOS の設定アプリの Ficus のページ)。「もう一度試す」は無い
-//   ・Web(殻でない): 案内の1行だけ(ボタン無し)
-//   ・カードを押したタップは document まで伝わる(stopPropagation なし)ので、復旧のジェスチャー経路(onGesture → recoverMic)は壊れない
-//   ・古い殻のビルド(openSettings が UNIMPLEMENTED)でも、押して落ちない
+// 【便CY 2026-10-20 → 便CZ 2026-10-21】マイクの失敗のカード(MIC_DENIED_MSG・MIC_RECOVER_FAILED_MSG の2つとも同じ作り)。本人の指示で「もう一度試す」をやめ、
+//   続けて入れた「設定を開く」(殻だけ)も、実機で押しても設定アプリへ遷移しなかったので消した。今のカードは案内の1行だけ(ボタンが無い)。殻でも Web でも同じ:
+//   ・ボタンが無い(「もう一度試す」も「設定を開く」も)。殻に openSettings が残っていても JS は呼ばない
+//   ・カードを押す(暗幕でもカードでも)と閉じる。押したタップは document まで伝わる(stopPropagation なし)ので、復旧のジェスチャー経路(onGesture → recoverMic)は壊れない
 //   ・失敗の理由は診断の板の micRecover の行に出る(NG start=… err=… ctx=… track=… と、殻の audioInfo の lastError など)
-// 【守っていないもの】iOS の設定アプリが実際に開くこと・設定で許可を替えて戻ったときの様子(実機待ち。Swift はここでは走らない。綴りは pitch-test K.14)。
+// 【守っていないもの】実機でカードの案内どおりに設定で許可を替えたあと戻って計測できること(実機待ち)。
 // ------------------------------------------------------------------
-describe("【便CY】マイクの失敗のカード: 殻は「設定を開く」・Web は案内の1行だけ", () => {
+describe("【便CZ】マイクの失敗のカード: ボタンは無い(案内の1行だけ)・タップは document まで伝わる", () => {
   const later = () => { const orig = performance.now.bind(performance); vi.spyOn(performance, "now").mockImplementation(() => orig() + 1e6); }; // 復旧のクールダウン(起動直後の 5 秒)の外
   const errorCard = () => document.querySelector('[role="dialog"][aria-label="エラー"]');
   const cardButtons = () => (errorCard() ? [...errorCard().querySelectorAll("button")].map((b) => b.textContent.trim()) : null);
   const HOWTO = "設定 › Ficus › マイク を「許可」にすると計測できます";
+  // Web の getUserMedia を断る。box.calls = 呼ばれた回数
   const failNextGetUserMedia = () => {
-    Object.defineProperty(window.navigator, "mediaDevices", { value: { getUserMedia: async () => { throw Object.assign(new Error("denied"), { name: "NotAllowedError" }); } }, configurable: true });
+    const box = { calls: 0 };
+    Object.defineProperty(window.navigator, "mediaDevices", { value: { getUserMedia: async () => { box.calls++; throw Object.assign(new Error("denied"), { name: "NotAllowedError" }); } }, configurable: true });
+    return box;
   };
 
-  it("殻: 権限の拒否のカードは 案内の1行 + 「設定を開く」だけ(「もう一度試す」は無い)。押すと openSettings が1回・カードは閉じる", async () => {
+  it("殻: 権限の拒否のカードは案内の1行だけ(ボタンが無い)。「もう一度試す」も「設定を開く」も無く、殻の openSettings は呼ばれない", async () => {
     asShell();
     cap.mic.fail = "denied";
     vi.spyOn(console, "error").mockImplementation(() => {});
@@ -1782,18 +1778,36 @@ describe("【便CY】マイクの失敗のカード: 殻は「設定を開く」
       await render();
       await waitFor(() => errorCard() && errorCard().textContent.includes("マイクの使用が許可されていません"), "拒否のカード");
       expect(errorCard().textContent).toContain(HOWTO);
-      expect(cardButtons()).toEqual(["設定を開く"]);
+      expect(cardButtons()).toEqual([]);
       expect(document.body.textContent).not.toContain("もう一度試す");
-      expect(nativeCalls("openSettings").length).toBe(0);
-      await click(errorCard().querySelector("button"));
-      await waitFor(() => nativeCalls("openSettings").length === 1, "設定を開く");
+      expect(document.body.textContent).not.toContain("設定を開く");
       await settle();
-      expect(nativeCalls("openSettings").length).toBe(1);
-      expect(errorCard()).toBe(null);                    // 同じタップが親の onClick でカードを閉じる(今までのボタンと同じ)
+      expect(nativeCalls("openSettings").length).toBe(0);
     } finally { vi.restoreAllMocks(); }
   }, 30000);
 
-  it("殻: 「設定を開く」を押したタップは document まで伝わる ── 復旧のジェスチャー経路が動いて殻のマイクを取り直し、また断られれば再接続失敗のカード(同じ作り)", async () => {
+  for (const [where, pick] of [["暗幕", (c) => c], ["カード", (c) => c.firstElementChild]]) {
+    it(`殻: ${where}を押すとカードが閉じる。押したタップ(click)は document まで伝わる(stopPropagation を書かない)`, async () => {
+      asShell();
+      cap.mic.fail = "denied";
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        mod = await loadApp();
+        await render();
+        await waitFor(() => errorCard() && errorCard().textContent.includes("マイクの使用が許可されていません"), "拒否のカード");
+        const seen = [];
+        const spy = (e) => seen.push(e.type);
+        document.addEventListener("click", spy);
+        try {
+          await click(pick(errorCard()));
+        } finally { document.removeEventListener("click", spy); }
+        expect(seen).toEqual(["click"]);                   // document に届いた(伝播を止めていない)
+        expect(errorCard()).toBe(null);                    // 親(暗幕)の onClick が errorMsg を閉じた
+      } finally { vi.restoreAllMocks(); }
+    }, 30000);
+  }
+
+  it("殻: カードの上のタップ(pointerdown)は document まで伝わる ── 復旧のジェスチャー経路が動いて殻のマイクを取り直し、また断られれば再接続失敗のカード(同じ作り = ボタンが無い)", async () => {
     asShell();
     cap.mic.fail = "denied";
     later();
@@ -1801,23 +1815,25 @@ describe("【便CY】マイクの失敗のカード: 殻は「設定を開く」
     try {
       mod = await loadApp();
       await render();
-      await waitFor(() => cardButtons() && cardButtons().length === 1, "拒否のカード");
+      await waitFor(() => errorCard() && errorCard().textContent.includes("マイクの使用が許可されていません"), "拒否のカード");
       expect(micStarts()).toBe(1);
       const seen = [];
       const spy = (e) => seen.push(e.type);
       document.addEventListener("pointerdown", spy);
       try {
-        await mod.act(async () => { errorCard().querySelector("button").dispatchEvent(new Event("pointerdown", { bubbles: true })); });
+        await mod.act(async () => { errorCard().firstElementChild.dispatchEvent(new Event("pointerdown", { bubbles: true })); });
       } finally { document.removeEventListener("pointerdown", spy); }
-      expect(seen).toEqual(["pointerdown"]);              // ボタンの上のタップが document に届いた(伝播を止めていない)
+      expect(seen).toEqual(["pointerdown"]);              // カードの上のタップが document に届いた(伝播を止めていない)
       await waitFor(() => micStarts() >= 2, "ジェスチャーの復旧が殻のマイクを取り直す");
       const diag = await import("../audioDiag.jsx");
-      expect(diag.AUDIO_DIAG.lastMicRecover?.reason).toBe("gesture-retry");   // 【審査】拒否のカードが出た時点で再試行待ち(urgent)にする
-      // 断られたままなので、再接続失敗のカード。MIC_DENIED_MSG と同じ作り(案内の1行 + 「設定を開く」だけ)
+      expect(diag.AUDIO_DIAG.lastMicRecover?.reason).toBe("gesture-retry");   // 【便CY 審査】拒否のカードが出た時点で再試行待ち(urgent)にする
+      // 断られたままなので、再接続失敗のカード。MIC_DENIED_MSG と同じ作り(案内の1行だけ)
       await waitFor(() => errorCard() && errorCard().textContent.includes("マイクを再接続できませんでした"), "再接続失敗のカード");
       expect(errorCard().textContent).toContain(HOWTO);
-      expect(cardButtons()).toEqual(["設定を開く"]);
+      expect(cardButtons()).toEqual([]);
       expect(document.body.textContent).not.toContain("もう一度試す");
+      expect(document.body.textContent).not.toContain("設定を開く");
+      expect(nativeCalls("openSettings").length).toBe(0);
     } finally { vi.restoreAllMocks(); }
   }, 30000);
 
@@ -1835,7 +1851,7 @@ describe("【便CY】マイクの失敗のカード: 殻は「設定を開く」
       cap.mic.queue = [{ fail: "session: boom" }];       // 殻の micStart が code 無しの文で断る(取り直しの1回目)
       await emitNative("audioState", { state: "failed", reason: "loop", mic: true, metro: false, id: id1, run: 0 });
       await waitFor(() => errorCard() && errorCard().textContent.includes("マイクを再接続できませんでした"), "再接続失敗のカード");
-      expect(cardButtons()).toEqual(["設定を開く"]);
+      expect(cardButtons()).toEqual([]);
       const diag = await import("../audioDiag.jsx");
       await waitFor(() => diag.AUDIO_DIAG.lastMicRecover?.result?.native, "殻の audioInfo の答えが記録に足される");
       const rows = Object.fromEntries(diag.audioDiagRows(null));
@@ -1886,26 +1902,9 @@ describe("【便CY】マイクの失敗のカード: 殻は「設定を開く」
     } finally { vi.restoreAllMocks(); }
   }, 30000);
 
-  it("殻: 古い殻のビルド(openSettings が UNIMPLEMENTED)でも、押して落ちない(何も起きないだけ・カードは閉じる)", async () => {
-    asShell();
-    cap.mic.fail = "denied";
-    cap.settings.mode = "unimplemented";
-    vi.spyOn(console, "error").mockImplementation(() => {});
-    try {
-      mod = await loadApp();
-      await render();
-      await waitFor(() => cardButtons() && cardButtons().length === 1, "拒否のカード");
-      await click(errorCard().querySelector("button"));
-      await waitFor(() => nativeCalls("openSettings").length === 1, "設定を開くを試みた");
-      await settle();
-      expect(nativeCalls("openSettings").length).toBe(1);
-      expect(errorCard()).toBe(null);
-      expect(document.body.textContent).toContain("計測");     // アプリは生きている
-    } finally { vi.restoreAllMocks(); }
-  }, 30000);
-
-  it("Web: 権限の拒否のカードは案内の1行だけ(ボタンが無い)・殻の openSettings は呼ばない", async () => {
-    failNextGetUserMedia();
+  it("Web: 権限の拒否のカードは案内の1行だけ(ボタンが無い)・カードの上のタップは document まで伝わり、復旧のジェスチャー経路が getUserMedia をもう一度呼ぶ", async () => {
+    later();
+    const gum2 = failNextGetUserMedia();
     vi.spyOn(console, "error").mockImplementation(() => {});
     try {
       mod = await loadApp();
@@ -1916,6 +1915,17 @@ describe("【便CY】マイクの失敗のカード: 殻は「設定を開く」
       expect(document.body.textContent).not.toContain("もう一度試す");
       expect(document.body.textContent).not.toContain("設定を開く");
       expect(nativeCalls("openSettings").length).toBe(0);
+      expect(gum2.calls).toBe(1);
+      const seen = [];
+      const spy = (e) => seen.push(e.type);
+      document.addEventListener("pointerdown", spy);
+      try {
+        await mod.act(async () => { errorCard().firstElementChild.dispatchEvent(new Event("pointerdown", { bubbles: true })); });
+      } finally { document.removeEventListener("pointerdown", spy); }
+      expect(seen).toEqual(["pointerdown"]);
+      await waitFor(() => gum2.calls === 2, "ジェスチャーの復旧が getUserMedia をもう一度呼ぶ");
+      const diag = await import("../audioDiag.jsx");
+      expect(diag.AUDIO_DIAG.lastMicRecover?.reason).toBe("gesture-retry");
     } finally { vi.restoreAllMocks(); }
   }, 30000);
 

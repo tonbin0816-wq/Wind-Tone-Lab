@@ -58,7 +58,7 @@ import { REED_CATALOG, searchReeds } from "./community/catalog/gear.js";
 // 【殻 S2】殻(Capacitor の iOS アプリ)の中だけの分岐。どれも Capacitor に触れない(部品は *.native.js を動的 import)。
 import { isNativeShell } from "./shell/native.js";
 import { micActionOnTabLeave, METRO_MASTER_GAIN_SHELL } from "./shell/policy.js";
-import { shellAvailableInputs, shellOpenSettings } from "./shell/audio.js";
+import { shellAvailableInputs } from "./shell/audio.js";
 // 【便CX 2026-10-19】殻の計測の音(マイクとメトロノーム)は殻の AVAudioEngine で扱う(getUserMedia・Web の AudioContext を使わない)。
 // どれも Capacitor に触れない(殻の呼び口は shell/audio.js の動的 import)。Web では誰も呼ばない
 import { createNativeMicContext, createNativeMetronome, nativeHostClock } from "./shell/nativeAudio.js";
@@ -5680,29 +5680,16 @@ export default function WindToneLabPhaseMode() {
         >
           <div style={{ width: "100%", maxWidth: "var(--page-max-w)", background: "var(--c-surface)", borderRadius: "var(--r-lg)", padding: "var(--sp-4)", boxShadow: "0 8px 24px rgba(15,23,42,0.18)" }}>
             <div className="sans" style={{ fontSize: "var(--fs-md)", fontWeight: 700, color: "var(--c-danger)" }}>{errorMsg}</div>
-            {/* 【A-5 / T5】マイク拒否のときだけ「何が起きたか」の下に「どうすれば直るか」を足す。他のエラーは従来どおり1行。
+            {/* 【A-5 / T5】マイク拒否のときだけ「何が起きたか」の下に「どうすれば直るか」を案内の1行で足す。他のエラーは従来どおり1行。
                 【便CY 2026-10-20 本人の指示】「もう一度試す」のボタンはやめた(押しても、許可が下りていなければ同じ失敗になるだけ)。
-                  殻(iOS アプリ)では、ボタンを「設定を開く」にして、押すと iOS の設定アプリの Ficus のページを開く(shellOpenSettings)。
-                  Web(殻でない)ではボタンを出さず、案内の1行だけ。この器は2つのメッセージ(MIC_RECOVER_FAILED_MSG・MIC_DENIED_MSG)で同じ作りのまま。
-                  再試行の入口は無くなっていない ── 画面のどこを押しても(暗幕・カード・このボタン)タップは document まで伝わり、
-                  復旧のジェスチャー経路(onGesture → recoverMic)が取り直す(再接続に失敗した後は即座に・それ以外は MIC_RECOVER_COOLDOWN_MS 空けて)。
+                【便CZ 2026-10-21 本人の指示】続けて入れた「設定を開く」(殻だけ・iOS の設定アプリを開く)も、実機で押しても設定アプリへ遷移しなかったので消した
+                  (理由は未確定)。ボタンは無い。案内の1行だけ(殻でも Web でも同じ)。この器は2つのメッセージ(MIC_RECOVER_FAILED_MSG・MIC_DENIED_MSG)で同じ作りのまま。
+                  再試行の入口は無くなっていない ── 画面のどこを押しても(暗幕・カード)タップは document まで伝わり、
+                  復旧のジェスチャー経路(onGesture → recoverMic。再試行待ちなら urgent の gesture-retry)が取り直す。
                 【stopPropagation を書かないこと】この器は暗幕・カードのどちらを押しても
-                document までタップが伝播する前提で作られている(上のコメント参照)。
-                この「設定を開く」も伝播を止めない ── 押すと設定アプリを開き、同じタップが親の onClick で errorMsg を閉じる。 */}
+                document までタップが伝播する前提で作られている(上のコメント参照)。同じタップが親の onClick で errorMsg を閉じる。 */}
             {ERROR_MEASURE_ONLY.includes(errorMsg) && (
-              <>
-                <div className="sans" style={{ marginTop: "var(--sp-2)", fontSize: "var(--fs-xs)", color: "var(--c-ink-3)" }}>{MIC_DENIED_HOWTO}</div>
-                {isNativeShell() && (
-                  /* B型 = .ctl-plain + .ctl-pill */
-                  <button
-                    onClick={() => { shellOpenSettings(); }}
-                    className="sans ctl-plain ctl-pill"
-                    style={{ marginTop: "var(--sp-3)", width: "100%", minHeight: "var(--tap-min)", color: "var(--c-ink-2)", fontSize: "var(--fs-md)", fontWeight: 600, cursor: "pointer" }}
-                  >
-                    設定を開く
-                  </button>
-                )}
-              </>
+              <div className="sans" style={{ marginTop: "var(--sp-2)", fontSize: "var(--fs-xs)", color: "var(--c-ink-3)" }}>{MIC_DENIED_HOWTO}</div>
             )}
           </div>
         </div>
