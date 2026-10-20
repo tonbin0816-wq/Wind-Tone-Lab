@@ -2,7 +2,7 @@
 import { describe, it, expect } from "vitest";
 import {
   createFrameAnalyzer, applyBandpassRBJ, isNearScheduledClick, metroBeatInfo, metroClickClockMs,
-  metroNativeClickPattern, BANDPASS_Q, SAX_PRESETS,
+  metroNativeClickPattern, BANDPASS_Q, SAX_PRESETS, isMicPermissionDenied,
 } from "../App.jsx";
 import {
   NativeMicContext, createHostClock, createNativeMetronome, nativeFloat32ToBase64, nativeBandpassCoefficients,
@@ -849,5 +849,24 @@ describe("【便CY】殻が最後に知らせた状態を控える(NATIVE_AUDIO.
     expect(readInOnended).toBe("failed");
     expect(NATIVE_AUDIO.state).toBe(null);
     void stream;
+  });
+});
+
+// 【便DA 2026-10-21】マイクの許可が拒まれていることが原因の失敗か(App.jsx の isMicPermissionDenied)。拒否なら、取り直しの失敗でもカードは「許可されていません」のまま。
+// 殻は micStart の reject("denied", "DENIED") の code。Web は getUserMedia の NotAllowedError / SecurityError / PermissionDeniedError。
+// 拒否ではないもの(殻の session: … / start: … など code の無い文・Web の NotFoundError / NotReadableError / OverconstrainedError / AbortError・superseded)は false。
+describe("【便DA】isMicPermissionDenied ── 許可の拒否かの判定", () => {
+  it("殻の code DENIED と Web の許可の拒否は true", () => {
+    expect(isMicPermissionDenied(Object.assign(new Error("denied"), { code: "DENIED" }))).toBe(true);
+    expect(isMicPermissionDenied({ code: "DENIED" })).toBe(true);
+    for (const name of ["NotAllowedError", "SecurityError", "PermissionDeniedError"]) expect(isMicPermissionDenied(Object.assign(new Error("x"), { name }))).toBe(true);
+  });
+  it("拒否ではない失敗は false(殻の code の無い文・古いビルドの UNIMPLEMENTED・Web の機器の失敗・置き換え・空)", () => {
+    expect(isMicPermissionDenied(new Error("session: boom"))).toBe(false);
+    expect(isMicPermissionDenied(new Error("start: -10868"))).toBe(false);
+    expect(isMicPermissionDenied(Object.assign(new Error("not implemented"), { code: "UNIMPLEMENTED" }))).toBe(false);
+    expect(isMicPermissionDenied(new Error("superseded"))).toBe(false);
+    for (const name of ["NotFoundError", "NotReadableError", "OverconstrainedError", "AbortError", "TypeError"]) expect(isMicPermissionDenied(Object.assign(new Error("x"), { name }))).toBe(false);
+    for (const v of [null, undefined, 0, "", {}]) expect(isMicPermissionDenied(v)).toBe(false);
   });
 });

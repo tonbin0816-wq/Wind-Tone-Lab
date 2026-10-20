@@ -1398,6 +1398,19 @@ iPad との分岐を2か所に持つより上限を1つにしておくほうが�
       再試行待ちの印（`micNeedsRetryRef`）を立て、`micRecoverAtRef` を「直近に取り直しは無かった」へ戻す ── 初期値 0 のままだと起動から 5 秒以内（urgent でも 1 秒以内）の最初のタップが
       クールダウンに阻まれた。この印は `startListening` が取れたところで下ろす（本人が設定アプリで許可を替えて戻ったあとの最初のタップが、要らない取り直しをしない）。
       同じタップが親の `onClick` でカードを閉じる（今までと同じ）。設定で許可を替えて戻ると、既存の画面復帰（`handleVisibilityChange`）が取り直す（`startListening` の頭で `errorMsg` を消す）。
+    - **拒否が原因の失敗は「許可されていません」の一段のまま（【便DA 2026-10-21 本人の指示】）**: 以前は、マイクが拒まれている実機で、先に「マイクを再接続できませんでした」が出て、
+      画面を押すと「マイクの使用が許可されていません」に替わった（二段構え）。原因は、取り直し（`recoverMic`）の失敗の枝が、`startListening` の断りの枝がセットした `MIC_DENIED_MSG` を
+      `MIC_RECOVER_FAILED_MSG` で上書きしていたこと（次のタップの `gesture-retry` が `startListening` を呼んで `MIC_DENIED_MSG` に戻した）。今は、`startListening` が取得ごとに
+      断りの理由を `isMicPermissionDenied(err)`（`micDeniedRef`）で決め、**拒否が原因なら `recoverMic` は `MIC_DENIED_MSG` を上書きしない**。
+      - 拒否と数えるもの: 殻の `micStart` の `reject("denied", "DENIED")`（`recordPermission` が denied、または許可の画面で断られた）= `err.code === "DENIED"`／Web の `getUserMedia` の
+        `NotAllowedError`・`SecurityError`・旧名 `PermissionDeniedError`。
+      - 拒否ではないもの（今までどおり `MIC_RECOVER_FAILED_MSG`）: 殻の `session: …` / `start: …` / `no input format`（code が無い）・中断の後や作り直しの失敗・Web の `NotFoundError`（機器なし）・
+        `NotReadableError`（別のアプリが使用中）・取れたが running にならない 等。判定は取得ごとに決め直す（前の拒否を引きずらない）。
+      - 変えていないもの: 拒否のカードの最初のタップの取り直し（urgent の `gesture-retry`・再試行待ちの印・取り直しの時刻の戻し・取れたら印を下ろす）・タップを止めないこと・診断の記録
+        （`micRecover` の行の `NG start=false err=DENIED …` は拒否の理由を残す。カードの文言とは別）。タップの click はこれまでどおりカードを閉じる（取り直しが断られれば同じ「許可されていません」が出る）。
+      - 検査: `src/shell/shellApp.test.jsx` の【便CZ】describe（殻: タップ〈pointerdown〉・裏から戻る〈visibility-restore〉で、カードの文言の移り変わりを途中まで見て「再接続できませんでした」が一度も出ない・
+        拒否ではない失敗〈code の無い文〉は前に拒否が出ていても「再接続できませんでした」／Web: 同じ〈NotAllowedError は一段のまま・NotReadableError は「再接続できませんでした」〉）・
+        `src/shell/nativeAudio.test.js` の `isMicPermissionDenied`・pitch-test 45 A-5。実機待ち: 拒否の実機で、カードが一段のままか。
     - 検査: `src/shell/shellApp.test.jsx` の【便CZ】（殻と Web の両方で、カードにボタンが無い・暗幕でもカードでも押すと閉じて click が document まで伝わる・カードの上の pointerdown が
       document まで伝わってジェスチャーの復旧が動く〈殻は micStart・Web は getUserMedia をもう一度呼ぶ〉・殻の `openSettings` は呼ばれない）・pitch-test 45 A-5 / 48.6 M8 /
       K.14（`openSettings` 一式が残っていない・`DispatchQueue.main` を1つも使わない）。**実機待ち**: カードの案内どおりに設定アプリで許可を替えて戻ったとき（iOS がアプリを終わらせて

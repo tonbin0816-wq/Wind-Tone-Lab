@@ -3573,6 +3573,15 @@ const MIC_DENIED_MSG = "マイクの使用が許可されていません";
 const MIC_START_SUPERSEDED = "superseded";
 // 本文。**アプリとして配る前提の経路**を書く(本人裁定)。Safari の経路は書かない。
 const MIC_DENIED_HOWTO = "設定 › Ficus › マイク を「許可」にすると計測できます";
+// 【便DA 2026-10-21 本人の指示】マイクの許可が拒まれていることが原因の失敗かどうか(純関数)。拒否なら、取り直し(recoverMic)の失敗でも MIC_DENIED_MSG のまま ──
+// 「再接続できませんでした」→(押すと)「許可されていません」の二段構えにしない。拒否ではない失敗(中断・作り直しの失敗・デバイスが使えない 等)は今までどおり MIC_RECOVER_FAILED_MSG。
+//   殻: 殻の micStart の reject("denied", "DENIED")(recordPermission が denied、または許可の画面で断られた)。殻のほかの失敗(session: … / start: … / no input format)は code が無い
+//   Web: getUserMedia の NotAllowedError(許可されなかった)・SecurityError・旧名 PermissionDeniedError。NotFoundError(機器なし)・NotReadableError(別のアプリが使用中)などは拒否ではない
+export function isMicPermissionDenied(err) {
+  if (!err) return false;
+  if (err.code === "DENIED") return true;
+  return err.name === "NotAllowedError" || err.name === "SecurityError" || err.name === "PermissionDeniedError";
+}
 // **計測タブでしか意味を持たない案内**。「画面をタップしてください」に応えるジェスチャー経路は
 // 計測タブ限定(onGesture の topTab !== "measure" で return)なので、他のタブで出すと
 // 指示どおりタップしても何も起きない。エラーモーダルはこの集合だけをタブで出し分ける。
@@ -4198,6 +4207,7 @@ export default function WindToneLabPhaseMode() {
   const micRecoverAtRef = useRef(0);      // 直近に復旧を走らせた時刻(クールダウン用)
   const micRecoveringRef = useRef(false); // 復旧処理の多重起動防止
   const micNeedsRetryRef = useRef(false); // 復旧に失敗しユーザーのタップ待ちである
+  const micDeniedRef = useRef(false);     // 【便DA】直近の startListening の失敗が、許可の拒否(isMicPermissionDenied)だった。recoverMic が MIC_DENIED_MSG を上書きしないための印
   const recoverMicRef = useRef(() => {});  // 復旧関数の最新版(tick/トラックイベントのクロージャから呼ぶ)
   // 【便CS】入力が内蔵マイクから外れたときの取り直し(Web)。下の effect が中身を置く
   const micLeftBuiltInRef = useRef(false);   // 外れたまま(一時停止中・録音中で取り直せなかった)。次の startListening は再利用しない
@@ -4454,6 +4464,7 @@ export default function WindToneLabPhaseMode() {
 
     silentFramesRef.current = 0;
     lastFrameAtRef.current = 0;
+    micDeniedRef.current = false; // 【便DA】この取得の結果で決め直す(前の拒否を引きずらない)
 
     // 【マイク権限ポップアップ対策】タブを行き来するたびにgetUserMediaを呼ぶと、
     // 端末によっては毎回マイク許可のポップアップが出る。既にマイク接続が生きていれば
@@ -4994,6 +5005,7 @@ export default function WindToneLabPhaseMode() {
       // 詳細な原因(権限拒否・デバイスなし等)はコンソールにのみ残し、画面上のアラートは
       // 常に同じ簡潔な一文にする(原因の切り分けはユーザーの手を煩わせない)。
       audioDiagNoteMicStartError(err); // 【便CY】板の micRecover の行の err=(取り直しの失敗の理由)
+      micDeniedRef.current = isMicPermissionDenied(err); // 【便DA】許可の拒否か。recoverMic が、拒否なら MIC_DENIED_MSG を MIC_RECOVER_FAILED_MSG で上書きしない
       console.error("getUserMedia failed:", err.name, err.message, err);
       setMicTried(true);   // 【殻 S3 → 便CG】マイクの試みが失敗で終わった(許可されなかった等)。成功の側と同じ(帯を始めるのは adsAllowed が立ったとき)
       setErrorMsg(MIC_DENIED_MSG);
@@ -5106,7 +5118,10 @@ export default function WindToneLabPhaseMode() {
         ctxState: audioCtxRef.current ? audioCtxRef.current.state : null,
         track: streamRef.current?.getAudioTracks?.()[0] || null,
       }));
-      setErrorMsg(MIC_RECOVER_FAILED_MSG);
+      // 【便DA 2026-10-21 本人の指示】許可が拒まれていることが原因なら、startListening が出した MIC_DENIED_MSG のまま(上書きしない)。先に「再接続できませんでした」→ 押すと
+      // 「許可されていません」の二段構えにしない。再試行待ちの印(上の micNeedsRetryRef)と診断の記録(noteFailed の start= err=)は、拒否でも今までどおり。
+      // 拒否ではない失敗(中断・作り直しの失敗 等)は今までどおり MIC_RECOVER_FAILED_MSG。
+      if (!micDeniedRef.current) setErrorMsg(MIC_RECOVER_FAILED_MSG);
       return false;
     } catch (e) {
       micNeedsRetryRef.current = true;

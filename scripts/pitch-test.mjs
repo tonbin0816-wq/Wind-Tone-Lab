@@ -22880,6 +22880,19 @@ console.log("\n========== 検証45: 便A 文言と補助文 ==========");
       /\n      tick\(\);\n(?:\s*\/\/[^\n]*\n)*\s*micNeedsRetryRef\.current = false;\n\s*return true;\n    \} catch \(err\) \{/.test(appCode));
     check("45 A-5 / 便CY 再試行待ちのタップは urgent の gesture-retry(onGesture)",
       /if \(needsRetry\) recoverMicRef\.current\("gesture-retry", true\);\n\s*else if \(ctxBroken \|\| micBroken\) recoverMicRef\.current\("gesture"\);/.test(appCode));
+    // 【便DA 2026-10-21 本人の指示】許可が拒まれていることが原因の失敗は「許可されていません」の一段のまま。recoverMic の失敗の枝が MIC_DENIED_MSG を MIC_RECOVER_FAILED_MSG で上書きして、
+    // 先に「再接続できませんでした」→ 押すと「許可されていません」の二段構えになっていた。拒否の判定は startListening の失敗の枝(isMicPermissionDenied)が取得ごとに決める。
+    // 変異: 上書きを戻す / 拒否の判定を常に真・常に偽にする / 取得の頭で下ろさない / 判定の中身を壊す → 落ちる。
+    check("45 A-5 / 便DA recoverMic の失敗の枝は、拒否が原因でないときだけ MIC_RECOVER_FAILED_MSG を出す(拒否なら startListening が出した MIC_DENIED_MSG のまま)",
+      /\n      if \(!micDeniedRef\.current\) setErrorMsg\(MIC_RECOVER_FAILED_MSG\);\n      return false;\n    \} catch \(e\) \{/.test(appCode)
+      && (appCode.match(/setErrorMsg\(MIC_RECOVER_FAILED_MSG\)/g) || []).length === 2,
+      `${(appCode.match(/setErrorMsg\(MIC_RECOVER_FAILED_MSG\)/g) || []).length}件`);
+    check("45 A-5 / 便DA startListening は取得の頭で micDeniedRef を下ろし、失敗の枝で isMicPermissionDenied(err) を控える(置き換えの早い return より後)",
+      /\n    micDeniedRef\.current = false;[^\n]*\n/.test(appCode)
+      && /\n      micDeniedRef\.current = isMicPermissionDenied\(err\);[^\n]*\n/.test(appCode)
+      && appCode.slice(Math.max(0, appCode.indexOf("micDeniedRef.current = isMicPermissionDenied(err);") - 400), appCode.indexOf("micDeniedRef.current = isMicPermissionDenied(err);")).includes("return MIC_START_SUPERSEDED; }"));
+    check("45 A-5 / 便DA isMicPermissionDenied: 殻の code DENIED・Web の NotAllowedError / SecurityError / PermissionDeniedError だけ",
+      /export function isMicPermissionDenied\(err\) \{\n  if \(!err\) return false;\n  if \(err\.code === "DENIED"\) return true;\n  return err\.name === "NotAllowedError" \|\| err\.name === "SecurityError" \|\| err\.name === "PermissionDeniedError";\n\}/.test(appCode));
   }
   // 【便B の手直し2 2026-09-15 統括裁定】マイク拒否も計測タブ限定にした。
   // 本文が「…にすると計測できます」と計測の話しかしないので、データタブで出すと
