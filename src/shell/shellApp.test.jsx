@@ -1776,6 +1776,20 @@ describe("【便CZ】マイクの失敗のカード: ボタンは無い(案内�
     mo.observe(document.body, { childList: true, subtree: true, characterData: true });
     return { log, stop: () => mo.disconnect(), sawRecoverFailed: () => log.some((t) => t && t.includes("マイクを再接続できませんでした")), sawDenied: () => log.some((t) => t && t.includes("マイクの使用が許可されていません")) };
   };
+  // 他のアプリへ行く(画面が隠れる)・戻る(visibilitychange)。戻ると startListening が走り、拒否のままなら拒否のカードをもう一度出す
+  const goBackground = async () => {
+    Object.defineProperty(document, "hidden", { value: true, configurable: true });
+    try { await mod.act(async () => { document.dispatchEvent(new Event("visibilitychange")); }); } finally { delete document.hidden; }
+    await settle();
+  };
+  const comeBack = () => mod.act(async () => { document.dispatchEvent(new Event("visibilitychange")); });
+  // 画面のどこかを押す(pointerdown + touchend。復旧のジェスチャー経路が聞いているイベント)
+  const tapScreen = async (el = document.body) => {
+    await mod.act(async () => {
+      el.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+      el.dispatchEvent(new Event("touchend", { bubbles: true }));
+    });
+  };
 
   it("殻: 権限の拒否のカードは案内の1行だけ(ボタンが無い)。「もう一度試す」も「設定を開く」も無く、殻の openSettings は呼ばれない", async () => {
     asShell();
@@ -1815,7 +1829,7 @@ describe("【便CZ】マイクの失敗のカード: ボタンは無い(案内�
     }, 30000);
   }
 
-  it("殻: カードの上のタップ(pointerdown)は document まで伝わる ── 復旧のジェスチャー経路が動いて殻のマイクを取り直す。許可が拒まれたままなら、カードは「許可されていません」のまま(「再接続できませんでした」に替わらない・途中も出ない)", async () => {
+  it("殻: 許可が拒まれている間、画面のタップは document まで伝わるが取り直しは走らない(殻の micStart は増えない・診断の取り直しも無い)。カードの文言も替わらない", async () => {
     asShell();
     cap.mic.fail = "denied";
     const orig = performance.now.bind(performance);
@@ -1835,27 +1849,19 @@ describe("【便CZ】マイクの失敗のカード: ボタンは無い(案内�
         await mod.act(async () => { errorCard().firstElementChild.dispatchEvent(new Event("pointerdown", { bubbles: true })); });
       } finally { document.removeEventListener("pointerdown", spy); }
       expect(seen).toEqual(["pointerdown"]);              // カードの上のタップが document に届いた(伝播を止めていない)
-      await waitFor(() => micStarts() >= 2, "ジェスチャーの復旧が殻のマイクを取り直す");
-      const diag = await import("../audioDiag.jsx");
-      await waitFor(() => diag.AUDIO_DIAG.lastMicRecover?.result, "取り直しの結果");
-      expect(diag.AUDIO_DIAG.lastMicRecover.reason).toBe("gesture-retry");   // 【便CY 審査】拒否のカードが出た時点で再試行待ち(urgent)にする
-      // 診断の記録は、拒否の理由を残す(カードの文言とは別)
-      expect(diag.AUDIO_DIAG.lastMicRecover.result.outcome).toBe("NG");
-      expect(Object.fromEntries(diag.audioDiagRows(null)).micRecover).toMatch(/→ NG start=false err=DENIED ctx=suspended track=none/);
       await settle();
+      shift += 6000;
+      await tapScreen(errorCard().firstElementChild);       // 時間をあけてもう一度(ふつうの 5 秒のクールダウンも外)
+      await settle();
+      const diag = await import("../audioDiag.jsx");
+      expect(micStarts()).toBe(1);                         // 取り直しは走らない
+      expect(diag.AUDIO_DIAG.lastMicRecover).toBe(null);
+      expect(diag.AUDIO_DIAG.getMic().needsRetry).toBe(false);   // 拒否のあいだは再試行待ちにしない
       expect(errorCard().textContent).toContain("マイクの使用が許可されていません");
       expect(errorCard().textContent).toContain(HOWTO);
       expect(cardButtons()).toEqual([]);
-      expect(diag.AUDIO_DIAG.getMic().needsRetry).toBe(true);                 // 再試行待ちの印は拒否でも立つ(次のタップも gesture-retry)
-      // もう一度押しても(1 秒を越えて)替わらない
-      shift += 2000;
-      await mod.act(async () => { errorCard().firstElementChild.dispatchEvent(new Event("pointerdown", { bubbles: true })); });
-      await waitFor(() => micStarts() >= 3, "2回目のタップも殻のマイクを取り直す");
-      await settle();
-      expect(errorCard().textContent).toContain("マイクの使用が許可されていません");
       w.stop();
-      expect(w.sawRecoverFailed()).toBe(false);          // 途中でも「再接続できませんでした」は出ない(一段のまま)
-      expect(w.sawDenied()).toBe(true);
+      expect(w.sawRecoverFailed()).toBe(false);
       expect(nativeCalls("openSettings").length).toBe(0);
     } finally { vi.restoreAllMocks(); }
   }, 30000);
@@ -1895,13 +1901,15 @@ describe("【便CZ】マイクの失敗のカード: ボタンは無い(案内�
       await render();
       await waitFor(() => errorCard() && errorCard().textContent.includes("マイクの使用が許可されていません"), "拒否のカード");
       cap.mic.fail = null;
-      cap.mic.queue = [{ fail: "session: boom" }];       // 許可は下りたが、殻のエンジンが始まらない(拒否ではない)
-      await mod.act(async () => { errorCard().firstElementChild.dispatchEvent(new Event("pointerdown", { bubbles: true })); });
+      cap.mic.queue = [{ fail: "session: boom" }, { fail: "session: boom" }];   // 許可は下りたが、殻のエンジンが始まらない(拒否ではない)。復帰の取得と取り直しの2回
+      await goBackground();
+      await comeBack();
       await waitFor(() => errorCard() && errorCard().textContent.includes("マイクを再接続できませんでした"), "再接続失敗のカード");
       expect(errorCard().textContent).not.toContain("マイクの使用が許可されていません");
       expect(cardButtons()).toEqual([]);
       const diag = await import("../audioDiag.jsx");
-      expect(Object.fromEntries(diag.audioDiagRows(null)).micRecover).toMatch(/→ NG start=false err=session: boom /);
+      await waitFor(() => diag.AUDIO_DIAG.lastMicRecover?.result, "取り直しの結果");
+      expect(Object.fromEntries(diag.audioDiagRows(null)).micRecover).toMatch(/visibility-restore .*→ NG start=false err=session: boom /);
     } finally { vi.restoreAllMocks(); }
   }, 30000);
 
@@ -1970,8 +1978,10 @@ describe("【便CZ】マイクの失敗のカード: ボタンは無い(案内�
     } finally { vi.restoreAllMocks(); }
   }, 30000);
 
-  it("Web: 権限の拒否のカードは案内の1行だけ(ボタンが無い)・カードの上のタップは document まで伝わり、復旧のジェスチャー経路が getUserMedia をもう一度呼ぶ", async () => {
-    later();
+  it("Web: 権限の拒否のカードは案内の1行だけ(ボタンが無い)・画面のタップは document まで伝わるが取り直しは走らない(getUserMedia は増えない)", async () => {
+    const orig = performance.now.bind(performance);
+    let shift = 1e6;
+    vi.spyOn(performance, "now").mockImplementation(() => orig() + shift);
     const gum2 = failNextGetUserMedia();
     vi.spyOn(console, "error").mockImplementation(() => {});
     try {
@@ -1991,9 +2001,14 @@ describe("【便CZ】マイクの失敗のカード: ボタンは無い(案内�
         await mod.act(async () => { errorCard().firstElementChild.dispatchEvent(new Event("pointerdown", { bubbles: true })); });
       } finally { document.removeEventListener("pointerdown", spy); }
       expect(seen).toEqual(["pointerdown"]);
-      await waitFor(() => gum2.calls === 2, "ジェスチャーの復旧が getUserMedia をもう一度呼ぶ");
+      await settle();
+      shift += 6000;
+      await tapScreen(errorCard().firstElementChild);
+      await settle();
+      expect(gum2.calls).toBe(1);                          // 取り直しは走らない
       const diag = await import("../audioDiag.jsx");
-      expect(diag.AUDIO_DIAG.lastMicRecover?.reason).toBe("gesture-retry");
+      expect(diag.AUDIO_DIAG.lastMicRecover).toBe(null);
+      expect(errorCard().textContent).toContain("マイクの使用が許可されていません");
     } finally { vi.restoreAllMocks(); }
   }, 30000);
 
@@ -2029,45 +2044,44 @@ describe("【便CZ】マイクの失敗のカード: ボタンは無い(案内�
     } finally { vi.restoreAllMocks(); }
   }, 30000);
 
-  it("殻: 拒否のカードの最初のタップは、起動から 5 秒以内(0.5 秒)でもクールダウンに阻まれず殻のマイクを取り直す(gesture-retry)", async () => {
+  it("殻: 拒否ではない失敗(殻のエンジンが始まらない)の最初のタップは、起動から 5 秒以内(0.5 秒)でもクールダウンに阻まれず殻のマイクを取り直す(gesture-retry)", async () => {
     asShell();
-    cap.mic.fail = "denied";
+    cap.mic.fail = "session: boom";                                     // 許可は下りているが殻のエンジンが始まらない(拒否ではない)
     vi.spyOn(performance, "now").mockImplementation(() => 500);        // 起動から 0.5 秒で止めた時計(micRecoverAtRef の初期値 0 だと、ふつうの 5 秒も gesture-retry の 1 秒も阻まれる)
     vi.spyOn(console, "error").mockImplementation(() => {});
     try {
       mod = await loadApp();
       await render();
-      await waitFor(() => errorCard() && errorCard().textContent.includes("マイクの使用が許可されていません"), "拒否のカード");
+      await waitFor(() => errorCard(), "最初の失敗のカード");
       expect(micStarts()).toBe(1);
-      await tapElement(errorCard());                                     // カードを閉じる前の最初のタップ(暗幕・カードのどこでも同じ)
-      await waitFor(() => micStarts() === 2, "最初のタップで殻のマイクを取り直す");
       const diag = await import("../audioDiag.jsx");
+      expect(diag.AUDIO_DIAG.getMic().needsRetry).toBe(true);           // 拒否ではないので再試行待ち
+      await tapScreen(errorCard());                                      // カードを閉じる前の最初のタップ
+      await waitFor(() => micStarts() === 2, "最初のタップで殻のマイクを取り直す");
       expect(diag.AUDIO_DIAG.lastMicRecover.reason).toBe("gesture-retry");
     } finally { vi.restoreAllMocks(); }
   }, 30000);
 
-  it("殻: 許可を替えて戻り(画面復帰)マイクが取れたら、再試行待ちの印は下りる ── 次のタップで要らない取り直しをしない", async () => {
+  it("殻: 拒否ではない失敗のあと、画面復帰でマイクが取れたら、再試行待ちの印は下りる ── 次のタップで要らない取り直しをしない", async () => {
     asShell();
-    cap.mic.fail = "denied";
+    cap.mic.fail = "session: boom";
     later();
     vi.spyOn(console, "error").mockImplementation(() => {});
     try {
       mod = await loadApp();
       await render();
-      await waitFor(() => errorCard() && errorCard().textContent.includes("マイクの使用が許可されていません"), "拒否のカード");
+      await waitFor(() => errorCard(), "最初の失敗のカード");
       const diag = await import("../audioDiag.jsx");
       expect(diag.AUDIO_DIAG.getMic().needsRetry).toBe(true);
-      cap.mic.fail = null;                                               // 設定アプリで許可を替えた
-      Object.defineProperty(document, "hidden", { value: true, configurable: true });
-      try { await mod.act(async () => { document.dispatchEvent(new Event("visibilitychange")); }); } finally { delete document.hidden; }
-      await settle();
-      await mod.act(async () => { document.dispatchEvent(new Event("visibilitychange")); });
+      cap.mic.fail = null;
+      await goBackground();
+      await comeBack();
       await waitFor(() => cap.feed.id, "画面復帰で殻のマイクが取れる");
       await settle();
       expect(errorCard()).toBe(null);
       expect(diag.AUDIO_DIAG.getMic().needsRetry).toBe(false);
       const n = micStarts();
-      await tapElement(document.body);                                   // 画面のどこかを押しても
+      await tapScreen();                                                 // 画面のどこかを押しても
       await tick(300);
       expect(micStarts()).toBe(n);                                       // 取り直さない
     } finally { vi.restoreAllMocks(); }
@@ -2089,14 +2103,112 @@ describe("【便CZ】マイクの失敗のカード: ボタンは無い(案内�
       await waitFor(() => errorCard() && errorCard().textContent.includes("マイクの使用が許可されていません"), "起動の拒否のカード");
       const diag = await import("../audioDiag.jsx");
       expect(diag.AUDIO_DIAG.lastMicStartError.text).toBe("denied");     // Error の message(code が無いとき)
-      await mod.act(async () => { document.body.dispatchEvent(new Event("pointerdown", { bubbles: true })); });   // 画面のタップ → 復旧
+      await goBackground();                                                 // 他のアプリへ行って戻る → 取得(取れるが running にならない)→ 取り直し
+      await comeBack();
       await waitFor(() => diag.AUDIO_DIAG.lastMicRecover?.result, "取り直しの結果");
-      expect(diag.AUDIO_DIAG.lastMicRecover.reason).toBe("gesture-retry");
+      expect(diag.AUDIO_DIAG.lastMicRecover.reason).toBe("visibility-restore");
       expect(diag.AUDIO_DIAG.lastMicRecover.result.outcome).toBe("NG");
       expect(diag.AUDIO_DIAG.lastMicRecover.result.detail).toMatch(/^start=ok err=— ctx=suspended track=/);   // 今回の取り直しは断られていない = 前の失敗の理由(denied)を出さない
       // 【便DA】前の拒否の印も引きずらない: 今回は拒否ではない失敗(取れたが running にならない)なので、カードは「再接続できませんでした」になる
       await waitFor(() => errorCard() && errorCard().textContent.includes("マイクを再接続できませんでした"), "拒否ではない失敗の再接続失敗のカード");
       expect(errorCard().textContent).not.toContain("マイクの使用が許可されていません");
+    } finally { vi.restoreAllMocks(); }
+  }, 30000);
+
+  // ---- 【便DB】拒否のカードは、起動・他のアプリから戻ったとき(visibility-restore)・録音のボタンのときだけ。画面のタップでは取り直さず、カードも出さない ----
+  it("殻: 拒否のカードを閉じたあと、画面をタップしても(時間をあけて何度繰り返しても)カードは出ず、殻の micStart も増えない。他のアプリから戻る(復帰)とまた出る", async () => {
+    asShell();
+    cap.mic.fail = "denied";
+    const orig = performance.now.bind(performance);
+    let shift = 1e6;
+    vi.spyOn(performance, "now").mockImplementation(() => orig() + shift);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      mod = await loadApp();
+      await render();
+      await waitFor(() => errorCard() && errorCard().textContent.includes("マイクの使用が許可されていません"), "起動で出る拒否のカード");
+      expect(micStarts()).toBe(1);
+      await click(errorCard().firstElementChild);                       // カードを閉じる
+      expect(errorCard()).toBe(null);
+      const diag = await import("../audioDiag.jsx");
+      for (let k = 0; k < 4; k++) {
+        shift += 6000;                                                  // ふつうの 5 秒のクールダウンも、gesture-retry の 1 秒も外
+        await tapScreen();
+        await tapScreen(document.querySelector('button[aria-label="メトロノーム"]') || document.body);
+        await settle();
+        expect(errorCard()).toBe(null);                                 // 出ない
+        expect(micStarts()).toBe(1);                                    // 取り直さない
+      }
+      expect(diag.AUDIO_DIAG.lastMicRecover).toBe(null);
+      // 他のアプリへ行って戻る(設定アプリで許可を替えて戻る流れ): 復帰の取得が走り、拒否のままならカードをもう一度出す
+      await goBackground();
+      await comeBack();
+      await waitFor(() => errorCard() && errorCard().textContent.includes("マイクの使用が許可されていません"), "復帰で出る拒否のカード");
+      await waitFor(() => diag.AUDIO_DIAG.lastMicRecover?.reason === "visibility-restore" && diag.AUDIO_DIAG.lastMicRecover.result, "復帰の取り直し");
+      expect(micStarts()).toBeGreaterThanOrEqual(2);
+      expect(errorCard().textContent).not.toContain("マイクを再接続できませんでした");
+      expect(diag.AUDIO_DIAG.getMic().needsRetry).toBe(false);          // 復帰の取り直しが断られても、拒否のあいだは再試行待ちにしない
+      // もう一度閉じれば、また次の起動か復帰まで出ない
+      await click(errorCard().firstElementChild);
+      const n = micStarts();
+      shift += 6000;
+      await tapScreen();
+      await settle();
+      expect(errorCard()).toBe(null);
+      expect(micStarts()).toBe(n);
+    } finally { vi.restoreAllMocks(); }
+  }, 30000);
+
+  it("Web: 拒否のカードを閉じたあと、画面をタップしても(時間をあけて何度繰り返しても)カードは出ず、getUserMedia も増えない。他のアプリから戻る(復帰)とまた出る", async () => {
+    const orig = performance.now.bind(performance);
+    let shift = 1e6;
+    vi.spyOn(performance, "now").mockImplementation(() => orig() + shift);
+    const gum2 = failNextGetUserMedia();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      mod = await loadApp();
+      await render();
+      await waitFor(() => errorCard() && errorCard().textContent.includes("マイクの使用が許可されていません"), "起動で出る拒否のカード");
+      expect(gum2.calls).toBe(1);
+      await click(errorCard().firstElementChild);
+      expect(errorCard()).toBe(null);
+      for (let k = 0; k < 4; k++) {
+        shift += 6000;
+        await tapScreen();
+        await settle();
+        expect(errorCard()).toBe(null);
+        expect(gum2.calls).toBe(1);
+      }
+      await goBackground();
+      await comeBack();
+      await waitFor(() => errorCard() && errorCard().textContent.includes("マイクの使用が許可されていません"), "復帰で出る拒否のカード");
+      expect(gum2.calls).toBeGreaterThanOrEqual(2);
+      expect(errorCard().textContent).not.toContain("マイクを再接続できませんでした");
+    } finally { vi.restoreAllMocks(); }
+  }, 30000);
+
+  it("殻: 別のタブから計測タブへ戻ったときの取得は、拒否で断られても拒否のカードを出さない(取得は走る)。録音のボタンを押せば、拒否のカードで理由を返す", async () => {
+    asShell();
+    cap.mic.fail = "denied";
+    later();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      mod = await loadApp();
+      await render();
+      await waitFor(() => errorCard() && errorCard().textContent.includes("マイクの使用が許可されていません"), "起動で出る拒否のカード");
+      await click(errorCard().firstElementChild);
+      expect(errorCard()).toBe(null);
+      await click(nav("リード"));
+      await settle();
+      await click(nav("計測"));
+      await waitFor(() => micStarts() === 2, "計測タブへ戻ると取得が走る");
+      await settle();
+      expect(errorCard()).toBe(null);                                    // 出さない
+      const rec = recButton();
+      expect(rec).not.toBe(null);
+      await click(rec);                                                  // 録音のボタン(利用者の操作)= 理由を返す
+      await waitFor(() => errorCard() && errorCard().textContent.includes("マイクの使用が許可されていません"), "録音のボタンで出る拒否のカード");
+      expect(micStarts()).toBe(3);
     } finally { vi.restoreAllMocks(); }
   }, 30000);
 
@@ -2137,12 +2249,12 @@ describe("【便CZ】マイクの失敗のカード: ボタンは無い(案内�
       expect(errorCard().textContent).toContain("マイクの使用が許可されていません");
       expect(cardButtons()).toEqual([]);
       expect(Object.fromEntries(diag.audioDiagRows(null)).micRecover).toMatch(/→ NG start=false err=denied /);   // 診断は拒否の理由を残す
-      // 押しても(1 秒を越えて)替わらない
-      shift += 2000;
+      // 押しても替わらない・取り直しも走らない(許可が拒まれている間は、画面のタップで取り直さない)
+      shift += 6000;
       const calls = gum2.calls;
       await mod.act(async () => { errorCard().firstElementChild.dispatchEvent(new Event("pointerdown", { bubbles: true })); });
-      await waitFor(() => gum2.calls === calls + 1, "ジェスチャーの復旧が getUserMedia をもう一度呼ぶ");
       await settle();
+      expect(gum2.calls).toBe(calls);
       expect(errorCard().textContent).toContain("マイクの使用が許可されていません");
       w.stop();
       expect(w.sawRecoverFailed()).toBe(false);

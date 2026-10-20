@@ -1392,29 +1392,34 @@ iPad との分岐を2か所に持つより上限を1つにしておくほうが�
       動かないものを置いておく意味は無いので、`openSettings` 一式（Swift の `openSettings` と `pluginMethods` の項目・`audioSession.native.js` の `openSettings`・
       `audio.js` の `shellOpenSettings`・App.jsx の呼び手）を消した。殻の `pluginMethods` は9に戻った。**JS だけ push すれば動く**: 殻のビルドに `openSettings` が残っていても JS は呼ばない
       （殻のビルドが古くても新しくても同じ）。設定アプリへ案内する手を戻すなら、実機で遷移しなかった理由を先に見る。
-    - **再試行の入口は無くなっていない**: このカードは `stopPropagation` を一切書かない設計のまま ── 暗幕・カードのどちらを押しても、タップは `document` まで伝わり、
-      復旧のジェスチャー経路（`onGesture` → `recoverMic`）がマイクを取り直す。**再接続に失敗した後も、許可が断られたカードも、urgent の `gesture-retry`**
-      （`MIC_RETRY_TAP_COOLDOWN_MS` = 1 秒しか空けない。ふつうの取り直しは `MIC_RECOVER_COOLDOWN_MS` = 5 秒）。【便CY 審査】拒否のカードが出るとき（`startListening` の失敗の枝）に、
-      再試行待ちの印（`micNeedsRetryRef`）を立て、`micRecoverAtRef` を「直近に取り直しは無かった」へ戻す ── 初期値 0 のままだと起動から 5 秒以内（urgent でも 1 秒以内）の最初のタップが
-      クールダウンに阻まれた。この印は `startListening` が取れたところで下ろす（本人が設定アプリで許可を替えて戻ったあとの最初のタップが、要らない取り直しをしない）。
-      同じタップが親の `onClick` でカードを閉じる（今までと同じ）。設定で許可を替えて戻ると、既存の画面復帰（`handleVisibilityChange`）が取り直す（`startListening` の頭で `errorMsg` を消す）。
+    - **カードが出るとき・出ないとき（【便DB 2026-10-21 本人の指示】）**: 拒否のカードは **アプリを起動したとき**・**他のアプリから戻ったとき（`visibility-restore`。設定アプリで許可を替えて戻る流れ）**・
+      **録音のボタンを押したとき**（利用者の操作への答え。理由を返す）だけ出す。**画面をタップしても、取り直しは走らせず、カードも出さない**（許可が拒まれている間 = `micDeniedRef` が真のあいだ、
+      `onGesture` は何もしない）。カードを閉じたら、次に起動か復帰するまで出ない。別のタブから計測タブへ戻ったときの取得（`startListening({ quietDenial })`。`topTab` の effect が前のタブを控えて渡す）は
+      走るが、拒否で断られてもカードは出さない（起動の最初の回と StrictMode の2回目は今までどおり出す）。
+      - 経緯: 便CY で「拒否のカードの最初のタップを取り直しにする」仕組み（再試行待ちの印 `micNeedsRetryRef`・取り直しの時刻 `micRecoverAtRef` の戻し・urgent の `gesture-retry`）を入れたため、
+        タップのたびに `startListening` が走ってまた拒否され、カードが「タップで消え、もう一度タップで出る」繰り返しになった。この仕組みは**拒否のときだけ外した**。
+      - 復帰の取り直しは今までどおり: 戻ると `startListening` が走り、拒否のままならカードをもう一度出す。取り直し（`recoverMic("visibility-restore")`）も走る（診断の記録は拒否の理由を残す）。
+        許可を替えて取れれば、`startListening` の頭で `errorMsg` が消える。
+    - **拒否ではない失敗は今までどおり**: このカードは `stopPropagation` を一切書かない設計のまま ── 暗幕・カードのどちらを押しても、タップは `document` まで伝わり、同じタップが親の `onClick` で
+      カードを閉じる。拒否ではない失敗（殻のエンジンが始まらない・再接続の失敗 など）は、復旧のジェスチャー経路（`onGesture` → `recoverMic`）がマイクを取り直す。再接続に失敗した後と、
+      `startListening` が拒否でなく失敗した後は urgent の `gesture-retry`（`MIC_RETRY_TAP_COOLDOWN_MS` = 1 秒しか空けない。ふつうの取り直しは `MIC_RECOVER_COOLDOWN_MS` = 5 秒）。
+      `startListening` が拒否でなく失敗したときは、再試行待ちの印を立て `micRecoverAtRef` を「直近に取り直しは無かった」へ戻す（初期値 0 のままだと起動から 5 秒以内の最初のタップが阻まれた）。
+      印は `startListening` が完全再取得で取れたところで下ろす。
     - **拒否が原因の失敗は「許可されていません」の一段のまま（【便DA 2026-10-21 本人の指示】）**: 以前は、マイクが拒まれている実機で、先に「マイクを再接続できませんでした」が出て、
       画面を押すと「マイクの使用が許可されていません」に替わった（二段構え）。原因は、取り直し（`recoverMic`）の失敗の枝が、`startListening` の断りの枝がセットした `MIC_DENIED_MSG` を
-      `MIC_RECOVER_FAILED_MSG` で上書きしていたこと（次のタップの `gesture-retry` が `startListening` を呼んで `MIC_DENIED_MSG` に戻した）。今は、`startListening` が取得ごとに
-      断りの理由を `isMicPermissionDenied(err)`（`micDeniedRef`）で決め、**拒否が原因なら `recoverMic` は `MIC_DENIED_MSG` を上書きしない**。
+      `MIC_RECOVER_FAILED_MSG` で上書きしていたこと。今は、`startListening` が取得ごとに断りの理由を `isMicPermissionDenied(err)`（`micDeniedRef`）で決め、
+      **拒否が原因なら `recoverMic` は `MIC_DENIED_MSG` を上書きしない**。
       - 拒否と数えるもの: 殻の `micStart` の `reject("denied", "DENIED")`（`recordPermission` が denied、または許可の画面で断られた）= `err.code === "DENIED"`／Web の `getUserMedia` の
         `NotAllowedError`・`SecurityError`・旧名 `PermissionDeniedError`。
       - 拒否ではないもの（今までどおり `MIC_RECOVER_FAILED_MSG`）: 殻の `session: …` / `start: …` / `no input format`（code が無い）・中断の後や作り直しの失敗・Web の `NotFoundError`（機器なし）・
         `NotReadableError`（別のアプリが使用中）・取れたが running にならない 等。判定は取得ごとに決め直す（前の拒否を引きずらない）。
-      - 変えていないもの: 拒否のカードの最初のタップの取り直し（urgent の `gesture-retry`・再試行待ちの印・取り直しの時刻の戻し・取れたら印を下ろす）・タップを止めないこと・診断の記録
-        （`micRecover` の行の `NG start=false err=DENIED …` は拒否の理由を残す。カードの文言とは別）。タップの click はこれまでどおりカードを閉じる（取り直しが断られれば同じ「許可されていません」が出る）。
-      - 検査: `src/shell/shellApp.test.jsx` の【便CZ】describe（殻: タップ〈pointerdown〉・裏から戻る〈visibility-restore〉で、カードの文言の移り変わりを途中まで見て「再接続できませんでした」が一度も出ない・
-        拒否ではない失敗〈code の無い文〉は前に拒否が出ていても「再接続できませんでした」／Web: 同じ〈NotAllowedError は一段のまま・NotReadableError は「再接続できませんでした」〉）・
-        `src/shell/nativeAudio.test.js` の `isMicPermissionDenied`・pitch-test 45 A-5。実機待ち: 拒否の実機で、カードが一段のままか。
-    - 検査: `src/shell/shellApp.test.jsx` の【便CZ】（殻と Web の両方で、カードにボタンが無い・暗幕でもカードでも押すと閉じて click が document まで伝わる・カードの上の pointerdown が
-      document まで伝わってジェスチャーの復旧が動く〈殻は micStart・Web は getUserMedia をもう一度呼ぶ〉・殻の `openSettings` は呼ばれない）・pitch-test 45 A-5 / 48.6 M8 /
-      K.14（`openSettings` 一式が残っていない・`DispatchQueue.main` を1つも使わない）。**実機待ち**: カードの案内どおりに設定アプリで許可を替えて戻ったとき（iOS がアプリを終わらせて
-      起動し直すか、そのまま戻るか）にカードが消えてマイクが取れること。
+      - 診断の記録は拒否のときも残す（`micRecover` の行の `NG start=false err=DENIED …`。カードの文言とは別）。タップの click はこれまでどおりカードを閉じる。
+    - 検査: `src/shell/shellApp.test.jsx` の【便CZ】describe（殻と Web の両方で、カードにボタンが無い・暗幕でもカードでも押すと閉じて click が document まで伝わる・
+      拒否のあいだは、カードの上や画面のタップ（pointerdown / touchend）が document まで伝わっても取り直しは走らず〈殻の micStart・Web の getUserMedia が増えない・診断の取り直しも無い〉カードの文言も替わらない・
+      カードを閉じたあとは、時間をあけて何度タップしても出ない／他のアプリから戻る〈復帰〉とまた出る・別のタブから計測タブへ戻ってもカードは出ず〈取得は走る〉録音のボタンを押せば出る・
+      拒否ではない失敗〈code の無い文・NotReadableError〉は「再接続できませんでした」で、その最初のタップは起動から 0.5 秒でも取り直す〈gesture-retry〉・取れたら印が下りる）・
+      `src/shell/nativeAudio.test.js` の `isMicPermissionDenied`・pitch-test 45 A-5 / 48.6 M8 / K.12 / K.14 / K.21。**実機待ち**: 拒否の実機で、カードが起動と復帰のときだけ出ること・
+      カードの案内どおりに設定アプリで許可を替えて戻ったとき（iOS がアプリを終わらせて起動し直すか、そのまま戻るか）にカードが消えてマイクが取れること。
     - **マイクの取り直し（`recoverMic`）の失敗を板で見る（【便CY】記録だけ。判定も画面も変えない）**: `micRecover` の行を
       「`HH:MM:SS 理由 [chunkAge=…ms gap=…ms st=…] → ok | NG start=… err=… ctx=… track=… native: … | superseded`」にした。
       `chunkAge` = 殻の塊が最後に届いてからの時間・`gap` = 解析のフレームの直近の間隔（`AUDIO_DIAG.lastFrameGapMs`。大きければ JS の主スレッドが止まっていた）・`st` = 殻が最後に知らせた状態

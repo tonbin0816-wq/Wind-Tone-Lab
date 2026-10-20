@@ -4455,7 +4455,8 @@ export default function WindToneLabPhaseMode() {
 
   // マイクへの接続自体はrefのみで完結させ、依存配列は空にする(サックス種別等の変更で
   // マイクを繋ぎ直す必要はない。tick()は設定値をrefから読むため常に最新の値を反映できる)。
-  const startListening = useCallback(async () => {
+  // opts.quietDenial … 拒否で断られたとき、拒否のカードを出さない(別のタブから計測タブへ戻ったときの取得。【便DB】カードは起動・復帰・録音のボタンのときだけ)
+  const startListening = useCallback(async (opts) => {
     setErrorMsg("");
     liveStartTimeRef.current = null;
     lastLiveSampleTimeRef.current = 0;
@@ -5008,12 +5009,19 @@ export default function WindToneLabPhaseMode() {
       micDeniedRef.current = isMicPermissionDenied(err); // 【便DA】許可の拒否か。recoverMic が、拒否なら MIC_DENIED_MSG を MIC_RECOVER_FAILED_MSG で上書きしない
       console.error("getUserMedia failed:", err.name, err.message, err);
       setMicTried(true);   // 【殻 S3 → 便CG】マイクの試みが失敗で終わった(許可されなかった等)。成功の側と同じ(帯を始めるのは adsAllowed が立ったとき)
-      setErrorMsg(MIC_DENIED_MSG);
-      // 【便CY 審査】拒否のカードを閉じる前の最初のタップは、クールダウンに阻まれず取り直す(urgent の gesture-retry)。
-      // micRecoverAtRef の初期値 0 は「起動から 5 秒以内」を阻んでいた。ここで「取り直しは直近に無かった」ことにし、再試行待ちの印(micNeedsRetryRef)を立てる。
-      // recoverMic の中から呼ばれたときは、recoverMic の finally が終了時刻で上書きする(連打の歯止めは今までどおり)。
-      micNeedsRetryRef.current = true;
-      micRecoverAtRef.current = -MIC_RECOVER_COOLDOWN_MS;
+      // 【便DB 2026-10-21 本人の指示】拒否のカードは「起動したとき」と「他のアプリから戻ったとき(visibility-restore)」(と録音のボタン)だけ出す。別のタブから計測タブへ戻ったときの取得(opts.quietDenial)では出さない
+      if (!(opts && opts.quietDenial && micDeniedRef.current)) setErrorMsg(MIC_DENIED_MSG);
+      if (micDeniedRef.current) {
+        // 【便DB】許可が拒まれている間は、画面のタップで取り直さない(onGesture が micDeniedRef を見て戻る)。再試行待ちの印も立てない。
+        // (便CY で入れた「拒否のカードの最初のタップを取り直しにする」仕組みは外した: タップのたびに startListening が走ってカードが出た)
+        micNeedsRetryRef.current = false;
+      } else {
+        // 拒否ではない失敗(殻のエンジンが始まらない 等)は今までどおり: 最初のタップがクールダウンに阻まれず取り直す(urgent の gesture-retry)。
+        // micRecoverAtRef の初期値 0 は「起動から 5 秒以内」を阻んでいた。ここで「取り直しは直近に無かった」ことにし、再試行待ちの印を立てる。
+        // recoverMic の中から呼ばれたときは、recoverMic の finally が終了時刻で上書きする(連打の歯止めは今までどおり)。
+        micNeedsRetryRef.current = true;
+        micRecoverAtRef.current = -MIC_RECOVER_COOLDOWN_MS;
+      }
       setIsListening(false);
       return false;
     }
@@ -5112,7 +5120,7 @@ export default function WindToneLabPhaseMode() {
         audioDiagNoteMicRecoverResult("ok");
         return true;
       }
-      micNeedsRetryRef.current = true;
+      micNeedsRetryRef.current = !micDeniedRef.current; // 【便DB】拒否なら再試行待ちにしない(拒否のあいだは画面のタップで取り直さない)
       noteFailed(audioDiagMicRecoverDetail({
         ok, err: AUDIO_DIAG.lastMicStartError && AUDIO_DIAG.lastMicStartError.text,
         ctxState: audioCtxRef.current ? audioCtxRef.current.state : null,
@@ -5230,9 +5238,14 @@ export default function WindToneLabPhaseMode() {
   // 繋ぎ直さないことで、タブを行き来してもマイク許可のポップアップが繰り返し出ないようにする。
   // 【殻 S2】殻(iOS アプリ)では他タブへ移ったら一時停止ではなく止める(stopListening。橙の印が消える)。
   // 殻は Capacitor が WebKit の許可を自動で通すので、繋ぎ直しても許可の画面は出ない(policy.js の micActionOnTabLeave)。
+  // 【便DB】別のタブから計測タブへ戻るとき(前のタブが計測以外)の取得は、拒否で断られても拒否のカードを出さない(起動・復帰・録音のボタンのときだけ出す)。
+  // 前のタブを控えるので、起動の最初の回(前が無い)と、StrictMode の2回目(前も計測)は今までどおりカードを出す。
+  const prevTopTabRef = useRef(null);
   useEffect(() => {
+    const prevTab = prevTopTabRef.current;
+    prevTopTabRef.current = topTab;
     if (topTab === "measure" && !document.hidden) {
-      startListeningRef.current();
+      startListeningRef.current({ quietDenial: prevTab !== null && prevTab !== "measure" });
     } else if (micActionOnTabLeave(isNativeShell()) === "stop") {
       stopListeningRef.current();     // 【殻 S2】解放(橙の印が消える)。戻るときは startListening の完全再取得(画面復帰と同じ道)
     } else {
@@ -5288,6 +5301,9 @@ export default function WindToneLabPhaseMode() {
       // ジェスチャー権限内で同期的にキックする(awaitを挟むと権限が切れる)
       if (c && audioCtxRecoveryAction(c.state) === "resume") c.resume().catch(() => {});
       if (topTab !== "measure" || document.hidden || isRecordingRef.current) return;
+      // 【便DB 2026-10-21 本人の指示】許可が拒まれている間(micDeniedRef)は、画面のタップで取り直さない(取り直せばまた拒否され、カードがタップのたびに出た)。
+      // 拒否のカードは起動・復帰(visibility-restore)・録音のボタンのときだけ。許可を替えるには設定アプリへ行く = 復帰で取り直す。拒否ではない失敗は下のとおり今までどおり。
+      if (micDeniedRef.current) return;
       // 【重要】suspendedのまま作られたコンテキスト上のsourceはresume()しても音を流さない。
       // よって「runningでない」だけで取り直しの対象にする(closedだけでは足りない)。
       const ctxBroken = !c || c.state !== "running";

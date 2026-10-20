@@ -22874,8 +22874,15 @@ console.log("\n========== 検証45: 便A 文言と補助文 ==========");
     // 【便CY 審査】画面のタップによる取り直し: 拒否のカードが出るとき(startListening の失敗の枝)に、再試行待ちの印を立て、取り直しの時刻を「直近に無かった」へ戻す
     // (micRecoverAtRef の初期値 0 だと、起動から 5 秒以内の最初のタップがクールダウンに阻まれる)。取れたら印を下ろす。再試行待ちのタップは urgent の gesture-retry。
     // 変異: 印を立てない / 時刻を戻さない / 取れても下ろさない / gesture-retry の枝を殺す / urgent を false にする → 落ちる。
-    check("45 A-5 / 便CY 拒否のカード: setErrorMsg(MIC_DENIED_MSG) の直後に micNeedsRetryRef = true と micRecoverAtRef = -MIC_RECOVER_COOLDOWN_MS",
-      /setErrorMsg\(MIC_DENIED_MSG\);\n(?:\s*\/\/[^\n]*\n)*\s*micNeedsRetryRef\.current = true;\n\s*micRecoverAtRef\.current = -MIC_RECOVER_COOLDOWN_MS;\n/.test(appCode));
+    // 【便DB 2026-10-21 本人の指示】拒否のカードは起動・他のアプリから戻ったとき(visibility-restore)・録音のボタンのときだけ。画面のタップでは取り直さず、カードも出さない。
+    // 便CY で入れた「拒否のカードの最初のタップを取り直しにする」(再試行待ちの印・取り直しの時刻の戻し)は、拒否ではない失敗のときだけ残す。
+    // 変異: 拒否のタップで取り直す(onGesture の門を外す)/ 拒否でも印を立てる / 拒否ではない失敗の印を外す / 別のタブから戻る取得でもカードを出す → 落ちる。
+    check("45 A-5 / 便DB startListening の失敗の枝: カードは quietDenial(別のタブから計測タブへ戻る取得)で拒否のときは出さない・拒否なら再試行待ちにせず、拒否ではない失敗だけ micNeedsRetryRef = true と micRecoverAtRef = -MIC_RECOVER_COOLDOWN_MS",
+      /\n      if \(!\(opts && opts\.quietDenial && micDeniedRef\.current\)\) setErrorMsg\(MIC_DENIED_MSG\);\n(?:\s*\/\/[^\n]*\n)*\s*if \(micDeniedRef\.current\) \{\n(?:\s*\/\/[^\n]*\n)*\s*micNeedsRetryRef\.current = false;\n\s*\} else \{\n(?:\s*\/\/[^\n]*\n)*\s*micNeedsRetryRef\.current = true;\n\s*micRecoverAtRef\.current = -MIC_RECOVER_COOLDOWN_MS;\n\s*\}\n\s*setIsListening\(false\);/.test(appCode));
+    check("45 A-5 / 便DB onGesture は、許可が拒まれている間(micDeniedRef)は画面のタップで取り直さない(録音中・他のタブ・裏の門の直後)",
+      /if \(topTab !== "measure" \|\| document\.hidden \|\| isRecordingRef\.current\) return;\n(?:\s*\/\/[^\n]*\n)*\s*if \(micDeniedRef\.current\) return;\n/.test(appCode));
+    check("45 A-5 / 便DB recoverMic の失敗の枝: 拒否なら再試行待ちにしない(micNeedsRetryRef = !micDeniedRef.current)",
+      /micNeedsRetryRef\.current = !micDeniedRef\.current;[^\n]*\n\s*noteFailed\(audioDiagMicRecoverDetail\(/.test(appCode));
     check("45 A-5 / 便CY startListening が完全再取得で取れたら(tick() の直後・return true の直前)再試行待ちの印を下ろす",
       /\n      tick\(\);\n(?:\s*\/\/[^\n]*\n)*\s*micNeedsRetryRef\.current = false;\n\s*return true;\n    \} catch \(err\) \{/.test(appCode));
     check("45 A-5 / 便CY 再試行待ちのタップは urgent の gesture-retry(onGesture)",
@@ -32780,7 +32787,7 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
       && /\nimport \{ shellAvailableInputs \} from "\.\/shell\/audio\.js";\n/.test(app)
       && /\nimport \{ createNativeMicContext, createNativeMetronome, nativeHostClock \} from "\.\/shell\/nativeAudio\.js";\n/.test(app));
     check("K.12 topTab の effect: 計測タブなら start・殻(micActionOnTabLeave が stop)なら stopListening・それ以外は今までどおり pauseListening",
-      /\n    if \(topTab === "measure" && !document\.hidden\) \{\n      startListeningRef\.current\(\);\n    \} else if \(micActionOnTabLeave\(isNativeShell\(\)\) === "stop"\) \{\n      stopListeningRef\.current\(\);\s*\n    \} else \{\n      pauseListeningRef\.current\(\);\n    \}\n/.test(app));
+      /\n  const prevTopTabRef = useRef\(null\);\n  useEffect\(\(\) => \{\n    const prevTab = prevTopTabRef\.current;\n    prevTopTabRef\.current = topTab;\n    if \(topTab === "measure" && !document\.hidden\) \{\n      startListeningRef\.current\(\{ quietDenial: prevTab !== null && prevTab !== "measure" \}\);\n    \} else if \(micActionOnTabLeave\(isNativeShell\(\)\) === "stop"\) \{\n      stopListeningRef\.current\(\);\s*\n    \} else \{\n      pauseListeningRef\.current\(\);\n    \}\n/.test(app));
     // 仕様 §4.4 の綴り(master.gain.value = metroMasterGain(isNativeShell());)にすると、Web の 2.6 の行を見る既存の検査(3641)と、
     // getMetroMasterInput を単独で切り出して回す 43.x(外の名前 isNativeShell などを持たない)が落ちる。
     // そこで Web の行は綴りのまま残し、殻のゲイン(METRO_MASTER_GAIN_SHELL)は ctx に置いて getMetroMasterInput が読む形にした。
@@ -33347,7 +33354,7 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
       iRoute >= 0 && afterRoute.includes("setMicTried(true);") && !afterRoute.includes("shellStartAdsOnce();")
       && lines.filter((l) => l.trim() === "streamRef.current = stream;").length === 1, JSON.stringify(afterRoute));
     check("K.21 startListening: 失敗の枝(getUserMedia failed の直後)にも setMicTried(true);・その次の行は今までどおり setErrorMsg(MIC_DENIED_MSG);",
-      /\n      console\.error\("getUserMedia failed:", err\.name, err\.message, err\);\n      setMicTried\(true\);\s*\n      setErrorMsg\(MIC_DENIED_MSG\);\n/.test(app));
+      /\n      console\.error\("getUserMedia failed:", err\.name, err\.message, err\);\n      setMicTried\(true\);\s*\n(?:\s*\/\/[^\n]*\n)*\s*if \(!\(opts && opts\.quietDenial && micDeniedRef\.current\)\) setErrorMsg\(MIC_DENIED_MSG\);\n/.test(app));
     check("K.21 【便CG】shellStartAdsOnce() の呼び手は1か所だけ: マイクの試みが終わった(micTried)かつ adsAllowed(adsOk)の effect",
       (app.match(/shellStartAdsOnce\(\);/g) || []).length === 1
       && /\n  const \[micTried, setMicTried\] = useState\(false\);\n  useEffect\(\(\) => \{\n    if \(micTried && adsOk\) shellStartAdsOnce\(\);\n  \}, \[micTried, adsOk\]\);\n/.test(app)
