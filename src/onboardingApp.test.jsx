@@ -1315,8 +1315,8 @@ describe("【便BS 審査】【便BW】配線の綴り(App.jsx)", () => {
   });
   it("【便BW】⑤⑩: タブを移った結果で印を立てる(案内はタブを移さない)。goData は計測があるときだけ", () => {
     expect(app).toMatch(/if \(topTab === "reeds"\) markOnboarding\("goReeds"\);\n\s*if \(topTab === "analysis" && sessions\.length > 0\) markOnboarding\("goData"\);/);
-    // 【便BX】⑭' コミュニティへ移った / ⑰ ⑮ を見てから計測タブへ戻った
-    expect(app).toMatch(/if \(topTab === "community"\) markOnboarding\("goCommunity"\);\n(?:\s*\/\/[^\n]*\n)?\s*if \(topTab === "measure" && \(coachDone\.idealSeen \|\| coachDone\.adoptAverage\)\) markOnboarding\("goMeasure"\);\n\s*\}, \[coachReady, topTab, sessions\.length, coachDone\.idealSeen, coachDone\.adoptAverage, markOnboarding\]\);/);   // 【便BX 審査】目安にしただけでも
+    // 【便BX】⑭' コミュニティへ移った / ⑰ ⑮ を見てから計測タブへ戻った。【便DC】初回の参加の場面(joinSceneNow)は「移った」に数えない
+    expect(app).toMatch(/if \(topTab === "community" && !joinSceneNow\) markOnboarding\("goCommunity"\);\n(?:\s*\/\/[^\n]*\n)?\s*if \(topTab === "measure" && \(coachDone\.idealSeen \|\| coachDone\.adoptAverage\)\) markOnboarding\("goMeasure"\);\n\s*\}, \[coachReady, topTab, joinSceneNow, sessions\.length, coachDone\.idealSeen, coachDone\.adoptAverage, markOnboarding\]\);/);   // 【便BX 審査】目安にしただけでも
     expect(app).toMatch(/data-coach=\{`nav-\$\{t\.key\}`\}/);
     // 【便BZ】目安と比べてみよう: コミュニティ → データ(「見る」でも下部タブでも)で goCompare と ⑮ の依頼。判定は coachCameFromCompare
     expect(app).toMatch(/const coachPrevTabRef = useRef\(topTab\);\n\s*useEffect\(\(\) => \{\n\s*const from = coachPrevTabRef\.current;\n\s*coachPrevTabRef\.current = topTab;\n\s*if \(!coachReady \|\| !coachCameFromCompare\(\{ from, to: topTab, done: coachDone \}\)\) return;\n\s*markOnboarding\("goCompare"\);\n\s*setCoachRequest\("idealSeen"\);/);

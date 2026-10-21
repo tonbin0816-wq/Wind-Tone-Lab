@@ -203,7 +203,8 @@ describe("計測タブの配線(App.jsx)", () => {
   });
   it("【便BT】MeasureView は wide を受け(既定 false)、App は useWideLayout() の値をそのまま渡す", () => {
     expect(meas.includes("    wide = false,\n")).toBe(true);
-    const app = src.slice(src.indexOf("export default function WindToneLabPhaseMode()"));
+    // 【便DC】関数の引数に startOnJoin が入ったので、見出しは括弧の手前まで
+    const app = src.slice(src.indexOf("export default function WindToneLabPhaseMode("));
     expect(app.includes("  const wide = useWideLayout();")).toBe(true);
     expect(/<MeasureView[\s\S]{0,4000}?\n\s*wide=\{wide\}\n\s*\/>/.test(app)).toBe(true);
   });

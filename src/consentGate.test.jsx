@@ -11,7 +11,8 @@ import { createFakeIndexedDb } from "./backup/fakeIndexedDb.testutil.js";
 // **main.jsx が描くのと同じ根(AppRoot)**を描いて確かめる(アプリ単体 WindToneLabPhaseMode を描くのではない)。
 //   ・入れたての人: 1枚目(芽・Ficus・1行・はじめる。チェックは無い)。下部タブ・案内・マイクの取得は無い
 //   ・はじめる → 2枚目: 規約 → ポリシーの全文(public/*.html を LegalSheet と同じ読み方で)。チェックするまで「次へ」は押せない
-//   ・次へで kv に { at, version } が書かれ、アプリが描かれ、マイクが始まり ① が出る。引継の書き出しにも入る
+//   ・次へで kv に { at, version } が書かれ、アプリが描かれる。【便DC 2026-10-21】アプリはコミュニティの参加の場面から始まる(マイク・案内はまだ)。
+//     参加を見送って下部タブの「計測」を押すと、マイクが始まり ① が出る。引継の書き出しにも入る(参加の場面の流れは joinFirst.test.jsx)
 //   ・2枚目で閉じたら次は1枚目から(枚はメモリの上だけ)/ 同意したら次からは出ない
 //   ・本文の中のリンク: mailto: は通す・それ以外は移動を止め、規約・ポリシーへのリンクはその文書へ送る
 //   ・参加済み(onboardingDone.join)には出さない / 参加していない既存の利用者(計測あり)には1回だけ / 欠けた記録は数えない
@@ -260,6 +261,12 @@ describe("入れたての人: 1枚目(ようこそ)→ 2枚目(規約)", () => {
     expect(rec.version).toBe("2026-10-08");
     expect(Math.abs(Date.parse(rec.at) - before)).toBeLessThan(5000);
     expect(new Date(rec.at).toISOString()).toBe(rec.at);
+    // 【便DC】同意のあとは参加の場面(マイク・案内はまだ)。見送って「計測」を押すと、マイクが始まり ① が出る
+    await waitFor(() => joinCard(), "参加の場面");
+    await tick(100);
+    expect(gum).toBe(0);
+    expect(layerId()).toBe(null);
+    await click(document.querySelector('[data-bottom-nav] button[aria-label="計測"]'));
     await waitFor(() => gum > 0, "マイク");
     await waitFor(() => layerId() === "tuner", "① まずは吹いてみよう");
     const snap = await mod.readAll();
@@ -396,6 +403,10 @@ describe("見本(?tutorialpreview=1)", () => {
     expect(step()).toBe("welcome");
     expect(gum).toBe(0);
     await passConsent();
+    // 【便DC】見本の流れも新しい順(参加の場面 → 計測 ①)。この端末の作り物のサーバーは参加していないので参加のカードが出る
+    await waitFor(() => joinCard(), "見本の参加の場面");
+    expect(layerId()).toBe(null);
+    await click(document.querySelector('[data-bottom-nav] button[aria-label="計測"]'));
     await waitFor(() => layerId() === "tuner", "見本の ①");
     expect(kv("termsConsent")).toEqual(REC);
     await relaunch();

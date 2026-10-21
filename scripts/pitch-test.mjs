@@ -32787,7 +32787,7 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
       && /\nimport \{ shellAvailableInputs \} from "\.\/shell\/audio\.js";\n/.test(app)
       && /\nimport \{ createNativeMicContext, createNativeMetronome, nativeHostClock \} from "\.\/shell\/nativeAudio\.js";\n/.test(app));
     check("K.12 topTab の effect: 計測タブなら start・殻(micActionOnTabLeave が stop)なら stopListening・それ以外は今までどおり pauseListening",
-      /\n  const prevTopTabRef = useRef\(null\);\n  useEffect\(\(\) => \{\n    const prevTab = prevTopTabRef\.current;\n    prevTopTabRef\.current = topTab;\n    if \(topTab === "measure" && !document\.hidden\) \{\n      startListeningRef\.current\(\{ quietDenial: prevTab !== null && prevTab !== "measure" \}\);\n    \} else if \(micActionOnTabLeave\(isNativeShell\(\)\) === "stop"\) \{\n      stopListeningRef\.current\(\);\s*\n    \} else \{\n      pauseListeningRef\.current\(\);\n    \}\n/.test(app));
+      /\n  const prevTopTabRef = useRef\(null\);\n  useEffect\(\(\) => \{\n    const prevTab = prevTopTabRef\.current;\n    prevTopTabRef\.current = topTab;\n    const firstAsk = topTab === "measure" && micFirstAskRef\.current;\n    if \(topTab === "measure"\) micFirstAskRef\.current = false;\n    if \(topTab === "measure" && !document\.hidden\) \{\n      startListeningRef\.current\(\{ quietDenial: prevTab !== null && prevTab !== "measure" && !firstAsk \}\);\n    \} else if \(micActionOnTabLeave\(isNativeShell\(\)\) === "stop"\) \{\n      stopListeningRef\.current\(\);\s*\n    \} else \{\n      pauseListeningRef\.current\(\);\n    \}\n/.test(app));
     // 仕様 §4.4 の綴り(master.gain.value = metroMasterGain(isNativeShell());)にすると、Web の 2.6 の行を見る既存の検査(3641)と、
     // getMetroMasterInput を単独で切り出して回す 43.x(外の名前 isNativeShell などを持たない)が落ちる。
     // そこで Web の行は綴りのまま残し、殻のゲイン(METRO_MASTER_GAIN_SHELL)は ctx に置いて getMetroMasterInput が読む形にした。
@@ -33870,9 +33870,33 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     && /return \{ candidates: \(candidates \?\? \[\]\)\.filter\(\(id\) => only\.includes\(id\)\), hidden: false \};/.test(ob)
     && /if \(!notice\.coach \|\| notice\.coach !== topTab \|\| !\(topTab in COACH_WITH_NOTICE\)\) return \{ candidates, hidden: true \};/.test(ob));
   check("BX.4 タブ移動の effect に goCommunity(コミュニティへ移った)・goMeasure(⑮ を見てから・目安にしてから計測タブ)の2行",
-    /if \(topTab === "community"\) markOnboarding\("goCommunity"\);\n\s*if \(topTab === "measure" && \(coachDone\.idealSeen \|\| coachDone\.adoptAverage\)\) markOnboarding\("goMeasure"\);\n\s*\}, \[coachReady, topTab, sessions\.length, coachDone\.idealSeen, coachDone\.adoptAverage, markOnboarding\]\);/.test(app));
+    /if \(topTab === "community" && !joinSceneNow\) markOnboarding\("goCommunity"\);\n\s*if \(topTab === "measure" && \(coachDone\.idealSeen \|\| coachDone\.adoptAverage\)\) markOnboarding\("goMeasure"\);\n\s*\}, \[coachReady, topTab, joinSceneNow, sessions\.length, coachDone\.idealSeen, coachDone\.adoptAverage, markOnboarding\]\);/.test(app));
   check("BX.4 COACH3_MIGRATED は import 1 + 見本の初期値 2 + onboardingReady 1 の4か所",
     /import \{ COACH2_MIGRATED, COACH3_MIGRATED \} from "\.\/onboarding\.jsx";/.test(app) && (app.match(/COACH3_MIGRATED/g) || []).length === 4);
+
+  // --- DC 【便DC 2026-10-21 本人の指示】初回の流れ: ようこそ → 規約 → コミュニティの参加の場面 → 計測 ① -----------------------------------------
+  // 振る舞い(入れたて・見送り・拒否のカード・既存の利用者・見本・広告)は src/joinFirst.test.jsx が根(AppRoot)を描いて見る。ここは配線の綴りだけ。
+  {
+    const gateDC = codeOf(readFileSync(join(__dirname, "..", "src", "ConsentScreen.jsx"), "utf8"));
+    const obDC = codeOf(readFileSync(join(__dirname, "..", "src", "onboarding.jsx"), "utf8"));
+    check("DC.1 根(AppRoot): 同意の「次へ」(agree)の1か所でだけ startOnJoin を決める(startsOnJoinScene・メモリの上だけ。保存しない)",
+      /const \[startOnJoin, setStartOnJoin\] = useState\(false\);/.test(gateDC)
+      && (gateDC.match(/setStartOnJoin\(/g) || []).length === 1
+      && /setStartOnJoin\(startsOnJoinScene\(\{ justAgreed: true, done: normalizeOnboardingDone\(onboardingRaw\) \}\)\);/.test(gateDC)
+      && /import \{ ONBOARDING_KEY, ONBOARDING_INITIAL, normalizeOnboardingDone, startsOnJoinScene \} from "\.\/onboarding\.jsx";/.test(gateDC));
+    check("DC.2 startsOnJoinScene は「この起動で同意した」かつ「案内の印(ONBOARDING_FLAGS)が1つも無い」だけ true",
+      /export function startsOnJoinScene\(\{ justAgreed = false, done = null \} = \{\}\) \{\n  if \(justAgreed !== true\) return false;\n  const d = done \?\? \{\};\n  return ONBOARDING_FLAGS\.every\(\(f\) => d\[f\] !== true\);\n\}/.test(obDC));
+    check("DC.3 App.jsx: startOnJoin(既定 false)ならコミュニティタブから始める。参加の場面の state は初回の通過だけ(タブを離れたら下りて戻らない)",
+      /export default function WindToneLabPhaseMode\(\{ startOnJoin = false \} = \{\}\) \{/.test(app)
+      && /const \[topTab, setTopTab\] = useState\(startOnJoin \? "community" : "measure"\);/.test(app)
+      && /const \[joinScene, setJoinScene\] = useState\(Boolean\(startOnJoin\)\);\n  const joinSceneNow = joinScene && topTab === "community";\n  useEffect\(\(\) => \{ if \(joinScene && topTab !== "community"\) setJoinScene\(false\); \}, \[joinScene, topTab\]\);/.test(app));
+    check("DC.4 App.jsx: 参加の場面の間に join が立ったら計測タブへ自動で戻る(コミュニティタブの印の口 onCommunityOnboarding。それ以外の印はそのまま)",
+      /const onCommunityOnboarding = useCallback\(\(flag\) => \{\n    markOnboarding\(flag\);\n    if \(flag === "join" && joinSceneRef\.current\) \{\n      joinSceneRef\.current = false;\n      setJoinScene\(false\);\n      setTopTab\("measure"\);\n    \}\n  \}, \[markOnboarding\]\);/.test(app)
+      && /onOnboarding=\{onCommunityOnboarding\}/.test(app) && (app.match(/onOnboarding=\{markOnboarding\}/g) || []).length === 1);
+    check("DC.5 App.jsx: 参加の場面は開いたタブに数えない(⑱ の条件)。マイクの最初の取得は拒否のカードを出す(micFirstAskRef)",
+      /if \(!coachReady \|\| coachDone\.finish \|\| joinSceneNow\) return;\n    setCoachSeenTabs/.test(app)
+      && /const micFirstAskRef = useRef\(Boolean\(startOnJoin\)\);/.test(app));
+  }
 
   // --- BZ.7 殻が --ad-h を後から置いたら、環の縮みと計測タブの枠を測り直す(【便BZ 統括の裁定】) ------------------------------
   {
@@ -34022,7 +34046,10 @@ console.log("========== 検証CB: 便CB 起動の最初の同意の画面 ======
     // 【便CH】殻で ATT の答えを待つ間(attWaiting)も同意の画面を描く。記録を書くのは agree の1か所
     /if \(attWaiting \|\| needsConsentScreen\(\{ consent, onboardingDone: normalizeOnboardingDone\(onboardingRaw\) \}\)\) \{\s*return <ConsentScreen onAgree=\{agree\} \/>;\s*\}/.test(gateFn)
     && (gateFn.match(/setConsent\(makeConsentRecord\(\)\)/g) || []).length === 1
-    && (gateFn.match(/return <WindToneLabPhaseMode \/>;/g) || []).length === 2
+    // 【便DC】アプリを返す枝は2つ(見本 / 本物)。どちらも startOnJoin を渡す(同意の画面を返す枝にはアプリを描かない)
+    && (gateFn.match(/return <WindToneLabPhaseMode startOnJoin=\{[^\n]*\} \/>;/g) || []).length === 2
+    && /return <WindToneLabPhaseMode startOnJoin=\{startOnJoin\} \/>;/.test(gateFn)
+    && /return <WindToneLabPhaseMode startOnJoin=\{startsOnJoinScene\(\{ justAgreed: true, done: readTutorialPreviewDone\(\) \}\)\} \/>;/.test(gateFn)
     && !/termsAgreed|onTermsAgreed|recordFromJoin/.test(codeOf(gateRaw))
     && /if \(!previewAgreed\) return <ConsentScreen onAgree=\{\(\) => setPreviewAgreed\(true\)\} \/>;/.test(gateFn));
   // 【便CH 2026-10-10 本人「トラッキングの許可は最初のプライバシーポリシーとかと同じタイミングにして」】「次へ」→ 1. 記録 → 2. 殻なら ATT → 3. 答えを待ってアプリ。

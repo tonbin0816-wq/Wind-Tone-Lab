@@ -3896,14 +3896,21 @@ function navRetapKeepsView(tappedKey, atMyDataTop) {
 // ============================================================
 // Main component
 // ============================================================
-export default function WindToneLabPhaseMode() {
+export default function WindToneLabPhaseMode({ startOnJoin = false } = {}) {
   // 【便BT 2026-10-03 本人裁定】iPad の「広い」画面か(WIDE_LAYOUT_QUERY = 幅 ≥ 700 かつ 高さ ≥ 500)。判定はここで1回だけ行い、props で配る。
   // いまの読み手は MeasureView(環の上限)と【便BU】ReedsTab(リードタブの2ペイン)と【便BV】CommunityTab(コミュニティの2ペイン)。
   // jsdom(matchMedia が無い)では常に false。
   // iPhone は縦(幅 ≤ 440)でも横(高さ ≤ 440)でも false(【便BT2】高さの条件を足した)。iPhone の見た目を変えない約束は縦向きのもの
   // (横向きでも列 640 は CSS で効く。DESIGN-SYSTEM §3「iPad の器」)。
   const wide = useWideLayout();
-  const [topTab, setTopTab] = useState("measure"); // "measure" | "reeds" | "analysis"
+  // 【便DC 2026-10-21 本人の指示】startOnJoin(根 AppRoot が渡す。同意の画面で「次へ」を押した起動の入れたての人だけ true)なら、コミュニティタブの
+  // 参加の場面(JoinIntro → 匿名アカウント → プロフィール作成)から始める。参加(join の印)を終えたら計測タブへ自動で戻り、① から今までどおり。
+  // 見送る人は下部タブ(計測など)を押せば抜ける。下部タブの表示・広告の扱いはコミュニティタブのまま。判断は onboarding.jsx の startsOnJoinScene。
+  const [topTab, setTopTab] = useState(startOnJoin ? "community" : "measure"); // "measure" | "reeds" | "analysis" | "community"
+  // 参加の場面の間か(初回の通過のあいだだけ true。参加を終えるか、コミュニティタブを離れたら下りて、戻らない)。
+  const [joinScene, setJoinScene] = useState(Boolean(startOnJoin));
+  const joinSceneNow = joinScene && topTab === "community";
+  useEffect(() => { if (joinScene && topTab !== "community") setJoinScene(false); }, [joinScene, topTab]);
   // 【便CO 2026-10-12】コミュニティの読み込みのやり直しの回(CommunityErrorBoundary の「もう一度試す」・引っ張って更新)。
   // 回が進むと境界(key)と遅延読み込み(lazy)を作り直す。最初の回は上の CommunityTab をそのまま使う(今までと同じ1つの読み込み)。
   const [communityTry, setCommunityTry] = useState(0);
@@ -5240,12 +5247,17 @@ export default function WindToneLabPhaseMode() {
   // 殻は Capacitor が WebKit の許可を自動で通すので、繋ぎ直しても許可の画面は出ない(policy.js の micActionOnTabLeave)。
   // 【便DB】別のタブから計測タブへ戻るとき(前のタブが計測以外)の取得は、拒否で断られても拒否のカードを出さない(起動・復帰・録音のボタンのときだけ出す)。
   // 前のタブを控えるので、起動の最初の回(前が無い)と、StrictMode の2回目(前も計測)は今までどおりカードを出す。
+  // 【便DC】コミュニティタブ(参加の場面)から始めた起動では、マイクを初めて頼むのは計測タブへ入る最初の回 = 起動の最初の取得と同じ扱い(拒否のカードを出す)。
+  // 前のタブが計測以外でも静かにしない ── 静かにすると、初めての人が許可を断ったときに何も出ず、① も出ないまま理由が分からない。
+  const micFirstAskRef = useRef(Boolean(startOnJoin));
   const prevTopTabRef = useRef(null);
   useEffect(() => {
     const prevTab = prevTopTabRef.current;
     prevTopTabRef.current = topTab;
+    const firstAsk = topTab === "measure" && micFirstAskRef.current;
+    if (topTab === "measure") micFirstAskRef.current = false;
     if (topTab === "measure" && !document.hidden) {
-      startListeningRef.current({ quietDenial: prevTab !== null && prevTab !== "measure" });
+      startListeningRef.current({ quietDenial: prevTab !== null && prevTab !== "measure" && !firstAsk });
     } else if (micActionOnTabLeave(isNativeShell()) === "stop") {
       stopListeningRef.current();     // 【殻 S2】解放(橙の印が消える)。戻るときは startListening の完全再取得(画面復帰と同じ道)
     } else {
@@ -5507,6 +5519,19 @@ export default function WindToneLabPhaseMode() {
   const markMetroStarted = useCallback(() => { markOnboarding("metroStart"); markOnboarding("metroTempo"); }, [markOnboarding]);
   // ⑧⑨ 計測タブの枠にリードが出ているか(枠に出る候補は reedsOfSax と同じ「いまの楽器のリード」)。
   const hasSelectedReed = Boolean(selectedReedId) && reeds.some((r) => r.id === selectedReedId && reedSaxTypeOf(r) === saxType);
+  // 【便DC】コミュニティタブが立てる印の口。ふつうは markOnboarding そのまま。初回の参加の場面(joinSceneNow)の間に join が立ったら(プロフィールの作成が済んだ
+  // 直後。すでに参加している人が場面に入った場合も同じ)、計測タブへ自動で戻す ── 押す操作は増やさない。戻ったあとは今までどおり ① から。
+  // コミュニティの到着カード(arriveCommunity)・⑯ はこの通過では出さず、のちにコミュニティタブを開いたとき(参加済みの人がタブを開いた直後の道)に出る。
+  const joinSceneRef = useRef(joinSceneNow);
+  joinSceneRef.current = joinSceneNow;
+  const onCommunityOnboarding = useCallback((flag) => {
+    markOnboarding(flag);
+    if (flag === "join" && joinSceneRef.current) {
+      joinSceneRef.current = false;
+      setJoinScene(false);
+      setTopTab("measure");
+    }
+  }, [markOnboarding]);
   // ⑮ の依頼は、データタブを離れたら・⑮ が済んだら畳む。
   useEffect(() => { if (topTab !== "analysis") setCoachRequest(null); }, [topTab]);
   useEffect(() => { if (coachDone.idealSeen) setCoachRequest(null); }, [coachDone.idealSeen]);
@@ -5517,10 +5542,12 @@ export default function WindToneLabPhaseMode() {
     if (topTab === "reeds") markOnboarding("goReeds");
     if (topTab === "analysis" && sessions.length > 0) markOnboarding("goData");
     // 【便BX】⑭' コミュニティへ移った / ⑰ ⑮ を見てから計測タブへ戻った
-    if (topTab === "community") markOnboarding("goCommunity");
+    // 【便DC】初回の参加の場面(joinSceneNow)は「コミュニティへ移った」に数えない ── 数えると、参加を見送った人の ⑭'(データ → コミュニティの橋)が
+    // 出なくなる。参加の場面は印を1つも書かない(参加の join だけ)。見送った人の印は今の入れたてと同じ。
+    if (topTab === "community" && !joinSceneNow) markOnboarding("goCommunity");
     // 【便BX 審査 統括の裁定】目安にした(adoptAverage)だけでも(「見る」を押さなかった・押す前にアプリを閉じた)
     if (topTab === "measure" && (coachDone.idealSeen || coachDone.adoptAverage)) markOnboarding("goMeasure");
-  }, [coachReady, topTab, sessions.length, coachDone.idealSeen, coachDone.adoptAverage, markOnboarding]);
+  }, [coachReady, topTab, joinSceneNow, sessions.length, coachDone.idealSeen, coachDone.adoptAverage, markOnboarding]);
   // 【便BZ 2026-10-07 統括の裁定】「目安と比べてみよう」(goCompare)から来た: 目安にしたあと、コミュニティタブからデータタブへ移った
   // (帯の「見る」でも下部タブ「データ」でも)。goCompare を済みにし、⑮ を頼む(帯の「見る」と同じ coachRequest)。
   // 判定は onboarding.jsx の coachCameFromCompare(候補と同じ式)。前のタブはこの effect だけが覚える(タブが変わった描画でだけ走る)。
@@ -5545,10 +5572,11 @@ export default function WindToneLabPhaseMode() {
   // 【便CJ】この起動で、案内の間(印が読めてから ⑱ まで)に開いたタブ。⑱ の条件(finishReady)が読む。保存しない
   // (開いたことはリード = goReeds・コミュニティ = goCommunity・計測があるときのデータ = goData の印にも残る。上の effect)
   const [coachSeenTabs, setCoachSeenTabs] = useState(NO_COACH);
+  // 【便DC】参加の場面(joinSceneNow)で開いたコミュニティタブは数えない(⑱ の条件 finishReady のコミュニティの印を、見送った人が場面だけで満たさない。印と同じ理由)
   useEffect(() => {
-    if (!coachReady || coachDone.finish) return;
+    if (!coachReady || coachDone.finish || joinSceneNow) return;
     setCoachSeenTabs((prev) => (prev.includes(topTab) ? prev : Object.freeze([...prev, topTab])));
-  }, [coachReady, coachDone.finish, topTab]);
+  }, [coachReady, coachDone.finish, topTab, joinSceneNow]);
   // はじめの一手の候補(印が読めていて録音中でなければ)と、帯が出ている間の決まり(【便BZ】coachDuringNotice)。描くのは根の OnboardingCoach の1か所。
   // 【便CO】引数は1か所(案内の候補と、広告の帯の止め方の (b)(c) が同じものを読む)
   // 【便CT 審査】hasIdealProfile は「目安がある、または、あるかどうかまだ分からない」。目安の読み込みが済んで成功した後(idealProfilesLoaded && idealProfilesReadOk)
@@ -5873,8 +5901,8 @@ export default function WindToneLabPhaseMode() {
                 if (announce) markOnboarding("adoptAverage");
                 return { ok: true };
               }}
-              /* 【便BP】はじめの一手の印(参加した・人物のページを開いた)を立てる口。 */
-              onOnboarding={markOnboarding}
+              /* 【便BP】はじめの一手の印(参加した・人物のページを開いた)を立てる口。【便DC】初回の参加の場面で join が立ったら計測タブへ自動で戻る。 */
+              onOnboarding={onCommunityOnboarding}
               /* 【便CO】参加の画面のカードが出ているか(広告の帯を止める (d))。 */
               onJoinCard={setJoinCardShown}
               /* 【便BV 2026-10-04 本人裁定(案B)】広い(iPad)なら、データ・順位は2ペイン(左 = 一覧・右 = 人物のページ)・

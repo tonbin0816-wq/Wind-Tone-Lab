@@ -1,8 +1,8 @@
 import React, { useEffect, useId, useRef, useState } from "react";
 import WindToneLabPhaseMode, { usePersistedState } from "./App.jsx";
 import { SHEET_PRIMARY_BUTTON_STYLE } from "./sheetButtonStyle.js";
-import { ONBOARDING_KEY, ONBOARDING_INITIAL, normalizeOnboardingDone } from "./onboarding.jsx";
-import { isTutorialPreviewOn } from "./tutorialPreview.js";
+import { ONBOARDING_KEY, ONBOARDING_INITIAL, normalizeOnboardingDone, startsOnJoinScene } from "./onboarding.jsx";
+import { isTutorialPreviewOn, readTutorialPreviewDone } from "./tutorialPreview.js";
 import { TERMS_CONSENT_KEY, makeConsentRecord, needsConsentScreen } from "./termsConsent.js";
 import { AgreeRow } from "./agreeRow.jsx";
 // アプリのアイコンの芽(読み込み中の絵の 100% = アイコンと同じ姿)。React と純粋な計算だけを読む部品(firebase を読まない)。
@@ -44,6 +44,10 @@ import { shellAskTrackingAfterConsent } from "./shell/ads.js";
 //   待つ間は2枚目をそのまま描く(新しい画面は作らない。ATT の画面がその上に出る)。ATT が出なかった・失敗した・
 //   ATT_FOCUS_WAIT_MAX_MS(policy.js)を過ぎたときも、アプリへ進む。記録の書き込み(usePersistedState の effect)は
 //   尋ねる effect より先に宣言してあるので、同じ描画の中で先に走る。見本(?tutorialpreview=1)では尋ねない(本物の状態に触れない)。
+// 【便DC 2026-10-21 本人の指示「チュートリアルの順番で、利用規約の前にコミュニティのプロフィールを作成する順番にしてください」】
+//   同意のあと、入れたての人(この起動で「次へ」を押した・案内の印が1つも無い。判断は onboarding.jsx の startsOnJoinScene)は、アプリを
+//   コミュニティタブの参加の場面から始める(WindToneLabPhaseMode の prop startOnJoin)。参加を終えると自動で計測タブへ戻り ① から(App.jsx)。
+//   決める(setStartOnJoin)のは agree の1か所・メモリの上だけ(次の起動からは通常どおり計測タブ)。見本は見本の「済んだ」の join で決める。
 // 記録の判断がつくまで(kv の読み)は何も描かない ──
 // main.jsx が温めを待つ間に何も描かないのと同じ(新しい待ち画面は作らない)。温めが済んでいれば1フレーム目から決まる。
 //
@@ -201,6 +205,9 @@ export default function AppRoot() {
   const [previewAgreed, setPreviewAgreed] = useState(false);
   // 【便CH】殻で ATT の答えを待っている間(この間も同意の画面の2枚目を描く)
   const [attWaiting, setAttWaiting] = useState(false);
+  // 【便DC 2026-10-21 本人の指示】同意のあと、入れたての人はコミュニティの参加の場面から始める(判断は onboarding.jsx の startsOnJoinScene)。
+  // この起動で「次へ」を押したときに決める(メモリの上だけ。次の起動からは通常どおり計測タブ)。
+  const [startOnJoin, setStartOnJoin] = useState(false);
   useEffect(() => {
     if (!attWaiting) return;
     let alive = true;
@@ -212,15 +219,17 @@ export default function AppRoot() {
     if (attWaiting) return;                    // 答えを待つ間の2回目の「次へ」は何もしない
     setConsent(makeConsentRecord());           // 1. 記録を書く
     if (isNativeShell()) setAttWaiting(true);  // 2. 殻なら ATT を尋ね、3. 答えを待ってからアプリへ
+    setStartOnJoin(startsOnJoinScene({ justAgreed: true, done: normalizeOnboardingDone(onboardingRaw) }));   // 【便DC】入れたてなら参加の場面から
   };
 
   if (preview) {
     if (!previewAgreed) return <ConsentScreen onAgree={() => setPreviewAgreed(true)} />;
-    return <WindToneLabPhaseMode />;   // 見本は記録を書かない
+    // 見本は記録を書かない。【便DC】見本の流れも新しい順(参加の場面 → 計測 ①)。見本の「済んだ」に join が既にあれば(参加済みの端末)場面は出さない
+    return <WindToneLabPhaseMode startOnJoin={startsOnJoinScene({ justAgreed: true, done: readTutorialPreviewDone() })} />;
   }
   if (!consentLoaded || !onboardingLoaded) return null;
   if (attWaiting || needsConsentScreen({ consent, onboardingDone: normalizeOnboardingDone(onboardingRaw) })) {
     return <ConsentScreen onAgree={agree} />;
   }
-  return <WindToneLabPhaseMode />;
+  return <WindToneLabPhaseMode startOnJoin={startOnJoin} />;
 }

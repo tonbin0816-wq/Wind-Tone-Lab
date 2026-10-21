@@ -351,6 +351,20 @@ export function markOnboardingDone(prev, flag) {
   return { ...(isObj(prev) ? prev : {}), [flag]: true };
 }
 
+// 【便DC 2026-10-21 本人の指示「チュートリアルの順番で、利用規約の前にコミュニティのプロフィールを作成する順番にしてください。
+// 作成後は今と同じく『まずは計測してみよう』に戻って続けてください」】初回の流れ: ようこそ → 利用規約に同意 → **コミュニティの参加の場面**
+// (JoinIntro のカード → 匿名アカウント → プロフィール作成)→ 計測タブの ① から今までどおり。
+// 同意の画面で「次へ」を押した**その起動で**、はじめの案内の印が1つも立っていない(= 入れたて)ときだけ、アプリをコミュニティタブから始める。
+//   justAgreed … この起動の同意の画面で「次へ」を押した(AppRoot が覚える。メモリの上だけ。保存しない)
+//   done       … はじめの案内が読む印(normalizeOnboardingDone の形)
+// 同意済みの人(次の起動以降)・参加済みの人・案内を始めている人(印が1つでもある。計測のある既存の利用者は移行で印が立っている)には出さない
+// = 今の利用者の流れは変えない。参加の場面は印を1つも書かない(参加したときの join だけ。見送った人の印は今の入れたてと同じ)。
+export function startsOnJoinScene({ justAgreed = false, done = null } = {}) {
+  if (justAgreed !== true) return false;
+  const d = done ?? {};
+  return ONBOARDING_FLAGS.every((f) => d[f] !== true);
+}
+
 // 【便CG 2026-10-09 本人の要望「チュートリアル中は広告なしにできませんか」・統括の裁定】はじめの案内が終わるまで、広告の帯を出さない。
 // 「初めて案内のカードが出た起動」の印。kv の1つの鍵に true を持つ(onboardingDone とは別の鍵。印の表 ONBOARDING_FLAGS には入れない)。
 // カードが出たら立てる(OnboardingCoach の onShown)。**起動の最初に読んだ値**が true なら、その起動は2回目以降(下の adsAllowed の (b))。
