@@ -26,13 +26,20 @@ import { createFakeIndexedDb } from "./backup/fakeIndexedDb.testutil.js";
 //   マイクが同意の前に0回であることで間接に見ている。戻るスワイプは履歴に何も積まない作り(ここでは history.length を見るだけ)。
 // ------------------------------------------------------------------
 
+// 【便DD】参加の場面から抜けるには参加を終えるしかないので、作り物のサーバーは参加できる(サインインして、プロフィールを覚える)。Firebase には触らない
+const server = vi.hoisted(() => ({ uid: null, profile: null }));
 vi.mock("./community/accountRepo.js", async (orig) => ({
   ...(await orig()),
-  getSignedInUid: vi.fn(async () => null),   // 参加していない(参加のカードが出る)
-  loadProfile: vi.fn(async () => null),
+  getSignedInUid: vi.fn(async () => server.uid),   // 最初は参加していない(参加のカードが出る)
+  loadProfile: vi.fn(async () => server.profile),
+  saveProfile: vi.fn(async (_uid, doc) => { server.profile = doc; }),
   watchMyPhoto: vi.fn(() => () => {}),
-  ensureSignedIn: vi.fn(async () => { throw new Error("検査: サインインしない"); }),
+  ensureSignedIn: vi.fn(async () => { server.uid = "me"; return "me"; }),
 }));
+vi.mock("./community/profile.js", async (orig) => {
+  const kit = await import("./community/blockKit.testutil.jsx");
+  return { ...(await orig()), buildProfileDoc: vi.fn(() => ({ doc: { ...kit.MY_PROFILE, ageConfirmed: true } })) };
+});
 vi.mock("./community/directory.js", async (orig) => ({ ...(await orig()), listPublicUsers: vi.fn(async () => []), publishStats: vi.fn(async () => {}) }));
 vi.mock("./community/idealRepo.js", async (orig) => ({ ...(await orig()), listIdeals: vi.fn(async () => []), publishMyIdeals: vi.fn(async () => {}), unpublishAllIdeals: vi.fn(async () => {}) }));
 
@@ -94,13 +101,22 @@ const click = (el) => mod.act(async () => { el.click(); });
 const joinCard = () => document.querySelector("[data-join-card]");
 // 【便CD 2026-10-08】「参加する」はカードそのもの(role="button"・名前「参加する」。カードの中にボタンは無い)
 const joinBtn = () => (joinCard()?.getAttribute("role") === "button" && joinCard().getAttribute("aria-label") === "参加する" ? joinCard() : null);
-// 1枚目 → 2枚目 → チェック → 次へ
+// 1枚目 → 2枚目 → チェック → 次へ(同意の画面が消えるまで。【便DD】そのあとは参加の場面 = 下部タブは無い)
 async function passConsent() {
   await click(startBtn());
   await waitFor(() => step() === "terms", "2枚目");
   await click(box());
   await click(nextBtn());
-  await waitFor(() => navBar(), "アプリ(下部タブ)");
+  await waitFor(() => !screen(), "アプリ(同意の画面が消える)");
+}
+// 参加の場面を通る: カード → プロフィールの入力 →「プロフィールを作る」→ 自動で計測タブ(下部タブが出る)
+async function joinNow() {
+  await waitFor(() => joinCard(), "参加の場面");
+  await click(joinCard());
+  const make = () => [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "プロフィールを作る");
+  await waitFor(() => make(), "プロフィールの入力");
+  await click(make());
+  await waitFor(() => navBar(), "計測タブ(下部タブ)");
 }
 
 // 作り物のマイク(onboardingApp.test.jsx の installFakeMic と同じ形)。getUserMedia の呼ばれた回数を数える。
@@ -131,6 +147,7 @@ function installFakeMic() {
 
 beforeEach(() => {
   fake = createFakeIndexedDb();
+  server.uid = null; server.profile = null;
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   window.localStorage.clear();
   document.documentElement.removeAttribute("data-tutorial-preview");
@@ -253,7 +270,7 @@ describe("入れたての人: 1枚目(ようこそ)→ 2枚目(規約)", () => {
     expect(nextBtn().style.background).toBe("var(--c-accent)");
     const before = Date.now();
     await click(nextBtn());
-    await waitFor(() => navBar(), "アプリ(下部タブ)");
+    await waitFor(() => !screen(), "アプリ(同意の画面が消える)");
     expect(screen()).toBe(null);
     await waitFor(() => kv("termsConsent"), "同意の記録(kv)");
     const rec = kv("termsConsent");
@@ -261,12 +278,13 @@ describe("入れたての人: 1枚目(ようこそ)→ 2枚目(規約)", () => {
     expect(rec.version).toBe("2026-10-08");
     expect(Math.abs(Date.parse(rec.at) - before)).toBeLessThan(5000);
     expect(new Date(rec.at).toISOString()).toBe(rec.at);
-    // 【便DC】同意のあとは参加の場面(マイク・案内はまだ)。見送って「計測」を押すと、マイクが始まり ① が出る
+    // 【便DC】同意のあとは参加の場面(マイク・案内はまだ)。【便DD】下部タブも無い。参加を終えると、マイクが始まり ① が出る
     await waitFor(() => joinCard(), "参加の場面");
     await tick(100);
     expect(gum).toBe(0);
     expect(layerId()).toBe(null);
-    await click(document.querySelector('[data-bottom-nav] button[aria-label="計測"]'));
+    expect(navBar()).toBe(null);
+    await joinNow();
     await waitFor(() => gum > 0, "マイク");
     await waitFor(() => layerId() === "tuner", "① まずは吹いてみよう");
     const snap = await mod.readAll();
@@ -293,7 +311,7 @@ describe("入れたての人: 1枚目(ようこそ)→ 2枚目(規約)", () => {
     const rec = structuredClone(kv("termsConsent"));
     await relaunch();
     expect(screen()).toBe(null);
-    expect(navBar()).not.toBe(null);
+    await waitFor(() => joinCard(), "【便DD】参加するまでは開き直しても参加の場面");
     await tick(200);
     expect(kv("termsConsent")).toEqual(rec);
   }, 30000);
@@ -348,7 +366,12 @@ describe("既存の利用者", () => {
     expect(gum).toBe(0);
     expect(navBar()).toBe(null);
     await passConsent();
-    await waitFor(() => gum > 0, "同意のあとにマイク");
+    // 【便DD】参加していない既存の利用者は、同意のあと参加の場面(マイクはまだ)。参加を終えると計測タブでマイク
+    await waitFor(() => joinCard(), "参加の場面");
+    await tick(200);
+    expect(gum).toBe(0);
+    await joinNow();
+    await waitFor(() => gum > 0, "参加のあとにマイク");
     await waitFor(() => kv("termsConsent"), "同意の記録");
     await relaunch();
     expect(screen()).toBe(null);
@@ -389,7 +412,7 @@ describe("記録の無い古いバックアップを読み戻したとき(本物
     await mod.writeAll({ kv: checked.data.kv, sessions: checked.data.sessions });
     await relaunch();
     expect(screen()).toBe(null);
-    expect(navBar()).not.toBe(null);
+    await waitFor(() => navBar(), "参加の印があるので計測タブ(下部タブ)");
   }, 40000);
 });
 
@@ -406,7 +429,8 @@ describe("見本(?tutorialpreview=1)", () => {
     // 【便DC】見本の流れも新しい順(参加の場面 → 計測 ①)。この端末の作り物のサーバーは参加していないので参加のカードが出る
     await waitFor(() => joinCard(), "見本の参加の場面");
     expect(layerId()).toBe(null);
-    await click(document.querySelector('[data-bottom-nav] button[aria-label="計測"]'));
+    expect(navBar()).toBe(null);
+    await joinNow();
     await waitFor(() => layerId() === "tuner", "見本の ①");
     expect(kv("termsConsent")).toEqual(REC);
     await relaunch();
@@ -424,8 +448,9 @@ describe("見本(?tutorialpreview=1)", () => {
 });
 
 describe("参加のカード(根 → アプリ → コミュニティ → JoinIntro)に同意のチェックは無い", () => {
+  // 【便DD】入れたての人は同意のあとすぐ参加の場面(下部タブは無い)。参加の印だけある人は計測タブから下部タブで開く
   const openCommunity = async () => {
-    await click(document.querySelector('button[aria-label="コミュニティ"]'));
+    if (navBar()) await click(document.querySelector('button[aria-label="コミュニティ"]'));
     await waitFor(() => joinCard(), "参加のカード", 20000);
   };
   const expectNoCheck = () => {

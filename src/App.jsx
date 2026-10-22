@@ -3903,14 +3903,28 @@ export default function WindToneLabPhaseMode({ startOnJoin = false } = {}) {
   // iPhone は縦(幅 ≤ 440)でも横(高さ ≤ 440)でも false(【便BT2】高さの条件を足した)。iPhone の見た目を変えない約束は縦向きのもの
   // (横向きでも列 640 は CSS で効く。DESIGN-SYSTEM §3「iPad の器」)。
   const wide = useWideLayout();
-  // 【便DC 2026-10-21 本人の指示】startOnJoin(根 AppRoot が渡す。同意の画面で「次へ」を押した起動の入れたての人だけ true)なら、コミュニティタブの
-  // 参加の場面(JoinIntro → 匿名アカウント → プロフィール作成)から始める。参加(join の印)を終えたら計測タブへ自動で戻り、① から今までどおり。
-  // 見送る人は下部タブ(計測など)を押せば抜ける。下部タブの表示・広告の扱いはコミュニティタブのまま。判断は onboarding.jsx の startsOnJoinScene。
+  // 【便DC 2026-10-21 本人の指示】startOnJoin(根 AppRoot が渡す)なら、コミュニティタブの参加の場面(JoinIntro → 匿名アカウント → プロフィール作成)から始める。
+  // 参加(join の印)を終えたら計測タブへ自動で戻り、① から今までどおり。判断は onboarding.jsx の startsOnJoinScene。
+  // 【便DD 2026-10-21 本人の指示「プロフィールの作成を必須にして。作成中に離脱できないように変更」】見送りの道をなくした: 参加の場面の間は**下部タブを描かない**
+  // (押せない)・handleNavTap も受けない。startOnJoin は「同意の記録があり、参加の印(join)が無い」間は毎回 true(保存の状態から決める。途中で閉じても次の起動は参加の場面から)。
+  // 抜けられるのは参加を終えたとき(onCommunityOnboarding)だけ。プロフィールの作成画面の「やめる」は、初回の作成では元から無い(onCancel が null)。
   const [topTab, setTopTab] = useState(startOnJoin ? "community" : "measure"); // "measure" | "reeds" | "analysis" | "community"
-  // 参加の場面の間か(初回の通過のあいだだけ true。参加を終えるか、コミュニティタブを離れたら下りて、戻らない)。
+  // 参加の場面の旗(この起動の初回の通過のあいだだけ true)。旗が降りる道は2つだけで、降りたら戻らない:
+  //   (1) 参加を終えて計測タブへ移った(onCommunityOnboarding が setTopTab("measure") → 下の effect が、コミュニティタブを離れた旗を降ろす)
+  //   (2) 参加が不可能と分かった(設定の欠落 = onJoinBlocked → foldJoinScene。コミュニティタブにいるまま畳んで下部タブを出す。join の印は書かない)
+  // 場面にいるか(joinSceneNow)は「旗が立っていて、コミュニティタブにいる」。下部タブを描くか・印を書くか・広告を止めるかは、この1つの式を読む。
   const [joinScene, setJoinScene] = useState(Boolean(startOnJoin));
   const joinSceneNow = joinScene && topTab === "community";
+  const joinSceneRef = useRef(joinSceneNow);
+  joinSceneRef.current = joinSceneNow;
   useEffect(() => { if (joinScene && topTab !== "community") setJoinScene(false); }, [joinScene, topTab]);
+  // 【便DD 審査】参加が不可能と分かったとき(コミュニティタブの失敗が設定の欠落 = リリース版では起きない。環境変数の入れ忘れ・開発用の環境)は場面を畳む。
+  // 畳まないと下部タブが無いまま出口が無くなる(失敗の画面にも「もう一度試す」が出ない失敗)。畳んだあとは下部タブが出て、計測へ進める。join の印は書かない。
+  const foldJoinScene = useCallback(() => {
+    if (!joinSceneRef.current) return;
+    joinSceneRef.current = false;
+    setJoinScene(false);
+  }, []);
   // 【便CO 2026-10-12】コミュニティの読み込みのやり直しの回(CommunityErrorBoundary の「もう一度試す」・引っ張って更新)。
   // 回が進むと境界(key)と遅延読み込み(lazy)を作り直す。最初の回は上の CommunityTab をそのまま使う(今までと同じ1つの読み込み)。
   const [communityTry, setCommunityTry] = useState(0);
@@ -3942,6 +3956,7 @@ export default function WindToneLabPhaseMode({ startOnJoin = false } = {}) {
   useAudioDiagLongPress(topTab === "measure", REED_DRAG_LONGPRESS_MS, openAudioDiag);
   const handleNavTap = useCallback((key) => {
     if (isRecordingRef.current) return;
+    if (joinSceneRef.current) return;   // 【便DD】参加の場面の間は下部タブを受けない(描きもしない。二重の守り)
     if (navRetapKeepsView(key, dataAtMyDataTopRef.current)) return;
     if (key === "reeds") setReedsSubTab("register"); // リードタブのトップは「登録」子タブ
     setTopTab(key);
@@ -5522,13 +5537,10 @@ export default function WindToneLabPhaseMode({ startOnJoin = false } = {}) {
   // 【便DC】コミュニティタブが立てる印の口。ふつうは markOnboarding そのまま。初回の参加の場面(joinSceneNow)の間に join が立ったら(プロフィールの作成が済んだ
   // 直後。すでに参加している人が場面に入った場合も同じ)、計測タブへ自動で戻す ── 押す操作は増やさない。戻ったあとは今までどおり ① から。
   // コミュニティの到着カード(arriveCommunity)・⑯ はこの通過では出さず、のちにコミュニティタブを開いたとき(参加済みの人がタブを開いた直後の道)に出る。
-  const joinSceneRef = useRef(joinSceneNow);
-  joinSceneRef.current = joinSceneNow;
   const onCommunityOnboarding = useCallback((flag) => {
     markOnboarding(flag);
     if (flag === "join" && joinSceneRef.current) {
-      joinSceneRef.current = false;
-      setJoinScene(false);
+      joinSceneRef.current = false;   // 同じ描画の前に2回目の join が来ても戻らない。旗は上の effect が降ろす(タブがコミュニティでなくなるので)
       setTopTab("measure");
     }
   }, [markOnboarding]);
@@ -5542,8 +5554,9 @@ export default function WindToneLabPhaseMode({ startOnJoin = false } = {}) {
     if (topTab === "reeds") markOnboarding("goReeds");
     if (topTab === "analysis" && sessions.length > 0) markOnboarding("goData");
     // 【便BX】⑭' コミュニティへ移った / ⑰ ⑮ を見てから計測タブへ戻った
-    // 【便DC】初回の参加の場面(joinSceneNow)は「コミュニティへ移った」に数えない ── 数えると、参加を見送った人の ⑭'(データ → コミュニティの橋)が
-    // 出なくなる。参加の場面は印を1つも書かない(参加の join だけ)。見送った人の印は今の入れたてと同じ。
+    // 【便DC】初回の参加の場面(joinSceneNow)は「コミュニティへ移った」に数えない。参加の場面は join 以外の印を書かない:
+    // 参加を終えた人はのちにコミュニティタブを開いたとき(到着カードの道)に立つ。【便DD】見送りの道は無いので、参加できないまま場面を畳んだ人(設定の欠落)は、
+    // 畳んだ後のコミュニティタブで立つ(畳んだあとは場面ではない)。場面の間に立てると、参加の場面の表示だけでコミュニティを「開いた」ことになってしまう。
     if (topTab === "community" && !joinSceneNow) markOnboarding("goCommunity");
     // 【便BX 審査 統括の裁定】目安にした(adoptAverage)だけでも(「見る」を押さなかった・押す前にアプリを閉じた)
     if (topTab === "measure" && (coachDone.idealSeen || coachDone.adoptAverage)) markOnboarding("goMeasure");
@@ -5572,7 +5585,8 @@ export default function WindToneLabPhaseMode({ startOnJoin = false } = {}) {
   // 【便CJ】この起動で、案内の間(印が読めてから ⑱ まで)に開いたタブ。⑱ の条件(finishReady)が読む。保存しない
   // (開いたことはリード = goReeds・コミュニティ = goCommunity・計測があるときのデータ = goData の印にも残る。上の effect)
   const [coachSeenTabs, setCoachSeenTabs] = useState(NO_COACH);
-  // 【便DC】参加の場面(joinSceneNow)で開いたコミュニティタブは数えない(⑱ の条件 finishReady のコミュニティの印を、見送った人が場面だけで満たさない。印と同じ理由)
+  // 【便DC】参加の場面(joinSceneNow)で開いたコミュニティタブは数えない(⑱ の条件 finishReady のコミュニティの印を、場面の表示だけで満たさない。印と同じ理由。
+  // 【便DD】参加を終えた人は join の印で満たす。参加できないまま畳んだ人は、畳んだ後のコミュニティタブで数える)
   useEffect(() => {
     if (!coachReady || coachDone.finish || joinSceneNow) return;
     setCoachSeenTabs((prev) => (prev.includes(topTab) ? prev : Object.freeze([...prev, topTab])));
@@ -5615,7 +5629,7 @@ export default function WindToneLabPhaseMode({ startOnJoin = false } = {}) {
   const coachAllNow = coachReady ? coachCandidates(coachArgs) : NO_COACH;
   // 【便CO 再審査】エラーの暗幕(マイクの拒否・取り直しの失敗)は一時的ではないので (b) に数えない
   const coachAdKeep = (coachHidden && !errorScrimShown && coachAllNow.length > 0) || (coachReady && coachWaiting(coachArgs)) || anySheetOpen;
-  const coachAdHold = useCoachAdHold({ engage: coachPresent || joinCardShown, keep: coachAdKeep });
+  const coachAdHold = useCoachAdHold({ engage: coachPresent || joinCardShown || joinSceneNow, keep: coachAdKeep });
   const adHeld = !adsOk || coachAdHold;
   useLayoutEffect(() => {
     if (setAdHold(adHeld)) window.dispatchEvent(new Event(AD_HEIGHT_EVENT));
@@ -5905,6 +5919,8 @@ export default function WindToneLabPhaseMode({ startOnJoin = false } = {}) {
               onOnboarding={onCommunityOnboarding}
               /* 【便CO】参加の画面のカードが出ているか(広告の帯を止める (d))。 */
               onJoinCard={setJoinCardShown}
+              /* 【便DD 審査】参加が不可能と分かった(設定の欠落)ら参加の場面を畳む(下部タブを出す。join の印は書かない)。 */
+              onJoinBlocked={foldJoinScene}
               /* 【便BV 2026-10-04 本人裁定(案B)】広い(iPad)なら、データ・順位は2ペイン(左 = 一覧・右 = 人物のページ)・
                  シェア・マイページは列(--page-max-w)。参加前の見本も2ペインの形。 */
               wide={wide}
@@ -5922,7 +5938,8 @@ export default function WindToneLabPhaseMode({ startOnJoin = false } = {}) {
       <ActionNotice notice={notice} onAction={runNoticeAction} onLeaveEnd={finishLeave} />
 
       {/* 画面下部の固定タブナビ(Claude Designに準拠)。録音中はタブ移動を無効化する。 */}
-      <BottomNav topTab={topTab} onNavTap={handleNavTap} isRecording={isRecording} />
+      {/* 【便DD】参加の場面の間は下部タブを描かない(見送りの道をなくす)。場所は CSS の余白(--nav-h)がそのまま空けてある */}
+      {!joinSceneNow && <BottomNav topTab={topTab} onNavTap={handleNavTap} isRecording={isRecording} />}
       {/* 【便CQ】音の診断の板。計測タブで下部タブの「計測」を長押しすると開く(audioDiag.jsx)。新しいボタンは置かない */}
       {audioDiagOpen && <AudioDiagPanel onClose={closeAudioDiag} />}
       {/* 【便BL 2026-10-02 本人指示】見本の広告の帯。下部タブと同じ重なり順 30 で、**下部タブより後ろに置く**

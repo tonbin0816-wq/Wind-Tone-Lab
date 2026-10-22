@@ -17,7 +17,7 @@ import {
 } from "./avatarPhoto.js";
 import { saveAvatarPhoto } from "./photoRepo.js";
 // 【便CJ】読み込みの1往復を待つ上限(返ってこなければ失敗として扱い、輪を 63% で止めない)
-import { withinLoadLimit } from "./loadLimit.js";
+import { withinLoadLimit, withinActionLimit } from "./loadLimit.js";
 import PhotoZoom from "./PhotoZoom.jsx";
 // 【便CK 2026-10-10 本人「よくある下にスワイプでリロードの仕様も追加して」】引っ張って更新(指の扱いと印。§6.3a)
 import PullToRefresh, { PULL_REFRESH_ATTR } from "./PullToRefresh.jsx";
@@ -164,7 +164,7 @@ const DELETE_PARTIAL_NOTICE =
 // 【便BV 2026-10-04 本人裁定(案B)】wide = iPad の「広い」画面か(App の useWideLayout)。参加後の画面(JoinedView)と参加前の見本
 // (JoinIntro)へ配るだけ。渡されない(false)ときは今までの木のまま(iPhone は1文字も変わらない)。
 // 【便CO 2026-10-12】onJoinCard(shown) = 参加の画面のカード(JoinIntro)が出ているかの知らせ(App.jsx が広告の帯を止める。渡さなければ何も起きない)。
-export default function CommunityTab({ sessions, tuningHz, onAdoptIdeal, landTab = null, onLanded = null, onOnboarding = null, onJoinCard = null, wide = false }) {
+export default function CommunityTab({ sessions, tuningHz, onAdoptIdeal, landTab = null, onLanded = null, onOnboarding = null, onJoinCard = null, onJoinBlocked = null, wide = false }) {
   // 【便CK】このタブの間だけ <html> に印を立て、index.css がページの overscroll-behavior-y を止める
   // (iPhone の Safari の「ページごと再読み込み」と、こちらの引っ張って更新を二重にしない)。離れたら外す(ほかのタブは今までどおり)。
   useEffect(() => {
@@ -175,7 +175,7 @@ export default function CommunityTab({ sessions, tuningHz, onAdoptIdeal, landTab
   return (
     <>
       <AvatarSprite />
-      <CommunityTabBody sessions={sessions} tuningHz={tuningHz} onAdoptIdeal={onAdoptIdeal} landTab={landTab} onLanded={onLanded} onOnboarding={onOnboarding} onJoinCard={onJoinCard} wide={wide} />
+      <CommunityTabBody sessions={sessions} tuningHz={tuningHz} onAdoptIdeal={onAdoptIdeal} landTab={landTab} onLanded={onLanded} onOnboarding={onOnboarding} onJoinCard={onJoinCard} onJoinBlocked={onJoinBlocked} wide={wide} />
     </>
   );
 }
@@ -536,7 +536,7 @@ export function BackupSheet({ onClose }) {
 //  【便CE 2026-10-08】参加しない選択肢が無くなったので部品(DeviceTransferPanel.jsx)ごと消した)
 
 // 【便BV 2026-10-04】wide = iPad の「広い」画面(CommunityTab から)。参加前の見本(JoinIntro)と参加後の画面(JoinedView)へ配るだけ。
-function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRequest = null, onLanded = null, onOnboarding = null, onJoinCard = null, wide = false }) {
+function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRequest = null, onLanded = null, onOnboarding = null, onJoinCard = null, onJoinBlocked = null, wide = false }) {
   const [phase, setPhase] = useState("loading"); // loading | notJoined | form | profile | error
   const [uid, setUid] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -584,6 +584,11 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRe
   const joinCardShown = phase === "notJoined";
   useLayoutEffect(() => { onJoinCardRef.current?.(joinCardShown); }, [joinCardShown]);
   useLayoutEffect(() => () => { onJoinCardRef.current?.(false); }, []);
+  // 【便DD 審査】onJoinBlocked() = 参加が不可能と分かった知らせ(失敗が設定の欠落 = CONFIG_ERROR。待っても・押し直しても直らない失敗)。
+  // 初回の参加の場面(下部タブを出さない・出られない)を App.jsx が畳むのに使う(下部タブを出して計測へ進めるようにする)。join の印は書かない。渡さなければ何も起きない。
+  const onJoinBlockedRef = useRef(onJoinBlocked);
+  onJoinBlockedRef.current = onJoinBlocked;
+  useEffect(() => { if (phase === "error" && errorMsg === CONFIG_ERROR) onJoinBlockedRef.current?.(); }, [phase, errorMsg]);
   // 【便BX 2026-10-06 本人の実機指示】プロフィールを初めて作った(参加の完了)あと、データの子タブを**先頭から**見せる。
   // 原因: フォーム(ProfileForm)は縦に長く、文書(window)をいちばん下まで送って「プロフィールを作る」を押す。
   // 保存が済むと onSubmit の setPhase("profile") がフォームを JoinedView に差し替えるが、文書の送り位置(window.scrollY)は
@@ -647,7 +652,8 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRe
   // Firestore の doc パスが壊れるため。(a) があっても保険として残す(冪等)。
   const ensureUid = async () => {
     if (uid) return uid;
-    const id = await ensureSignedIn();
+    // 【便DD 審査】返らないサインインを待ち続けない(上限 = COMMUNITY_ACTION_MAX_MS。過ぎたら失敗 → 参加のカードの失敗の画面「もう一度試す」/ 保存の直前ならフォームの失敗の文言)
+    const id = await withinActionLimit(ensureSignedIn());
     setUid(id);
     return id;
   };
@@ -719,7 +725,8 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRe
           let savedUid = null;
           try {
             const id = await ensureUid();
-            await saveProfile(id, r.doc);
+            // 【便DD 審査】返らない保存を待ち続けない(上限のあと「保存に失敗しました」をフォームに出して、入力を残したまま再送できる)
+            await withinActionLimit(saveProfile(id, r.doc));
             savedUid = id;
           } catch (e) {
             // 黙って失敗させない。フォームは開いたままにして再送できるようにする。

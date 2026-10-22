@@ -3,31 +3,56 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createFakeIndexedDb } from "./backup/fakeIndexedDb.testutil.js";
-import { startsOnJoinScene, ONBOARDING_FLAGS, coachCandidates } from "./onboarding.jsx";
+import { startsOnJoinScene, coachCandidates } from "./onboarding.jsx";
 
 // ------------------------------------------------------------------
 // 【便DC 2026-10-21 本人の指示】「チュートリアルの順番で、利用規約の前にコミュニティのプロフィールを作成する順番にしてください。
 // 作成後は今と同じく『まずは計測してみよう』に戻って続けてください」(統括が確認済みの順番)
 //   新しい順: ようこそ → 利用規約に同意 → **コミュニティの参加の場面**(JoinIntro のカード → 匿名アカウント → プロフィール作成)→ 計測タブの ① から今までどおり
+// 【便DD 2026-10-21 本人の指示】「プロフィールの作成を必須にして。作成中に離脱できないように変更」
+//   見送りの道をなくした: 参加の場面の間は下部タブを描かない・押せない。作成画面に出られる口(やめる)は無い。
+//   参加するまで毎回参加の場面から始める(同意の記録があり、参加の印 join が無い人。保存の状態から決める)。
 // **main.jsx が描くのと同じ根(AppRoot)**を描いて確かめる(consentGate.test.jsx と同じ作り)。
-//   ・入れたて(同意なし): 同意のあと参加の場面 → 参加(プロフィール作成)→ 自動で計測タブへ戻り ① が出る。参加の場面の間はマイク・案内・広告が無い
-//   ・参加を見送って下部タブの「計測」を押すと ① から。印は1つも書かない(参加の場面は join 以外の印を書かない)・拒否のカードは出る
-//   ・同意済み・参加済み・案内を始めている既存の利用者は、今までどおり計測タブから(参加の場面を出さない)
-//   ・参加した人に ⑭' goCommunity は出ない / 見送った人には今までどおり出る(coachCandidates)
-//   ・見本(?tutorialpreview=1)の流れも新しい順 / 参加の場面にも便CO の広告の止めが効く
+//   ・入れたて(同意なし): 同意のあと参加の場面 → 参加(プロフィール作成)→ 自動で計測タブへ戻り ① が出る。参加の場面の間はマイク・案内・下部タブ・広告が無い
+//   ・参加の場面の間: 下部タブが無い(押せない)・プロフィール作成中も出られない・Escape でも抜けない
+//   ・途中で閉じて開き直しても(同意の画面を飛ばして開いても)参加の場面から。参加済み(join)の人は今までどおり計測タブから
+//   ・通信の失敗でも「もう一度試す」がある(出られない代わりに必ず再試行できる)
+//   ・参加した人に ⑭' goCommunity は出ない / 見本(?tutorialpreview=1)の流れも新しい順 / 参加の場面にも便CO の広告の止めが効く
 // サーバーは作り物(accountRepo などを差し替える。Firebase に触らない・実際の匿名アカウントは作らない)。IndexedDB も作り物。
-// 【守っていないもの】実寸の見た目(参加のカードが下部タブの上に収まること)・実機の OS のマイクの許可の画面と ATT の並び(判定不能・実機待ち)。
+// 【守っていないもの】実寸の見た目(参加のカード・作成画面が下部タブ無しで収まること)・実機の OS のマイクの許可の画面と ATT の並び(判定不能・実機待ち)。
 // ------------------------------------------------------------------
 
-const server = vi.hoisted(() => ({ uid: null, profile: null, signIns: 0 }));
-vi.mock("./community/accountRepo.js", async (orig) => ({
-  ...(await orig()),
-  getSignedInUid: vi.fn(async () => server.uid),
-  loadProfile: vi.fn(async () => server.profile),
-  saveProfile: vi.fn(async (_uid, doc) => { server.profile = doc; }),
-  watchMyPhoto: vi.fn(() => () => {}),
-  ensureSignedIn: vi.fn(async () => { server.signIns += 1; server.uid = "me"; return "me"; }),
-}));
+const server = vi.hoisted(() => ({ uid: null, profile: null, signIns: 0, failSignIn: false, failLoad: false, configMissing: null, hangSignIn: false, hangSave: false, saves: 0 }));
+// (設定の欠落の失敗は呼ばれたときに firebaseClient を読んで作る ── 各検査の vi.resetModules のあとの、アプリが読んでいる側の同じクラスで投げる(instanceof が通る))
+const configMissing = async () => { const { FirebaseConfigMissingError } = await import("./community/firebaseClient.js"); return new FirebaseConfigMissingError(["VITE_FIREBASE_API_KEY"]); };
+vi.mock("./community/accountRepo.js", async (orig) => {
+  return {
+    ...(await orig()),
+    getSignedInUid: vi.fn(async () => {
+      if (server.configMissing === "load") throw await configMissing();
+      if (server.failLoad) throw new Error("検査: 通信に失敗");
+      return server.uid;
+    }),
+    loadProfile: vi.fn(async () => server.profile),
+    saveProfile: vi.fn(async (_uid, doc) => {
+      server.saves += 1;
+      if (server.hangSave) return new Promise(() => {});   // 返ってこない保存
+      server.profile = doc;
+    }),
+    watchMyPhoto: vi.fn(() => () => {}),
+    ensureSignedIn: vi.fn(async () => {
+      if (server.configMissing === "signin") throw await configMissing();
+      if (server.failSignIn) throw new Error("検査: サインインに失敗");
+      if (server.hangSignIn) return new Promise(() => {});   // 返ってこないサインイン
+      server.signIns += 1; server.uid = "me"; return "me";
+    }),
+  };
+});
+// 【便DD 審査】書き込み・サインインの上限(本物は 15 秒 = actionLimit.test.js が値を見る)は、ここでは 0.3 秒に縮めて配線(上限のあとに再試行できること)を見る
+vi.mock("./community/loadLimit.js", async (orig) => {
+  const real = await orig();
+  return { ...real, withinActionLimit: (p) => real.withinActionLimit(p, 300) };
+});
 vi.mock("./community/profile.js", async (orig) => {
   const kit = await import("./community/blockKit.testutil.jsx");
   return { ...(await orig()), buildProfileDoc: vi.fn(() => ({ doc: { ...kit.MY_PROFILE, ageConfirmed: true } })) };
@@ -68,6 +93,13 @@ async function launch() {
   root = mod.createRoot(host);
   await mod.act(async () => { root.render(mod.React.createElement(mod.AppRoot)); });
 }
+// 閉じて開き直す(= 読み込み直し。モジュールごと作り直す。kv と作り物のサーバーは同じ)
+async function relaunch() {
+  await mod.act(async () => root.unmount());
+  host.remove(); document.body.innerHTML = "";
+  mod = await loadApp();
+  await launch();
+}
 const tick = (ms = 10) => mod.act(async () => { await new Promise((r) => setTimeout(r, ms)); });
 async function waitFor(pred, label, deadline = 10000) {
   const end = Date.now() + deadline;
@@ -80,26 +112,27 @@ const click = (el) => mod.act(async () => { el.click(); });
 const screen = () => document.querySelector("[data-consent-screen]");
 const step = () => screen()?.getAttribute("data-consent-step") ?? null;
 const navBar = () => document.querySelector("[data-bottom-nav]");
+const navButtons = () => document.querySelectorAll("[data-bottom-nav] button");
 const nav = (label) => document.querySelector(`[data-bottom-nav] button[aria-label="${label}"]`);
 const layerId = () => document.querySelector("[data-coach-layer]")?.getAttribute("data-coach-layer") ?? null;
 const joinCard = () => document.querySelector('[data-join-card][role="button"][aria-label="参加する"]');
 const buttonsNamed = (name) => [...document.querySelectorAll("button")].filter((b) => b.textContent.trim() === name);
 const adHold = () => document.documentElement.getAttribute("data-ad-hold");
 const MIC_DENIED = "マイクの使用が許可されていません";
-// 1枚目 → 2枚目 → チェック → 次へ → アプリ(下部タブ)
+// 1枚目 → 2枚目 → チェック → 次へ(同意の画面が消えるまで。そのあとは参加の場面 = 下部タブは無い)
 async function passConsent() {
   await click(document.querySelector("[data-consent-start]"));
   await waitFor(() => step() === "terms", "2枚目");
   await click(screen().querySelector('input[type="checkbox"]'));
   await click(document.querySelector("[data-consent-next]"));
-  await waitFor(() => navBar(), "アプリ(下部タブ)");
+  await waitFor(() => !screen(), "同意の画面が消える");
 }
-// 参加のカード → プロフィールの入力 → 「プロフィールを作る」
-async function createProfile() {
+// 参加のカード → プロフィールの入力
+async function openForm() {
   await click(joinCard());
   await waitFor(() => buttonsNamed("プロフィールを作る").length > 0, "プロフィールの入力");
-  await click(buttonsNamed("プロフィールを作る")[0]);
 }
+const createProfile = async () => { await openForm(); await click(buttonsNamed("プロフィールを作る")[0]); };
 
 // 作り物のマイク。micMode "grant" = 許可 / "deny" = 許可されない(NotAllowedError)
 function installFakeMic() {
@@ -136,7 +169,7 @@ function installFakeMic() {
 
 beforeEach(() => {
   fake = createFakeIndexedDb();
-  server.uid = null; server.profile = null; server.signIns = 0;
+  server.uid = null; server.profile = null; server.signIns = 0; server.failSignIn = false; server.failLoad = false; server.configMissing = null; server.hangSignIn = false; server.hangSave = false; server.saves = 0;
   micMode = "grant";
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   window.localStorage.clear();
@@ -192,7 +225,7 @@ const NOW_ISO = new Date(Date.now() - 60 * 1000).toISOString();
 const SESSION = (id) => ({ id, recordedAt: NOW_ISO, saxType: "alto", reedId: null, linkedAt: null, memo: null, performer: "自分", source: "live", frames: [], barlines: [], noteEvents: [] });
 
 describe("入れたて(同意なし): ようこそ → 規約 → 参加の場面 → プロフィール作成 → 計測 ①", () => {
-  it("同意のあとは参加の場面(マイク・案内・広告は無い)。参加を終えると押さずに計測タブへ戻り ① から。参加の場面は印を join の1つしか書かず、到着カードは出ない", async () => {
+  it("同意のあとは参加の場面(下部タブ・マイク・案内・広告は無い)。参加を終えると押さずに計測タブへ戻り ① から。参加の場面は印を join の1つしか書かず、到着カードは出ない", async () => {
     mod = await loadApp();
     await launch();
     expect(step()).toBe("welcome");
@@ -200,6 +233,7 @@ describe("入れたて(同意なし): ようこそ → 規約 → 参加の場�
     // --- 参加の場面 ---
     await waitFor(() => joinCard(), "参加の場面(参加のカード)");
     expect(screen()).toBe(null);
+    expect(navBar()).toBe(null);         // 【便DD】下部タブは描かない
     await waitFor(() => kv("termsConsent"), "同意の記録");
     await tick(300);
     expect(gum).toBe(0);                 // マイクは計測タブへ入るまで頼まない
@@ -208,10 +242,10 @@ describe("入れたて(同意なし): ようこそ → 規約 → 参加の場�
     expect(server.signIns).toBe(0);      // 参加するまでアカウントは作らない
     expect(kv("onboardingDone")?.join).toBeUndefined();
     // --- 参加(カード → 入力 → 作る)---
-    await click(joinCard());
-    await waitFor(() => buttonsNamed("プロフィールを作る").length > 0, "プロフィールの入力");
+    await openForm();
     expect(server.signIns).toBe(1);
     expect(document.querySelector("[data-join-card]")).toBe(null);
+    expect(navBar()).toBe(null);
     expect(layerId()).toBe(null);
     expect(gum).toBe(0);
     await click(buttonsNamed("プロフィールを作る")[0]);
@@ -219,9 +253,9 @@ describe("入れたて(同意なし): ようこそ → 規約 → 参加の場�
     await waitFor(() => kv("onboardingDone")?.join === true, "join の印(参加の完了)");
     await waitFor(() => gum > 0, "計測タブでマイク");
     await waitFor(() => layerId() === "tuner", "① まずは吹いてみよう");
+    expect(navBar()).not.toBe(null);     // 抜けたあとは下部タブがある
     expect(buttonsNamed("プロフィールを作る")).toHaveLength(0);
     expect(document.querySelector("[data-join-card]")).toBe(null);
-    // 参加の場面が書いた印は join だけ(coach の印は ① が出てから先で立つもの以外が無い)
     const d = kv("onboardingDone");
     expect(d.arriveCommunity).toBeUndefined();   // 参加した直後に長い案内(到着カード)を出さない
     expect(d.goCommunity).toBeUndefined();
@@ -234,38 +268,58 @@ describe("入れたて(同意なし): ようこそ → 規約 → 参加の場�
     await waitFor(() => layerId() === "arriveCommunity", "のちの到着カード");
   }, 60000);
 
-  it("参加を見送って下部タブの「計測」を押すと ① から。印は1つも書かない(join も goCommunity も)・アカウントは作らない", async () => {
+  it("【便DD 審査】参加を終えたあと、参加の場面は戻らない: コミュニティタブを開き直しても下部タブがあり(押せる)、印もふつうに立つ", async () => {
+    mod = await loadApp();
+    await launch();
+    await passConsent();
+    await waitFor(() => joinCard(), "参加の場面");
+    await createProfile();
+    await waitFor(() => layerId() === "tuner", "参加のあとの ①");
+    for (const label of ["コミュニティ", "計測", "コミュニティ", "リード", "コミュニティ"]) {
+      await click(nav(label));
+      await tick(100);
+      expect(navBar(), `「${label}」のあとも下部タブがある(場面の旗が降りている)`).not.toBe(null);
+      expect(joinCard()).toBe(null);
+    }
+    // 旗が降りていれば、コミュニティタブを開いた結果として goCommunity の印がふつうに立つ(場面の間は立てない)
+    await waitFor(() => kv("onboardingDone")?.goCommunity === true, "ふつうの道で goCommunity");
+  }, 60000);
+
+  it("【便DD】参加の場面のあいだは見送れない: 下部タブが無い(押せない)・作成中も出られない(「やめる」が無い・Escape でも抜けない)・印は書かない", async () => {
     mod = await loadApp();
     await launch();
     await passConsent();
     await waitFor(() => joinCard(), "参加の場面");
     await tick(100);
-    await click(nav("計測"));
-    await waitFor(() => layerId() === "tuner", "① まずは吹いてみよう");
-    expect(document.querySelector("[data-join-card]")).toBe(null);
-    expect(gum).toBeGreaterThan(0);
-    await tick(200);
-    const d = kv("onboardingDone") ?? {};
-    for (const f of ONBOARDING_FLAGS) {
-      if (f === "tuner") continue;   // ① が出たあとの印は ① の側(1秒続いたら)
-      expect(d[f], `印 ${f}`).toBeUndefined();
-    }
-    expect(server.signIns).toBe(0);
-    expect(seenLayers.has("arriveCommunity")).toBe(false);
-    // 見送った人は、あとで自分でコミュニティタブを開いたとき今までどおり(印 goCommunity はその時に立つ)
-    await click(nav("コミュニティ"));
-    await waitFor(() => joinCard(), "参加のカード");
-    await waitFor(() => kv("onboardingDone")?.goCommunity === true, "今までの道で goCommunity");
+    expect(navBar()).toBe(null);
+    expect(navButtons()).toHaveLength(0);
+    // 参加のカードの間: Escape を押しても参加の場面のまま
+    await mod.act(async () => { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+    expect(joinCard()).not.toBe(null);
+    // プロフィールの作成中: 出られる口が無い(下部タブ・「やめる」・Escape)
+    await openForm();
+    expect(navBar()).toBe(null);
+    expect(buttonsNamed("やめる")).toHaveLength(0);
+    await mod.act(async () => { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+    await mod.act(async () => { window.dispatchEvent(new PopStateEvent("popstate")); });
+    await tick(100);
+    expect(buttonsNamed("プロフィールを作る").length).toBeGreaterThan(0);
+    expect(navBar()).toBe(null);
+    expect(adHold()).toBe("1");          // 作成中も広告は止まっている
+    expect(gum).toBe(0);
+    expect(layerId()).toBe(null);
+    // 参加の場面は join 以外の印を書かない(場面を見るだけでコミュニティを「開いた」ことにしない)
+    for (const f of ["goCommunity", "arriveCommunity", "goReeds", "goData", "tuner", "finish"]) expect(kv("onboardingDone")?.[f], `印 ${f}`).toBeUndefined();
   }, 60000);
 
-  it("参加を見送ってマイクの許可を断ると、拒否のカードが出る(参加の場面から来た最初の計測タブも起動のときと同じ扱い)", async () => {
+  it("参加を終えてマイクの許可を断ると、拒否のカードが出る(参加の場面から来た最初の計測タブも起動のときと同じ扱い)", async () => {
     micMode = "deny";
     mod = await loadApp();
     await launch();
     await passConsent();
     await waitFor(() => joinCard(), "参加の場面");
     expect(gum).toBe(0);
-    await click(nav("計測"));
+    await createProfile();
     await waitFor(() => gum > 0, "マイクを頼んだ");
     await waitFor(() => document.body.textContent.includes(MIC_DENIED), "拒否のカード");
     expect(layerId()).toBe(null);   // 許可されないので ① は出ない
@@ -277,8 +331,8 @@ describe("入れたて(同意なし): ようこそ → 規約 → 参加の場�
     expect(document.body.textContent.includes(MIC_DENIED)).toBe(false);
   }, 60000);
 
-  it("参加の場面の間は、広告の止めが効いている(便CO の決まり)。案内の印が済んで広告を始めてよい状態でも、参加のカードが出ている間は止める", async () => {
-    // onboardingShown が立っている = 2回目以降の起動の扱いで広告を始めてよい(adsAllowed の (b))。それでも参加のカードの間は止まる
+  it("参加の場面の間は、広告の止めが効いている(便CO の決まり)。広告を始めてよい状態でも、参加のカード・作成中は止める", async () => {
+    // onboardingShown が立っている = 2回目以降の起動の扱いで広告を始めてよい(adsAllowed の (b))。それでも参加の場面の間は止まる
     mod = await loadApp();
     await seed({ onboardingShown: true });
     await launch();
@@ -286,14 +340,58 @@ describe("入れたて(同意なし): ようこそ → 規約 → 参加の場�
     await waitFor(() => joinCard(), "参加の場面");
     await tick(300);
     expect(adHold()).toBe("1");
-    await click(nav("計測"));   // 場面を抜けるとカードが無くなる。案内のカード ① が出ているあいだも止める
+    await openForm();
+    await tick(1500);   // 参加のカードが消えてから止めの戻し(COACH_AD_RELEASE_MS = 1秒)より長く待つ。作成中も止まっていること
+    expect(adHold()).toBe("1");
+    await click(buttonsNamed("プロフィールを作る")[0]);   // 参加を終えると計測タブ。案内のカード ① が出ているあいだも止める
     await waitFor(() => layerId() === "tuner", "①");
     expect(adHold()).toBe("1");
   }, 60000);
 });
 
-describe("今までの利用者の流れは変えない(参加の場面を出さない)", () => {
-  it("同意済み・参加済み(記録も join もある)は計測タブから。参加のカードは出ない", async () => {
+describe("【便DD】参加するまで毎回参加の場面から(保存の状態から決める)", () => {
+  it("途中で閉じて開き直しても参加の場面から(カードの途中でも・作成の途中でも)。参加を終えたら、次の起動からは計測タブ", async () => {
+    mod = await loadApp();
+    await launch();
+    await passConsent();
+    await waitFor(() => joinCard(), "参加の場面");
+    await waitFor(() => kv("termsConsent"), "同意の記録");
+    // 1) カードのまま閉じる
+    await relaunch();
+    expect(screen()).toBe(null);                 // 同意の記録があるので同意の画面は出ない
+    await waitFor(() => joinCard(), "開き直しても参加の場面");
+    expect(navBar()).toBe(null);
+    expect(gum).toBe(0);
+    // 2) 作成の途中(サインイン済み・プロフィール未作成)で閉じる
+    await openForm();
+    expect(server.uid).toBe("me");
+    await relaunch();
+    await waitFor(() => joinCard(), "作成の途中で閉じても参加の場面から");
+    expect(navBar()).toBe(null);
+    expect(gum).toBe(0);
+    expect(server.signIns).toBe(1);              // 開き直しでアカウントを増やさない
+    // 3) 参加を終える → 計測の ①
+    await createProfile();
+    await waitFor(() => layerId() === "tuner", "参加のあとの ①");
+    // 4) その次の起動は計測タブから(参加の場面を出さない)
+    await relaunch();
+    await waitFor(() => layerId() === "tuner", "次の起動は計測の ①");
+    expect(joinCard()).toBe(null);
+    expect(navBar()).not.toBe(null);
+  }, 90000);
+
+  it("同意の画面を飛ばして開いた起動(同意の記録あり・参加の印なし)でも参加の場面から。案内の印・計測がある既存の利用者でも同じ", async () => {
+    mod = await loadApp();
+    await seed({ termsConsent: REC, onboardingDone: { ...GATES, measure: true, tuner: true, metronome: true } }, [SESSION("s1")]);
+    await launch();
+    expect(screen()).toBe(null);
+    await waitFor(() => joinCard(), "参加の場面");
+    expect(navBar()).toBe(null);
+    await tick(200);
+    expect(gum).toBe(0);
+  }, 60000);
+
+  it("参加済み(join の印がある)の人は、同意済みでも未同意の記録なしでも、今までどおり計測タブから。参加の場面は出ない", async () => {
     mod = await loadApp();
     await seed({ termsConsent: REC, onboardingDone: { ...GATES, join: true, measure: true, tuner: true } }, [SESSION("s1")]);
     await launch();
@@ -301,71 +399,169 @@ describe("今までの利用者の流れは変えない(参加の場面を出さ
     await waitFor(() => gum > 0, "計測タブのマイク");
     await tick(200);
     expect(joinCard()).toBe(null);
+    expect(navBar()).not.toBe(null);
     expect(server.signIns).toBe(0);
   }, 60000);
 
-  it("同意済みで入れたて同然(参加していない・印なし)の2回目の起動は、計測タブから ① ── 参加の場面を毎回出さない", async () => {
+  it("参加済みなのに印が無い人(アカウントはサーバーにある)は、参加の場面が一瞬で抜けて計測の ①(アカウントは作らない)", async () => {
+    server.uid = "me"; server.profile = { nickname: "n" };
     mod = await loadApp();
     await seed({ termsConsent: REC, onboardingDone: { ...GATES } });
     await launch();
-    expect(screen()).toBe(null);
-    await waitFor(() => layerId() === "tuner", "① まずは吹いてみよう");
+    await waitFor(() => layerId() === "tuner", "計測の ①");
     expect(joinCard()).toBe(null);
+    expect(server.signIns).toBe(0);
+    await waitFor(() => kv("onboardingDone")?.join === true, "join の印");
+  }, 60000);
+});
+
+describe("【便DD】通信の失敗でも出られないだけ ── 「もう一度試す」で必ず再試行できる", () => {
+  it("読み込みの失敗: 下部タブは無いが「もう一度試す」がある。押すと読み直して参加の場面へ", async () => {
+    server.failLoad = true;
+    mod = await loadApp();
+    await seed({ termsConsent: REC, onboardingDone: { ...GATES } });
+    await launch();
+    await waitFor(() => buttonsNamed("もう一度試す").length > 0, "失敗の画面の「もう一度試す」");
+    expect(navBar()).toBe(null);
+    expect(joinCard()).toBe(null);
+    server.failLoad = false;
+    await click(buttonsNamed("もう一度試す")[0]);
+    await waitFor(() => joinCard(), "読み直して参加の場面");
+    expect(navBar()).toBe(null);
   }, 60000);
 
-  it("同意の画面を通した入れたての人でも、次の起動からは計測タブから(参加の場面は同意した起動の1回だけ)", async () => {
+  it("匿名サインインの失敗: 「もう一度試す」があり、押すと参加のカードへ戻る。直れば参加を終えて計測の ①", async () => {
+    server.failSignIn = true;
     mod = await loadApp();
     await launch();
     await passConsent();
     await waitFor(() => joinCard(), "参加の場面");
-    await waitFor(() => kv("termsConsent"), "同意の記録");
-    await mod.act(async () => root.unmount());
-    host.remove(); document.body.innerHTML = "";
+    await click(joinCard());
+    await waitFor(() => buttonsNamed("もう一度試す").length > 0, "サインイン失敗の「もう一度試す」");
+    expect(navBar()).toBe(null);
+    expect(server.signIns).toBe(0);
+    await click(buttonsNamed("もう一度試す")[0]);
+    await waitFor(() => joinCard(), "参加のカードへ戻る");
+    server.failSignIn = false;
+    await createProfile();
+    await waitFor(() => layerId() === "tuner", "直ったので計測の ①");
+    expect(server.signIns).toBe(1);
+  }, 60000);
+});
+
+describe("【便DD 審査】参加が不可能な失敗(設定の欠落)では場面を畳む", () => {
+  const CONFIG_TEXT = "この配信ではコミュニティを利用できません";
+  it("読み込みで設定の欠落: 失敗の画面(「もう一度試す」は元から無い)のまま下部タブが出て、計測へ進める。join の印は書かない・アカウントは作らない", async () => {
+    server.configMissing = "load";
     mod = await loadApp();
+    await seed({ termsConsent: REC, onboardingDone: { ...GATES } });
     await launch();
-    expect(screen()).toBe(null);
-    await waitFor(() => layerId() === "tuner", "2回目の起動は計測の ①");
-    expect(joinCard()).toBe(null);
+    await waitFor(() => document.body.textContent.includes(CONFIG_TEXT), "設定の欠落の失敗の画面");
+    expect(buttonsNamed("もう一度試す")).toHaveLength(0);
+    await waitFor(() => navBar(), "場面が畳まれて下部タブが出る");
+    await click(nav("計測"));
+    await waitFor(() => gum > 0, "計測タブでマイク");
+    await waitFor(() => layerId() === "tuner", "① まずは吹いてみよう");
+    expect(navBar()).not.toBe(null);
+    await tick(200);
+    expect(kv("onboardingDone")?.join).toBeUndefined();
+    expect(server.signIns).toBe(0);
   }, 60000);
 
-  it("参加していない既存の利用者(計測あり・案内の印あり)が同意の画面を通っても、参加の場面ではなく計測タブへ", async () => {
+  it("参加を押したときの設定の欠落(サインイン): 場面が畳まれて下部タブが出る。join の印は書かない", async () => {
+    server.configMissing = "signin";
     mod = await loadApp();
-    await seed({ onboardingDone: { ...GATES, measure: true, tuner: true, metronome: true } }, [SESSION("s1")]);
     await launch();
-    expect(step()).toBe("welcome");
     await passConsent();
-    await waitFor(() => gum > 0, "計測タブのマイク");
-    await tick(200);
-    expect(joinCard()).toBe(null);
+    await waitFor(() => joinCard(), "参加の場面");
+    expect(navBar()).toBe(null);
+    await click(joinCard());
+    await waitFor(() => document.body.textContent.includes(CONFIG_TEXT), "設定の欠落の失敗の画面");
+    await waitFor(() => navBar(), "場面が畳まれて下部タブが出る");
+    await click(nav("計測"));
+    await waitFor(() => layerId() === "tuner", "① まずは吹いてみよう");
+    expect(kv("onboardingDone")?.join).toBeUndefined();
+  }, 60000);
+
+  it("通信の失敗(設定の欠落ではない)では畳まない: 下部タブは出ないまま「もう一度試す」だけ", async () => {
+    server.failLoad = true;
+    mod = await loadApp();
+    await seed({ termsConsent: REC, onboardingDone: { ...GATES } });
+    await launch();
+    await waitFor(() => buttonsNamed("もう一度試す").length > 0, "失敗の画面の「もう一度試す」");
+    await tick(300);
+    expect(navBar()).toBe(null);
+  }, 60000);
+});
+
+describe("【便DD 審査】返ってこない通信には上限があり、上限のあとに再試行できる", () => {
+  it("匿名サインインが返らない: 上限のあと失敗の画面(「もう一度試す」)へ落ち、押すと参加のカードへ戻る。直れば参加を終えて ①", async () => {
+    server.hangSignIn = true;
+    mod = await loadApp();
+    await launch();
+    await passConsent();
+    await waitFor(() => joinCard(), "参加の場面");
+    await click(joinCard());
+    await waitFor(() => buttonsNamed("もう一度試す").length > 0, "上限のあとの失敗の画面", 5000);
+    expect(navBar()).toBe(null);
+    expect(server.signIns).toBe(0);
+    server.hangSignIn = false;
+    await click(buttonsNamed("もう一度試す")[0]);
+    await waitFor(() => joinCard(), "参加のカードへ戻る");
+    await createProfile();
+    await waitFor(() => layerId() === "tuner", "直ったので計測の ①");
+  }, 60000);
+
+  it("保存が返らない: 上限のあと、フォームを開いたまま「保存に失敗しました」が出て、もう一度押せる。下部タブは出ない。直れば参加を終えて ①", async () => {
+    server.hangSave = true;
+    mod = await loadApp();
+    await launch();
+    await passConsent();
+    await waitFor(() => joinCard(), "参加の場面");
+    await openForm();
+    await click(buttonsNamed("プロフィールを作る")[0]);
+    await waitFor(() => document.body.textContent.includes("保存に失敗しました"), "上限のあとの失敗の文言", 5000);
+    expect(server.saves).toBe(1);
+    expect(navBar()).toBe(null);
+    expect(buttonsNamed("プロフィールを作る").length).toBeGreaterThan(0);   // フォームは残っている(再送できる)
+    expect(kv("onboardingDone")?.join).toBeUndefined();
+    server.hangSave = false;
+    await click(buttonsNamed("プロフィールを作る")[0]);
+    await waitFor(() => server.saves === 2, "再送");
+    await waitFor(() => layerId() === "tuner", "再送が通って計測の ①");
+    expect(server.signIns).toBe(1);   // 再送でアカウントを増やさない
   }, 60000);
 });
 
 describe("見本(?tutorialpreview=1)も新しい順", () => {
   const PREVIEW_DONE = "ficus.tutorialPreviewDone";
-  it("見本: 同意のあと参加の場面 → 参加 → 自動で計測タブへ戻り ①。本物の印・同意の記録は書かない", async () => {
+  it("見本: 同意のあと参加の場面(下部タブ無し)→ 参加 → 自動で計測タブへ戻り ①。本物の印・同意の記録は書かない", async () => {
     document.documentElement.setAttribute("data-tutorial-preview", "1");
     mod = await loadApp();
     await launch();
     await passConsent();
     await waitFor(() => joinCard(), "見本の参加の場面");
+    expect(navBar()).toBe(null);
     expect(layerId()).toBe(null);
     expect(gum).toBe(0);
     await createProfile();
     await waitFor(() => layerId() === "tuner", "見本の ①");
+    expect(navBar()).not.toBe(null);
     expect(JSON.parse(window.localStorage.getItem(PREVIEW_DONE)).join).toBe(true);   // 見本の「済んだ」(localStorage)に join
     expect(kv("termsConsent")).toBeUndefined();
     expect(kv("onboardingDone")).toBeUndefined();
   }, 60000);
 
-  it("見本: 参加を見送って「計測」を押すと ① から", async () => {
+  it("見本: 参加するまで見本を開き直しても(見本の「済んだ」に join が無い間は)参加の場面から", async () => {
     document.documentElement.setAttribute("data-tutorial-preview", "1");
     mod = await loadApp();
     await launch();
     await passConsent();
     await waitFor(() => joinCard(), "見本の参加の場面");
-    await click(nav("計測"));
-    await waitFor(() => layerId() === "tuner", "見本の ①");
-    expect(window.localStorage.getItem(PREVIEW_DONE) ?? "{}").not.toContain('"join"');
+    await relaunch();
+    await passConsent();
+    await waitFor(() => joinCard(), "開き直しても見本の参加の場面");
+    expect(navBar()).toBe(null);
   }, 60000);
 
   it("見本: この端末のアカウントがもう参加済みなら、参加の場面は一瞬で抜けて計測の ①(アカウントは作らない)", async () => {
@@ -387,21 +583,23 @@ describe("見本(?tutorialpreview=1)も新しい順", () => {
     await passConsent();
     await waitFor(() => layerId() === "tuner", "見本の ①");
     expect(joinCard()).toBe(null);
+    expect(navBar()).not.toBe(null);
   }, 60000);
 });
 
 describe("純関数: startsOnJoinScene / 参加した人に ⑭' goCommunity は出ない", () => {
-  it("startsOnJoinScene: この起動で同意した・印が1つも無い人だけ", () => {
-    expect(startsOnJoinScene({ justAgreed: true, done: {} })).toBe(true);
-    expect(startsOnJoinScene({ justAgreed: true, done: { migrated: true } })).toBe(true);   // 移行の印は案内の印ではない
-    expect(startsOnJoinScene({ justAgreed: true, done: null })).toBe(true);
-    expect(startsOnJoinScene({ justAgreed: false, done: {} })).toBe(false);                 // 次の起動以降は出さない
-    expect(startsOnJoinScene({ done: {} })).toBe(false);
-    for (const f of ONBOARDING_FLAGS) expect(startsOnJoinScene({ justAgreed: true, done: { [f]: true } }), `印 ${f}`).toBe(false);
+  it("startsOnJoinScene: 参加の印(join)が無いときだけ true(ほかの印は関係しない・保存の状態だけで決める)", () => {
+    expect(startsOnJoinScene({ done: {} })).toBe(true);
+    expect(startsOnJoinScene({ done: null })).toBe(true);
+    expect(startsOnJoinScene({})).toBe(true);
+    expect(startsOnJoinScene({ done: { migrated: true, measure: true, tuner: true, finish: true } })).toBe(true);   // 案内を済ませていても参加していなければ
+    expect(startsOnJoinScene({ done: { join: false } })).toBe(true);
+    expect(startsOnJoinScene({ done: { join: true } })).toBe(false);
+    expect(startsOnJoinScene({ done: { join: true, measure: true, finish: true } })).toBe(false);
   });
   const TREND_DONE = { measure: true, tuner: true, arriveData: true, calendarDay: true, daySession: true, trend: true };
   const base = { topTab: "analysis", hasSessions: true, sessionsKnown: true };
-  it("参加した人にはデータタブの橋 ⑭' goCommunity を出さない・見送った人には今までどおり出す", () => {
+  it("参加した人にはデータタブの橋 ⑭' goCommunity を出さない・参加していない人には今までどおり出す", () => {
     expect(coachCandidates({ ...base, done: { ...TREND_DONE, join: true } })).not.toContain("goCommunity");
     expect(coachCandidates({ ...base, done: { ...TREND_DONE } })).toContain("goCommunity");
   });

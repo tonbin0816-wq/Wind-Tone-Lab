@@ -21,15 +21,21 @@ import { migrateOnboardingDone } from "./onboarding.jsx";
 // 【守っていないもの】実機で ATT の画面が同意の画面の上に出ること・iOS が画面を出さずに返す場合の実際の挙動・
 //   上限を過ぎたあとも ATT の画面が出ている間にマイクの許可の画面がどう並ぶか(どれも実機待ち)。
 // ------------------------------------------------------------------
-// 【便DC 2026-10-21】入れたての人は同意のあと、コミュニティの参加の場面から始まる(計測タブは下部タブの「計測」を押してから)。参加の場面は作り物のサーバー
-// (参加していない・サインインしない。Firebase に触らない・アカウントを作らない)。
+// 【便DC 2026-10-21】入れたての人は同意のあと、コミュニティの参加の場面から始まる。【便DD】参加を終えるまで下部タブは無く、毎回参加の場面から始まる
+// (計測タブへ進むには参加を終える)。参加の場面は作り物のサーバー(サインインして、プロフィールを覚えるだけ。Firebase に触らない・実際のアカウントを作らない)。
+const server = vi.hoisted(() => ({ uid: null, profile: null }));
 vi.mock("./community/accountRepo.js", async (orig) => ({
   ...(await orig()),
-  getSignedInUid: vi.fn(async () => null),
-  loadProfile: vi.fn(async () => null),
+  getSignedInUid: vi.fn(async () => server.uid),
+  loadProfile: vi.fn(async () => server.profile),
+  saveProfile: vi.fn(async (_uid, doc) => { server.profile = doc; }),
   watchMyPhoto: vi.fn(() => () => {}),
-  ensureSignedIn: vi.fn(async () => { throw new Error("検査: サインインしない"); }),
+  ensureSignedIn: vi.fn(async () => { server.uid = "me"; return "me"; }),
 }));
+vi.mock("./community/profile.js", async (orig) => {
+  const kit = await import("./community/blockKit.testutil.jsx");
+  return { ...(await orig()), buildProfileDoc: vi.fn(() => ({ doc: { ...kit.MY_PROFILE, ageConfirmed: true } })) };
+});
 vi.mock("./community/directory.js", async (orig) => ({ ...(await orig()), listPublicUsers: vi.fn(async () => []), publishStats: vi.fn(async () => {}) }));
 vi.mock("./community/idealRepo.js", async (orig) => ({ ...(await orig()), listIdeals: vi.fn(async () => []), publishMyIdeals: vi.fn(async () => {}), unpublishAllIdeals: vi.fn(async () => {}) }));
 const cap = vi.hoisted(() => ({ log: [], statuses: [], statusThrows: false, requestHangs: false, requestGate: null, consentAtRequest: [] }));
@@ -122,8 +128,17 @@ const step = () => screen()?.getAttribute("data-consent-step") ?? null;
 const navBar = () => document.querySelector("[data-bottom-nav]");
 const click = (el) => mod.act(async () => { el.click(); });
 const count = (name) => cap.log.filter((x) => x === name).length;
-// 【便DC】参加を見送って計測タブへ(下部タブの「計測」)。入れたての人は同意のあと参加の場面にいる
-const toMeasure = () => click(document.querySelector('[data-bottom-nav] button[aria-label="計測"]'));
+// 【便DC・便DD】参加の場面を通って計測タブへ(カード → プロフィールの入力 → 「プロフィールを作る」→ 自動で計測タブ)。参加するまで下部タブは無い
+const joinCardEl = () => document.querySelector("[data-join-card]");
+async function joinNow() {
+  await waitFor(() => joinCardEl(), "参加の場面");
+  await click(joinCardEl());
+  const make = () => [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "プロフィールを作る");
+  await waitFor(() => make(), "プロフィールの入力");
+  await click(make());
+  await waitFor(() => navBar(), "計測タブ(下部タブ)");
+  await waitFor(() => kv("onboardingDone")?.join === true, "join の印");
+}
 const asShell = () => { window.Capacitor = { isNativePlatform: () => true, getPlatform: () => "ios" }; };
 // 1枚目 → 2枚目 → チェック → 次へ(アプリを待たない。待ち方は各検査が決める)
 async function agreeAndNext() {
@@ -165,6 +180,7 @@ function installFakeMic() {
 
 beforeEach(() => {
   fake = createFakeIndexedDb();
+  server.uid = null; server.profile = null;
   cap.log.length = 0; cap.statuses = ["notDetermined", "denied"]; cap.statusThrows = false; cap.requestHangs = false; cap.requestGate = null;
   cap.consentAtRequest.length = 0;
   cap.peekConsent = () => kv("termsConsent") ?? null;
@@ -237,14 +253,15 @@ describe("殻: 「次へ」→ 記録 → ATT → 答えのあとアプリ", () 
     expect(gum).toBe(0);
     expect(count("micStart")).toBe(0);
     await mod.act(async () => { answer({}); });
-    await waitFor(() => navBar(), "答えのあとアプリ");
+    await waitFor(() => joinCardEl(), "答えのあとアプリ(参加の場面)");
     expect(screen()).toBe(null);
     expect(cap.log.slice(0, 3)).toEqual(["trackingAuthorizationStatus", "requestTrackingAuthorization", "trackingAuthorizationStatus"]);
     // 【便DC】答えのあとは参加の場面(コミュニティ)。マイクの許可の画面は ATT のあとの計測タブへ入るまで出ない(重ならない)
-    await waitFor(() => document.querySelector("[data-join-card]"), "参加の場面");
+    await waitFor(() => joinCardEl(), "参加の場面");
     for (let i = 0; i < 10; i++) await tick(10);
     expect(count("micStart")).toBe(0);
-    await toMeasure();
+    expect(navBar()).toBe(null);   // 【便DD】参加を終えるまで下部タブは無い
+    await joinNow();
     await waitFor(() => count("micStart") > 0, "マイク");
   }, 30000);
 
@@ -254,7 +271,7 @@ describe("殻: 「次へ」→ 記録 → ATT → 答えのあとアプリ", () 
     mod = await loadApp();
     await launch();
     await agreeAndNext();
-    await waitFor(() => navBar(), "アプリ");
+    await waitFor(() => joinCardEl(), "アプリ(参加の場面)");
     expect(count("trackingAuthorizationStatus")).toBe(1);
     expect(count("requestTrackingAuthorization")).toBe(0);
     await waitFor(() => kv("termsConsent"), "記録");
@@ -267,7 +284,7 @@ describe("殻: 「次へ」→ 記録 → ATT → 答えのあとアプリ", () 
     await launch();
     const t0 = Date.now();
     await agreeAndNext();
-    await waitFor(() => navBar(), "失敗のあとアプリ", 5000);
+    await waitFor(() => joinCardEl(), "失敗のあとアプリ(参加の場面)", 5000);
     expect(Date.now() - t0).toBeLessThan(5000);   // 上限を待たずに進む
     expect(count("requestTrackingAuthorization")).toBe(0);
     await waitFor(() => kv("termsConsent"), "記録");
@@ -283,8 +300,8 @@ describe("殻: 「次へ」→ 記録 → ATT → 答えのあとアプリ", () 
     const t0 = Date.now();
     await waitFor(() => Date.now() - t0 > 8500, "8.5 秒", 9500);
     expect(step()).toBe("terms");
-    expect(navBar()).toBe(null);
-    await waitFor(() => navBar(), "上限のあとアプリ", 6000);
+    expect(joinCardEl()).toBe(null);
+    await waitFor(() => joinCardEl(), "上限のあとアプリ(参加の場面)", 6000);
     expect(Date.now() - t0).toBeLessThan(12500);
   }, 40000);
 });
@@ -294,11 +311,11 @@ describe("Web: 尋ねない", () => {
     mod = await loadApp();
     await launch();
     await agreeAndNext();
-    expect(navBar()).not.toBe(null);   // 待たずにアプリ(今までどおり)
-    // 【便DC】アプリは参加の場面(コミュニティ)から始まる。マイクは計測タブへ入ってから
-    await waitFor(() => document.querySelector("[data-join-card]"), "参加の場面");
+    expect(screen()).toBe(null);   // 待たずにアプリ(今までどおり。同じ描画のうちに同意の画面は消える)
+    // 【便DC】アプリは参加の場面(コミュニティ)から始まる。マイクは参加を終えて計測タブへ入ってから
+    await waitFor(() => joinCardEl(), "参加の場面");
     expect(gum).toBe(0);
-    await toMeasure();
+    await joinNow();
     await waitFor(() => gum > 0, "マイク");
     for (let i = 0; i < 20; i++) await tick(10);
     expect(cap.log).toEqual(["getUserMedia"]);
@@ -313,8 +330,10 @@ describe("殻: 広告を始めるとき(案内が全部済んだ既存の利用�
     await seed({ onboardingDone: EXISTING });
     await launch();
     await agreeAndNext();
+    await joinNow();   // 【便DD】参加するまで計測タブ(マイク・帯)へ進まない
     await waitFor(() => count("showBanner") === 1, "帯");
-    expect(cap.log).toEqual([
+    // 【便DD】参加の場面を出た直後は広告の止めが1秒残る(useCoachAdHold の戻し。参加の場面の間 engage していた)ので、始めた帯はすぐ隠れる(hideBanner)。始め方の並びは先頭の7つ
+    expect(cap.log.slice(0, 7)).toEqual([
       "trackingAuthorizationStatus", "requestTrackingAuthorization", "trackingAuthorizationStatus",   // 同意の画面
       "micStart", "initialize", "trackingAuthorizationStatus", "showBanner",                       // 帯(尋ねない)
     ]);
@@ -331,6 +350,7 @@ describe("殻: 広告を始めるとき(案内が全部済んだ既存の利用�
     await seed({ onboardingDone: EXISTING });
     await launch();
     await agreeAndNext();
+    await joinNow();
     await waitFor(() => count("showBanner") === 1, "帯");
     for (let i = 0; i < 25; i++) await tick(100);   // 尋ね直しの待ち 1.5 秒より長く見る
     expect(count("requestTrackingAuthorization")).toBe(1);   // 同意の画面の1回だけ
@@ -340,7 +360,7 @@ describe("殻: 広告を始めるとき(案内が全部済んだ既存の利用�
     asShell();
     cap.statuses = ["notDetermined", "denied"];
     mod = await loadApp();
-    await seed({ onboardingDone: EXISTING, termsConsent: REC });
+    await seed({ onboardingDone: { ...EXISTING, join: true }, termsConsent: REC });   // 【便DD】参加済み(join)= 参加の場面を通らず計測タブから
     await launch();
     expect(screen()).toBe(null);
     await waitFor(() => count("showBanner") === 1, "帯");
@@ -355,7 +375,7 @@ describe("見本(?tutorialpreview=1)", () => {
     mod = await loadApp();
     await launch();
     await agreeAndNext();
-    await waitFor(() => navBar(), "見本のアプリ");
+    await waitFor(() => joinCardEl(), "見本のアプリ(参加の場面)");
     for (let i = 0; i < 20; i++) await tick(10);
     expect(count("requestTrackingAuthorization")).toBe(0);
     expect(count("trackingAuthorizationStatus")).toBe(0);
@@ -380,8 +400,7 @@ describe("【便CJ】広告の帯を始める時機(根から)", () => {
     mod = await loadApp();
     await launch();
     await agreeAndNext();
-    await waitFor(() => navBar(), "アプリ");
-    await toMeasure();   // 【便DC】参加の場面を見送って計測タブへ
+    await joinNow();   // 【便DC・便DD】参加の場面を通って計測タブへ
     await waitFor(() => count("micStart") >= 1, "マイク");
     // jsdom は的の矩形を持たないので、穴なしの到着カード(リードタブの「ここはリードタブ」)で「案内のカードが出た」を作る
     await click(document.querySelector('button[aria-label="リード"]'));
@@ -425,8 +444,7 @@ describe("【便CJ】広告の帯を始める時機(根から)", () => {
       mod = await loadApp();
       await launch();
       await agreeAndNext();
-      await waitFor(() => navBar(), "アプリ");
-      await toMeasure();   // 【便DC】参加の場面を見送って計測タブへ
+      await joinNow();   // 【便DC・便DD】参加の場面を通って計測タブへ
       await waitFor(() => count("micStart") >= 1, "マイク");
       // 案内のカードがまだ出ていない(jsdom は ① の的を測れない)うちに 31 分裏に回っても、数えない
       expect(kv("onboardingShown")).toBeUndefined();

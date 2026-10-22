@@ -37,3 +37,31 @@ export function withinLoadLimit(promise, ms = COMMUNITY_LOAD_MAX_MS) {
   });
   return Promise.race([Promise.resolve(promise), limit]).finally(() => clearTimeout(timer));
 }
+
+// ------------------------------------------------------------------
+// 【便DD 審査 2026-10-23】利用者が押した書き込み・サインイン(匿名アカウントの作成 ensureSignedIn・プロフィールの保存 saveProfile)の上限。
+// 参加の場面は下部タブが無く出られない(便DD)ので、返ってこない1往復を待ち続けると、画面が「作っています」のまま固まって再試行もできなくなる。
+// 上限を過ぎたら失敗として扱う: 匿名サインインは今までの「通信に失敗しました」+「もう一度試す」(押すと参加のカードへ戻る)、
+// 保存はフォームを開いたまま「保存に失敗しました」を出して、もう一度押せる(プロフィールの入力は残る)。
+// 値は 15 秒(統括の指示の目安)。読み(COMMUNITY_LOAD_MAX_MS = 10 秒 = 殻が外の答えを待つ上限)より長くした理由: 書き込みと匿名サインインは
+// 往復が多く(初回のサインインは認証の往復 + トークンの取得、保存は書き込みの確定まで待つ)、電波の弱い所では読みより遅れて正常に終わることがある。
+// 10 秒で切ると、実は書けているのに失敗と見せて二重に送らせる。一方 15 秒より長いと、出られない画面で待たされる。動きの時間ではなく「待つ長さ」(§1.11 の段の外)。
+// 元の約束は止められない(Firebase の書き込みに取り消しは無い)ので、上限のあとに遅れて成功しても画面は失敗のまま。もう一度押せば同じ内容を上書きする(冪等)。
+// ------------------------------------------------------------------
+export const COMMUNITY_ACTION_MAX_MS = 15000;
+
+export class CommunityActionTimeoutError extends Error {
+  constructor(ms) {
+    super(`コミュニティの書き込み・サインインが ${ms}ms を過ぎても返りませんでした`);
+    this.name = "CommunityActionTimeoutError";
+    this.code = "deadline-exceeded";
+  }
+}
+
+export function withinActionLimit(promise, ms = COMMUNITY_ACTION_MAX_MS) {
+  let timer = 0;
+  const limit = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new CommunityActionTimeoutError(ms)), ms);
+  });
+  return Promise.race([Promise.resolve(promise), limit]).finally(() => clearTimeout(timer));
+}

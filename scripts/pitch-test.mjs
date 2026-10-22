@@ -24666,13 +24666,14 @@ console.log("\n========== 検証51: 便G データタブ(D1〜D4) ==========");
       // 【便BV 2026-10-04】iPad の判定を配る口 wide(既定 false)が末尾に加わった。landTab / onLanded の形は同じ。
       // (【便CB】で足した termsAgreed / onTermsAgreed は【便CC 2026-10-08】参加のカードの同意のチェックと一緒に外した。元の形)
       // 【便CO 2026-10-12】参加の画面のカードの知らせ onJoinCard(既定 null)が wide の前に加わった。landTab / onLanded の形は同じ。
-      /export default function CommunityTab\(\{ sessions, tuningHz, onAdoptIdeal, landTab = null, onLanded = null, onOnboarding = null, onJoinCard = null, wide = false \}\)/.test(comm51)
-      && /<CommunityTabBody [^>]*landTab=\{landTab\} onLanded=\{onLanded\} onOnboarding=\{onOnboarding\} onJoinCard=\{onJoinCard\} wide=\{wide\} \/>/.test(comm51));
+      // 【便DD 審査】参加が不可能な失敗(設定の欠落)の知らせ onJoinBlocked(既定 null)が onJoinCard のあとに加わった。
+      /export default function CommunityTab\(\{ sessions, tuningHz, onAdoptIdeal, landTab = null, onLanded = null, onOnboarding = null, onJoinCard = null, onJoinBlocked = null, wide = false \}\)/.test(comm51)
+      && /<CommunityTabBody [^>]*landTab=\{landTab\} onLanded=\{onLanded\} onOnboarding=\{onOnboarding\} onJoinCard=\{onJoinCard\} onJoinBlocked=\{onJoinBlocked\} wide=\{wide\} \/>/.test(comm51));
     check("51.3 D3 CommunityTabBody: 来ていればそれで始め、来たら state を合わせて onLanded で返す",
       // 【便BP 2026-10-03】末尾に onOnboarding = null が加わった(参加済みと分かったら印を立てる)。
       // 【便BV 2026-10-04】末尾に wide = false が加わった(参加前の見本・参加後の画面へ配るだけ)。
       // 【便CO 2026-10-12】wide の前に onJoinCard = null が加わった(参加の画面のカードが出ているかを App へ知らせる)。
-      /function CommunityTabBody\(\{ sessions, tuningHz, onAdoptIdeal, landTab: landTabRequest = null, onLanded = null, onOnboarding = null, onJoinCard = null, wide = false \}\)/.test(comm51)
+      /function CommunityTabBody\(\{ sessions, tuningHz, onAdoptIdeal, landTab: landTabRequest = null, onLanded = null, onOnboarding = null, onJoinCard = null, onJoinBlocked = null, wide = false \}\)/.test(comm51)
       && /const \[landTab, setLandTab\] = useState\(landTabRequest \|\| "data"\);/.test(comm51)
       && /if \(!landTabRequest\) return;\s*setLandTab\(landTabRequest\);\s*if \(onLanded\) onLanded\(\);/.test(comm51));
     check("51.3 D3 CommunityTabBody: 開く子タブは今までどおり initialTab で JoinedView へ渡す",
@@ -33377,7 +33378,7 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     check("K.21 【便CG】data-ad-hold の付け外し: 初期化で1回・変わったら AD_HEIGHT_EVENT・外れたら外す。index.css の規則は見本の規則より後ろで --ad-h: 0px。【便CO】案内の流れの途中も付け、殻の帯も隠す",
       /\n  useState\(\(\) => setAdHold\(!adsOk\)\);\n  useLayoutEffect\(\(\) => \(\) => \{ setAdHold\(false\); \}, \[\]\);\n/.test(app)
       // 【便CO 審査のあとの統括の決定】始める = (a) カード・(d) 参加の画面のカード / 続ける = (b) 候補はあるのに隠している・(c) 操作待ち・シート
-      && /\n  const coachHidden = [^\n]*\n(?:[ \t]*(?:\/\/[^\n]*)?\n)*  const \[coachPresent, setCoachPresent\] = useState\(false\);\n  const \[joinCardShown, setJoinCardShown\] = useState\(false\);\n  const coachAllNow = coachReady \? coachCandidates\(coachArgs\) : NO_COACH;\n(?:[ \t]*(?:\/\/[^\n]*)?\n)*  const coachAdKeep = \(coachHidden && !errorScrimShown && coachAllNow\.length > 0\) \|\| \(coachReady && coachWaiting\(coachArgs\)\) \|\| anySheetOpen;\n  const coachAdHold = useCoachAdHold\(\{ engage: coachPresent \|\| joinCardShown, keep: coachAdKeep \}\);\n  const adHeld = !adsOk \|\| coachAdHold;\n  useLayoutEffect\(\(\) => \{\n    if \(setAdHold\(adHeld\)\) window\.dispatchEvent\(new Event\(AD_HEIGHT_EVENT\)\);\n  \}, \[adHeld\]\);\n(?:[ \t]*(?:\/\/[^\n]*)?\n)*  useLayoutEffect\(\(\) => \{ shellSetAdsHeld\(coachAdHold\); \}, \[coachAdHold\]\);\n/.test(app)
+      && /\n  const coachHidden = [^\n]*\n(?:[ \t]*(?:\/\/[^\n]*)?\n)*  const \[coachPresent, setCoachPresent\] = useState\(false\);\n  const \[joinCardShown, setJoinCardShown\] = useState\(false\);\n  const coachAllNow = coachReady \? coachCandidates\(coachArgs\) : NO_COACH;\n(?:[ \t]*(?:\/\/[^\n]*)?\n)*  const coachAdKeep = \(coachHidden && !errorScrimShown && coachAllNow\.length > 0\) \|\| \(coachReady && coachWaiting\(coachArgs\)\) \|\| anySheetOpen;\n  const coachAdHold = useCoachAdHold\(\{ engage: coachPresent \|\| joinCardShown \|\| joinSceneNow, keep: coachAdKeep \}\);\n  const adHeld = !adsOk \|\| coachAdHold;\n  useLayoutEffect\(\(\) => \{\n    if \(setAdHold\(adHeld\)\) window\.dispatchEvent\(new Event\(AD_HEIGHT_EVENT\)\);\n  \}, \[adHeld\]\);\n(?:[ \t]*(?:\/\/[^\n]*)?\n)*  useLayoutEffect\(\(\) => \{ shellSetAdsHeld\(coachAdHold\); \}, \[coachAdHold\]\);\n/.test(app)
       && /onJoinCard=\{setJoinCardShown\}/.test(app)
       && (app.match(/shellSetAdsHeld\(/g) || []).length === 1
       && (app.match(/setAdHold\(/g) || []).length === 3
@@ -33879,23 +33880,41 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
   {
     const gateDC = codeOf(readFileSync(join(__dirname, "..", "src", "ConsentScreen.jsx"), "utf8"));
     const obDC = codeOf(readFileSync(join(__dirname, "..", "src", "onboarding.jsx"), "utf8"));
-    check("DC.1 根(AppRoot): 同意の「次へ」(agree)の1か所でだけ startOnJoin を決める(startsOnJoinScene・メモリの上だけ。保存しない)",
-      /const \[startOnJoin, setStartOnJoin\] = useState\(false\);/.test(gateDC)
-      && (gateDC.match(/setStartOnJoin\(/g) || []).length === 1
-      && /setStartOnJoin\(startsOnJoinScene\(\{ justAgreed: true, done: normalizeOnboardingDone\(onboardingRaw\) \}\)\);/.test(gateDC)
+    check("DC.1 根(AppRoot): 参加の場面から始めるかは保存の状態(参加の印 join)から毎回決める(startsOnJoinScene。同意の起動のメモリに持たない)。見本は見本の「済んだ」から",
+      !/setStartOnJoin|\[startOnJoin,/.test(gateDC)
+      && /startOnJoin=\{startsOnJoinScene\(\{ done: normalizeOnboardingDone\(onboardingRaw\) \}\)\}/.test(gateDC)
+      && /startOnJoin=\{startsOnJoinScene\(\{ done: readTutorialPreviewDone\(\) \}\)\}/.test(gateDC)
       && /import \{ ONBOARDING_KEY, ONBOARDING_INITIAL, normalizeOnboardingDone, startsOnJoinScene \} from "\.\/onboarding\.jsx";/.test(gateDC));
-    check("DC.2 startsOnJoinScene は「この起動で同意した」かつ「案内の印(ONBOARDING_FLAGS)が1つも無い」だけ true",
-      /export function startsOnJoinScene\(\{ justAgreed = false, done = null \} = \{\}\) \{\n  if \(justAgreed !== true\) return false;\n  const d = done \?\? \{\};\n  return ONBOARDING_FLAGS\.every\(\(f\) => d\[f\] !== true\);\n\}/.test(obDC));
+    check("DC.2 startsOnJoinScene は参加の印(join)が無いときだけ true(ほかの印・同意の起動かどうかは関係しない)",
+      /export function startsOnJoinScene\(\{ done = null \} = \{\}\) \{\n  return \(done \?\? \{\}\)\.join !== true;\n\}/.test(obDC));
     check("DC.3 App.jsx: startOnJoin(既定 false)ならコミュニティタブから始める。参加の場面の state は初回の通過だけ(タブを離れたら下りて戻らない)",
       /export default function WindToneLabPhaseMode\(\{ startOnJoin = false \} = \{\}\) \{/.test(app)
       && /const \[topTab, setTopTab\] = useState\(startOnJoin \? "community" : "measure"\);/.test(app)
-      && /const \[joinScene, setJoinScene\] = useState\(Boolean\(startOnJoin\)\);\n  const joinSceneNow = joinScene && topTab === "community";\n  useEffect\(\(\) => \{ if \(joinScene && topTab !== "community"\) setJoinScene\(false\); \}, \[joinScene, topTab\]\);/.test(app));
+      && /const \[joinScene, setJoinScene\] = useState\(Boolean\(startOnJoin\)\);\n  const joinSceneNow = joinScene && topTab === "community";\n  const joinSceneRef = useRef\(joinSceneNow\);\n  joinSceneRef\.current = joinSceneNow;\n  useEffect\(\(\) => \{ if \(joinScene && topTab !== "community"\) setJoinScene\(false\); \}, \[joinScene, topTab\]\);/.test(app));
     check("DC.4 App.jsx: 参加の場面の間に join が立ったら計測タブへ自動で戻る(コミュニティタブの印の口 onCommunityOnboarding。それ以外の印はそのまま)",
-      /const onCommunityOnboarding = useCallback\(\(flag\) => \{\n    markOnboarding\(flag\);\n    if \(flag === "join" && joinSceneRef\.current\) \{\n      joinSceneRef\.current = false;\n      setJoinScene\(false\);\n      setTopTab\("measure"\);\n    \}\n  \}, \[markOnboarding\]\);/.test(app)
+      /const onCommunityOnboarding = useCallback\(\(flag\) => \{\n    markOnboarding\(flag\);\n    if \(flag === "join" && joinSceneRef\.current\) \{\n      joinSceneRef\.current = false;[^\n]*\n      setTopTab\("measure"\);\n    \}\n  \}, \[markOnboarding\]\);/.test(app)
       && /onOnboarding=\{onCommunityOnboarding\}/.test(app) && (app.match(/onOnboarding=\{markOnboarding\}/g) || []).length === 1);
     check("DC.5 App.jsx: 参加の場面は開いたタブに数えない(⑱ の条件)。マイクの最初の取得は拒否のカードを出す(micFirstAskRef)",
       /if \(!coachReady \|\| coachDone\.finish \|\| joinSceneNow\) return;\n    setCoachSeenTabs/.test(app)
       && /const micFirstAskRef = useRef\(Boolean\(startOnJoin\)\);/.test(app));
+    check("DC.6 【便DD】見送りの道が無い: 参加の場面の間は下部タブを描かず(BottomNav を条件で外す)・handleNavTap も受けない。広告の止めは作成中も(joinSceneNow)",
+      /\{!joinSceneNow && <BottomNav topTab=\{topTab\} onNavTap=\{handleNavTap\} isRecording=\{isRecording\} \/>\}/.test(app)
+      && (app.match(/<BottomNav /g) || []).length === 1
+      && /const handleNavTap = useCallback\(\(key\) => \{\n    if \(isRecordingRef\.current\) return;\n    if \(joinSceneRef\.current\) return;/.test(app)
+      && /onCancel=\{profile \? \(\) => \{ setLandTab\("me"\); setPhase\("profile"\); \} : null\}/.test(codeOf(readFileSync(join(__dirname, "..", "src", "community", "CommunityTab.jsx"), "utf8"))));
+    const commDC = codeOf(readFileSync(join(__dirname, "..", "src", "community", "CommunityTab.jsx"), "utf8"));
+    const lim = readFileSync(join(__dirname, "..", "src", "community", "loadLimit.js"), "utf8");
+    check("DC.7 【便DD 審査】参加が不可能な失敗(設定の欠落)は場面を畳む(コミュニティタブが onJoinBlocked で知らせ、App が旗を降ろす。join の印は書かない)・旗の降り方は2つだけ",
+      /useEffect\(\(\) => \{ if \(phase === "error" && errorMsg === CONFIG_ERROR\) onJoinBlockedRef\.current\?\.\(\); \}, \[phase, errorMsg\]\);/.test(commDC)
+      && /const foldJoinScene = useCallback\(\(\) => \{\n    if \(!joinSceneRef\.current\) return;\n    joinSceneRef\.current = false;\n    setJoinScene\(false\);\n  \}, \[\]\);/.test(app)
+      && /onJoinBlocked=\{foldJoinScene\}/.test(app)
+      && (app.match(/setJoinScene\(false\)/g) || []).length === 2);
+    check("DC.8 【便DD 審査】匿名サインインと保存には上限 15 秒(withinActionLimit。呼び口は2つだけ。読みの上限より長い)",
+      /export const COMMUNITY_ACTION_MAX_MS = 15000;/.test(lim)
+      && /const id = await withinActionLimit\(ensureSignedIn\(\)\);/.test(commDC)
+      && /await withinActionLimit\(saveProfile\(id, r\.doc\)\);/.test(commDC)
+      && (commDC.match(/withinActionLimit\(/g) || []).length === 2
+      && !/\bawait ensureSignedIn\(\)/.test(commDC) && !/\bawait saveProfile\(/.test(commDC));
   }
 
   // --- BZ.7 殻が --ad-h を後から置いたら、環の縮みと計測タブの枠を測り直す(【便BZ 統括の裁定】) ------------------------------
@@ -34048,8 +34067,8 @@ console.log("========== 検証CB: 便CB 起動の最初の同意の画面 ======
     && (gateFn.match(/setConsent\(makeConsentRecord\(\)\)/g) || []).length === 1
     // 【便DC】アプリを返す枝は2つ(見本 / 本物)。どちらも startOnJoin を渡す(同意の画面を返す枝にはアプリを描かない)
     && (gateFn.match(/return <WindToneLabPhaseMode startOnJoin=\{[^\n]*\} \/>;/g) || []).length === 2
-    && /return <WindToneLabPhaseMode startOnJoin=\{startOnJoin\} \/>;/.test(gateFn)
-    && /return <WindToneLabPhaseMode startOnJoin=\{startsOnJoinScene\(\{ justAgreed: true, done: readTutorialPreviewDone\(\) \}\)\} \/>;/.test(gateFn)
+    && /return <WindToneLabPhaseMode startOnJoin=\{startsOnJoinScene\(\{ done: normalizeOnboardingDone\(onboardingRaw\) \}\)\} \/>;/.test(gateFn)
+    && /return <WindToneLabPhaseMode startOnJoin=\{startsOnJoinScene\(\{ done: readTutorialPreviewDone\(\) \}\)\} \/>;/.test(gateFn)
     && !/termsAgreed|onTermsAgreed|recordFromJoin/.test(codeOf(gateRaw))
     && /if \(!previewAgreed\) return <ConsentScreen onAgree=\{\(\) => setPreviewAgreed\(true\)\} \/>;/.test(gateFn));
   // 【便CH 2026-10-10 本人「トラッキングの許可は最初のプライバシーポリシーとかと同じタイミングにして」】「次へ」→ 1. 記録 → 2. 殻なら ATT → 3. 答えを待ってアプリ。
