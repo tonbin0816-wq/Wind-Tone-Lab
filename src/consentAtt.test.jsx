@@ -129,13 +129,11 @@ const navBar = () => document.querySelector("[data-bottom-nav]");
 const click = (el) => mod.act(async () => { el.click(); });
 const count = (name) => cap.log.filter((x) => x === name).length;
 // 【便DC・便DD】参加の場面を通って計測タブへ(カード → プロフィールの入力 → 「プロフィールを作る」→ 自動で計測タブ)。参加するまで下部タブは無い
-const joinCardEl = () => document.querySelector("[data-join-card]");
+// 【便DE】参加の場面 = 同意のあといきなり出るプロフィールの入力(「プロフィールを作る」のボタンがあるフォーム)
+const sceneForm = () => [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "プロフィールを作る");
 async function joinNow() {
-  await waitFor(() => joinCardEl(), "参加の場面");
-  await click(joinCardEl());
-  const make = () => [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "プロフィールを作る");
-  await waitFor(() => make(), "プロフィールの入力");
-  await click(make());
+  await waitFor(() => sceneForm(), "参加の場面(プロフィールの入力)");
+  await click(sceneForm());
   await waitFor(() => navBar(), "計測タブ(下部タブ)");
   await waitFor(() => kv("onboardingDone")?.join === true, "join の印");
 }
@@ -253,11 +251,11 @@ describe("殻: 「次へ」→ 記録 → ATT → 答えのあとアプリ", () 
     expect(gum).toBe(0);
     expect(count("micStart")).toBe(0);
     await mod.act(async () => { answer({}); });
-    await waitFor(() => joinCardEl(), "答えのあとアプリ(参加の場面)");
+    await waitFor(() => sceneForm(), "答えのあとアプリ(参加の場面)");
     expect(screen()).toBe(null);
     expect(cap.log.slice(0, 3)).toEqual(["trackingAuthorizationStatus", "requestTrackingAuthorization", "trackingAuthorizationStatus"]);
     // 【便DC】答えのあとは参加の場面(コミュニティ)。マイクの許可の画面は ATT のあとの計測タブへ入るまで出ない(重ならない)
-    await waitFor(() => joinCardEl(), "参加の場面");
+    await waitFor(() => sceneForm(), "参加の場面");
     for (let i = 0; i < 10; i++) await tick(10);
     expect(count("micStart")).toBe(0);
     expect(navBar()).toBe(null);   // 【便DD】参加を終えるまで下部タブは無い
@@ -271,7 +269,7 @@ describe("殻: 「次へ」→ 記録 → ATT → 答えのあとアプリ", () 
     mod = await loadApp();
     await launch();
     await agreeAndNext();
-    await waitFor(() => joinCardEl(), "アプリ(参加の場面)");
+    await waitFor(() => sceneForm(), "アプリ(参加の場面)");
     expect(count("trackingAuthorizationStatus")).toBe(1);
     expect(count("requestTrackingAuthorization")).toBe(0);
     await waitFor(() => kv("termsConsent"), "記録");
@@ -284,7 +282,7 @@ describe("殻: 「次へ」→ 記録 → ATT → 答えのあとアプリ", () 
     await launch();
     const t0 = Date.now();
     await agreeAndNext();
-    await waitFor(() => joinCardEl(), "失敗のあとアプリ(参加の場面)", 5000);
+    await waitFor(() => sceneForm(), "失敗のあとアプリ(参加の場面)", 5000);
     expect(Date.now() - t0).toBeLessThan(5000);   // 上限を待たずに進む
     expect(count("requestTrackingAuthorization")).toBe(0);
     await waitFor(() => kv("termsConsent"), "記録");
@@ -300,8 +298,8 @@ describe("殻: 「次へ」→ 記録 → ATT → 答えのあとアプリ", () 
     const t0 = Date.now();
     await waitFor(() => Date.now() - t0 > 8500, "8.5 秒", 9500);
     expect(step()).toBe("terms");
-    expect(joinCardEl()).toBe(null);
-    await waitFor(() => joinCardEl(), "上限のあとアプリ(参加の場面)", 6000);
+    expect(sceneForm()).toBeUndefined();
+    await waitFor(() => sceneForm(), "上限のあとアプリ(参加の場面)", 6000);
     expect(Date.now() - t0).toBeLessThan(12500);
   }, 40000);
 });
@@ -313,7 +311,7 @@ describe("Web: 尋ねない", () => {
     await agreeAndNext();
     expect(screen()).toBe(null);   // 待たずにアプリ(今までどおり。同じ描画のうちに同意の画面は消える)
     // 【便DC】アプリは参加の場面(コミュニティ)から始まる。マイクは参加を終えて計測タブへ入ってから
-    await waitFor(() => joinCardEl(), "参加の場面");
+    await waitFor(() => sceneForm(), "参加の場面");
     expect(gum).toBe(0);
     await joinNow();
     await waitFor(() => gum > 0, "マイク");
@@ -375,7 +373,7 @@ describe("見本(?tutorialpreview=1)", () => {
     mod = await loadApp();
     await launch();
     await agreeAndNext();
-    await waitFor(() => joinCardEl(), "見本のアプリ(参加の場面)");
+    await waitFor(() => sceneForm(), "見本のアプリ(参加の場面)");
     for (let i = 0; i < 20; i++) await tick(10);
     expect(count("requestTrackingAuthorization")).toBe(0);
     expect(count("trackingAuthorizationStatus")).toBe(0);

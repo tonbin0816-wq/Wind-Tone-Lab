@@ -164,7 +164,7 @@ const DELETE_PARTIAL_NOTICE =
 // 【便BV 2026-10-04 本人裁定(案B)】wide = iPad の「広い」画面か(App の useWideLayout)。参加後の画面(JoinedView)と参加前の見本
 // (JoinIntro)へ配るだけ。渡されない(false)ときは今までの木のまま(iPhone は1文字も変わらない)。
 // 【便CO 2026-10-12】onJoinCard(shown) = 参加の画面のカード(JoinIntro)が出ているかの知らせ(App.jsx が広告の帯を止める。渡さなければ何も起きない)。
-export default function CommunityTab({ sessions, tuningHz, onAdoptIdeal, landTab = null, onLanded = null, onOnboarding = null, onJoinCard = null, onJoinBlocked = null, wide = false }) {
+export default function CommunityTab({ sessions, tuningHz, onAdoptIdeal, landTab = null, onLanded = null, onOnboarding = null, onJoinCard = null, onJoinBlocked = null, joinFirst = false, wide = false }) {
   // 【便CK】このタブの間だけ <html> に印を立て、index.css がページの overscroll-behavior-y を止める
   // (iPhone の Safari の「ページごと再読み込み」と、こちらの引っ張って更新を二重にしない)。離れたら外す(ほかのタブは今までどおり)。
   useEffect(() => {
@@ -175,7 +175,7 @@ export default function CommunityTab({ sessions, tuningHz, onAdoptIdeal, landTab
   return (
     <>
       <AvatarSprite />
-      <CommunityTabBody sessions={sessions} tuningHz={tuningHz} onAdoptIdeal={onAdoptIdeal} landTab={landTab} onLanded={onLanded} onOnboarding={onOnboarding} onJoinCard={onJoinCard} onJoinBlocked={onJoinBlocked} wide={wide} />
+      <CommunityTabBody sessions={sessions} tuningHz={tuningHz} onAdoptIdeal={onAdoptIdeal} landTab={landTab} onLanded={onLanded} onOnboarding={onOnboarding} onJoinCard={onJoinCard} onJoinBlocked={onJoinBlocked} joinFirst={joinFirst} wide={wide} />
     </>
   );
 }
@@ -536,8 +536,26 @@ export function BackupSheet({ onClose }) {
 //  【便CE 2026-10-08】参加しない選択肢が無くなったので部品(DeviceTransferPanel.jsx)ごと消した)
 
 // 【便BV 2026-10-04】wide = iPad の「広い」画面(CommunityTab から)。参加前の見本(JoinIntro)と参加後の画面(JoinedView)へ配るだけ。
-function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRequest = null, onLanded = null, onOnboarding = null, onJoinCard = null, onJoinBlocked = null, wide = false }) {
-  const [phase, setPhase] = useState("loading"); // loading | notJoined | form | profile | error
+function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRequest = null, onLanded = null, onOnboarding = null, onJoinCard = null, onJoinBlocked = null, joinFirst = false, wide = false }) {
+  // 【便DE 2026-10-25 本人「規約同意のあと、いきなりプロフィール入力画面」】joinFirst = 初回の参加の場面(App.jsx の joinSceneNow)。**マウントしたときの値だけ**読む
+  // (設定の欠落で App が場面を畳んでも、この部品の画面は変えない)。true の間:
+  //   ・読み込み画面(輪と %)も参加のカード(JoinIntro)も出さず、**すぐプロフィールの入力(ProfileForm)を出す**(phase の初期値が "form")
+  //   ・アカウントの確認(getSignedInUid)・既存のプロフィールの確認(loadProfile)・匿名サインインは**画面を出してから裏で**進める(下の effect)。
+  //     サインインは同意のあと = この部品が描かれてから(同意の前にアカウントを作らない。App は同意の記録があるときだけ描かれる)
+  //   ・「保存」を押したとき、サインインがまだなら待ってから保存する(ensureUid が裏のサインインと同じ約束を待つ。上限 15 秒は便DD のまま)
+  //   ・裏の確認でサーバーに参加済みのプロフィールが見つかったら、フォームを畳む(phase "profile" → 印 join → App が計測へ。「印が無い参加済みの人」の今までの道)
+  //   ・通信の失敗はフォームの上に「もう一度試す」を出す(入力は消さない = ProfileForm は同じ位置のまま)。設定の欠落は今までどおり失敗の画面 + 場面を畳む(onJoinBlocked)
+  // ふだんのコミュニティタブ(参加していない人が自分で開いたとき)は joinFirst が false = 今までどおり(読み込み画面 → 参加のカード)。
+  const [firstScene] = useState(Boolean(joinFirst));
+  const [bgError, setBgError] = useState(null);   // 初回の参加の場面の裏の確認・サインインの失敗の文言(フォームの上の「もう一度試す」)
+  // いま走っている匿名サインインの**元の呼び出し**(ensureSignedIn の約束そのもの。時間の上限は包まない)。裏のサインイン・保存の直前・「もう一度試す」の再試行が、
+  // 動いている間は同じ呼び出しを待つ(二重にサインインしない。上限 15 秒を過ぎて失敗の画面へ落ちたあとも元の呼び出しは続くので、再試行が重なったら**その続きを待つ**)。
+  // 片付いたら(成功でも失敗でも)手放す ── 成功した約束を持ち続けると、アカウント削除のあとの入り直しで削除済みの uid を返してしまう。onDelete でも手放す。
+  const rawSignInRef = useRef(null);
+  // 【便DE 審査】既存プロフィールの確認(getSignedInUid → loadProfile)が済んだか。済むまで「保存」を押せない(押すと、サーバーにある自分のプロフィールを新規の入力で上書きしてしまう)。
+  // 確認の読みが失敗・上限超過したら false のまま(フォームの上の「もう一度試す」。直れば true)。アカウントがまだ無い端末は読むものが無いので、それが分かった時点で true。
+  const [confirmed, setConfirmed] = useState(!firstScene);
+  const [phase, setPhase] = useState(firstScene ? "form" : "loading"); // loading | notJoined | form | profile | error
   const [uid, setUid] = useState(null);
   const [profile, setProfile] = useState(null);
   const [errorMsg, setErrorMsg] = useState(null);
@@ -610,7 +628,7 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRe
   useEffect(() => {
     let alive = true;
     const soft = softKeyRef.current === reloadKey;
-    if (!soft) {
+    if (!soft && !firstScene) {
       // 「もう一度試す」(今までの読み直し)。引っ張って更新の途中で押されたら、そちらの印はここで下ろす(画面ごと読み込み中へ入れ替わるため)。
       if (pullRef.current) finishPull();
       setPhase("loading");
@@ -626,6 +644,20 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRe
         // 過ぎたら下の catch(「通信に失敗しました」+「もう一度試す」)へ ── 以前は返ってこない限り輪が 63% のまま動かなかった
         const id = await withinLoadLimit(getSignedInUid());
         if (!alive) return;
+        if (firstScene) {
+          // 【便DE】初回の参加の場面: 画面(プロフィールの入力)は出ている。裏で確かめる。
+          if (id) {
+            setUid(id);
+            const p0 = await withinLoadLimit(loadProfile(id));
+            if (!alive) return;
+            if (p0) { setProfile(p0); setPhase("profile"); return; }   // 参加済みのプロフィールがサーバーにある → フォームを畳む(印 join → 計測へ)
+          }
+          setConfirmed(true);   // 確認が済んだ(サーバーに自分のプロフィールは無い)。ここから保存を押せる
+          if (alive) setBgError(null);
+          if (!id) await ensureUid();   // 参加していない端末: 同意のあと(この場面に入ってから)裏で匿名サインイン。保存の直前のサインインと同じ呼び出しを待つ
+          if (alive) setBgError(null);
+          return;
+        }
         if (!id) { setPhase("notJoined"); if (soft) finishPull(); return; } // まだ誰でもない。作らずに説明だけ出す
         setUid(id);
         const p = await withinLoadLimit(loadProfile(id));
@@ -638,7 +670,10 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRe
           else finishPull();
         }
       } catch (e) {
-        if (alive) { setErrorMsg(connectErrorOf(e)); setPhase("error"); if (soft) finishPull(); }
+        if (!alive) return;
+        // 【便DE】初回の参加の場面の通信の失敗は、フォームを残したまま上に「もう一度試す」(入力を消さない)。設定の欠落は失敗の画面へ(App が場面を畳む)
+        if (firstScene && connectErrorOf(e) !== CONFIG_ERROR) { setBgError(connectErrorOf(e)); return; }
+        setErrorMsg(connectErrorOf(e)); setPhase("error"); if (soft) finishPull();
       }
     })();
     return () => { alive = false; };
@@ -653,7 +688,15 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRe
   const ensureUid = async () => {
     if (uid) return uid;
     // 【便DD 審査】返らないサインインを待ち続けない(上限 = COMMUNITY_ACTION_MAX_MS。過ぎたら失敗 → 参加のカードの失敗の画面「もう一度試す」/ 保存の直前ならフォームの失敗の文言)
-    const id = await withinActionLimit(ensureSignedIn());
+    // 【便DE】走っているサインインの呼び出しは1つだけ持ち(rawSignInRef)、裏のサインインと保存の直前と再試行が同じ呼び出しを待つ(二重にサインインしない)。
+    // 時間の上限は呼び手ごとに包み直す(上限を過ぎたあとの再試行も、続いている元の呼び出しを新しい 15 秒で待つ)。片付いたら手放す(成功でも失敗でも)
+    if (!rawSignInRef.current) {
+      const raw = Promise.resolve(ensureSignedIn());
+      rawSignInRef.current = raw;
+      const release = () => { if (rawSignInRef.current === raw) rawSignInRef.current = null; };
+      raw.then(release, release);
+    }
+    const id = await withinActionLimit(rawSignInRef.current);
     setUid(id);
     return id;
   };
@@ -716,7 +759,17 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRe
   }
   if (phase === "form") {
     return (
+      <>
+      {/* 【便DE】初回の参加の場面の裏の確認・サインインが失敗したとき、フォームの上に出す「もう一度試す」。フォームは同じ位置のまま(入力は消えない)。
+          見た目は既存の赤文字(errorStyle)と B型ボタン(secondaryButtonStyle)だけ。押すと裏の確認・サインインをやり直す。ふだんのタブには出ない(firstScene が false) */}
+      {firstScene && bgError ? (
+        <div className="sans" role="alert" data-join-retry="" style={{ display: "grid", gap: "var(--sp-2)", marginBottom: "var(--sp-4)" }}>
+          <div style={errorStyle}>{bgError}</div>
+          <button type="button" onClick={() => { setBgError(null); setReloadKey((k) => k + 1); }} className="sans" style={secondaryButtonStyle}>もう一度試す</button>
+        </div>
+      ) : null}
       <ProfileForm
+        holdSubmit={firstScene && !confirmed}
         initial={profile}
         onCancel={profile ? () => { setLandTab("me"); setPhase("profile"); } : null}
         onSubmit={async (input) => {
@@ -763,6 +816,12 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRe
           return null;
         }}
       />
+      {/* 【便DE 審査】既存プロフィールの確認が済むまで(保存のボタンが押せない間)、ボタンの下に小さな待ちの表示。失敗したときは上の「もう一度試す」が出るので、ここは出さない。
+          既存のトークンだけ(noteStyle = --fs-xs・--c-ink-3)。 */}
+      {firstScene && !confirmed && !bgError ? (
+        <div className="sans" role="status" data-join-checking="" style={{ ...noteStyle, textAlign: "center", marginTop: "var(--sp-2)" }}>確認しています…</div>
+      ) : null}
+      </>
     );
   }
   return pullable(
@@ -808,6 +867,7 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRe
         // ProfileView は「押し直せば続きから完了できる」と言う(DELETE_ERROR)。
         const r = await deleteAccount();
         setProfile(null); setUid(null);
+        rawSignInRef.current = null;   // 【便DE 審査】削除のあと「すぐ入り直す」で削除済みの uid を使わない(次の ensureUid が新しくサインインする)
         // 資格情報まで消せたかどうかで、未参加画面に出す説明を切り替える。
         setNotice(r?.credentialRemoved === false ? DELETE_PARTIAL_NOTICE : null);
         setPhase("notJoined");
@@ -1524,7 +1584,8 @@ export const picksToGearEntry = (p = EMPTY_PICKS) => ({
 });
 
 // 【便BI 2026-10-02】export は振る舞いの検査(src/labelsBI.test.jsx が「その他」の文字を描いて見る)のため。
-export function ProfileForm({ initial, onSubmit, onCancel }) {
+// 【便DE 審査】holdSubmit(既定 false)= 保存を押せない間(初回の参加の場面で、サーバーに自分のプロフィールがあるかの確認が済むまで)。渡さなければ今までどおり。
+export function ProfileForm({ initial, onSubmit, onCancel, holdSubmit = false }) {
   const [nickname, setNickname] = useState(initial?.nickname ?? "");
   // 【既定を選んだ状態で出す】アイコンは必須なので、未選択で始めると
   // 「何も触っていないのに保存できない」になる。初期値は一覧の先頭と色1。
@@ -1594,7 +1655,7 @@ export function ProfileForm({ initial, onSubmit, onCancel }) {
   const setPick = (t, slot, v) => setGearPicks((prev) => ({ ...prev, [t]: { ...(prev[t] ?? EMPTY_PICKS), [slot]: v } }));
 
   const submit = async () => {
-    if (busy) return;
+    if (busy || holdSubmit) return;
     setBusy(true);
     setError(null);
     // 【try/finally が要る理由】onSubmit が万一 reject すると busy が true のまま固まり、
@@ -1791,7 +1852,7 @@ export function ProfileForm({ initial, onSubmit, onCancel }) {
 
       {error ? <div className="sans" role="alert" style={errorStyle}>{error}</div> : null}
 
-      <button type="button" onClick={submit} disabled={busy} className="sans" style={{ ...primaryButtonStyle, opacity: busy ? 0.6 : 1 }}>
+      <button type="button" onClick={submit} disabled={busy || holdSubmit} className="sans" style={{ ...primaryButtonStyle, opacity: busy || holdSubmit ? 0.6 : 1 }}>
         {/* 【A-2 / F7 2026-09-15 本人裁定】ボタンの語は**押した先で起きること**。
             「作成」は何が作られるのかを言っていない。
             【この部品は編集でも使われている】initial があるときは同じボタンが

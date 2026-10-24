@@ -11,6 +11,9 @@ import { Square, Trash2, ChevronDown, ChevronUp, Upload, FileAudio, Grid3x3, Act
 // React の lazy は失敗を覚えたままなので、やり直すときは同じ読み込み(loadCommunityTab)で lazy を作り直す(App の communityTry)。
 const loadCommunityTab = () => import("./community/CommunityTab.jsx");
 const CommunityTab = lazy(loadCommunityTab);
+// 【便DE 2026-10-25 本人「規約同意のあと、いきなりプロフィール入力画面」】入れたての人は同意のあと最初にコミュニティタブが出る。同意の画面のうちに
+// このタブのコードを先読みして(ConsentScreen.jsx の AppRoot)、読み込み画面が見えないようにする。失敗は握りつぶす(あとで lazy が読み直す・失敗なら境界の「もう一度試す」)。
+export const preloadCommunityTab = () => { loadCommunityTab().catch(() => {}); };
 // 取り込みの変換だけは同期で要る(押した瞬間に目安を作るので)。
 // 画面本体は lazy のままにして、初回の読み込みを重くしない。
 import { buildAdoptedProfile, ADOPTED_DONE_NOTE } from "./community/idealDoc.js";
@@ -28,7 +31,7 @@ import { sessionSoundingSec } from "./soundingSec.js";
 // **この要素は firebase を import しない**(待たせている当のものを、待つ画面が
 // 読み込んでしまっては遅延読み込みの意味が消える)。中身は React と
 // community/loadProgress.js(純粋な計算)だけ。
-import LoadingRing from "./community/LoadingRing.jsx";
+import LoadingRing, { DelayedLoadingRing } from "./community/LoadingRing.jsx";
 // 【便CO】読み込みの失敗の画面(CommunityErrorBoundary)にも引っ張って更新を出す(コミュニティタブの失敗の画面と同じ包み。§6.3a)
 import PullToRefresh, { PULL_REFRESH_ATTR } from "./community/PullToRefresh.jsx";
 // 【便BI 2026-10-02 本人指示】重心・HNR の用語の吹き出し。コミュニティと共有する1つ(写しを作らない)。
@@ -3903,7 +3906,7 @@ export default function WindToneLabPhaseMode({ startOnJoin = false } = {}) {
   // iPhone は縦(幅 ≤ 440)でも横(高さ ≤ 440)でも false(【便BT2】高さの条件を足した)。iPhone の見た目を変えない約束は縦向きのもの
   // (横向きでも列 640 は CSS で効く。DESIGN-SYSTEM §3「iPad の器」)。
   const wide = useWideLayout();
-  // 【便DC 2026-10-21 本人の指示】startOnJoin(根 AppRoot が渡す)なら、コミュニティタブの参加の場面(JoinIntro → 匿名アカウント → プロフィール作成)から始める。
+  // 【便DC 2026-10-21 本人の指示】startOnJoin(根 AppRoot が渡す)なら、コミュニティタブの参加の場面から始める(【便DE】同意のあといきなりプロフィールの入力。参加のカード JoinIntro・読み込み画面は出さない。匿名アカウントとサーバーの確認は裏で)。
   // 参加(join の印)を終えたら計測タブへ自動で戻り、① から今までどおり。判断は onboarding.jsx の startsOnJoinScene。
   // 【便DD 2026-10-21 本人の指示「プロフィールの作成を必須にして。作成中に離脱できないように変更」】見送りの道をなくした: 参加の場面の間は**下部タブを描かない**
   // (押せない)・handleNavTap も受けない。startOnJoin は「同意の記録があり、参加の印(join)が無い」間は毎回 true(保存の状態から決める。途中で閉じても次の起動は参加の場面から)。
@@ -5875,7 +5878,9 @@ export default function WindToneLabPhaseMode({ startOnJoin = false } = {}) {
               コードを取ってくる段階**だと進捗の帳簿に伝えるためのもので、
               続きの段階(アカウント確認・名簿)はコミュニティタブ側が伝える。
               段階をまたいでも数字が巻き戻らないよう、帳簿は React の外にある。 */}
-          <Suspense fallback={<LoadingRing step="chunk" />}>
+          {/* 【便DE】初回の参加の場面(joinSceneNow)では読み込み画面を出さない: コードは先読みしてある(ConsentScreen.jsx)ので、ふつうは待ちが無い。
+              残った待ちは最初の TUNER_SUSTAIN_MS(1秒。「待つ長さ」の既存の値)は何も描かず、それでも待っていれば輪を出す(空白のままにしない・速いときにちらつかせない) */}
+          <Suspense fallback={joinSceneNow ? <DelayedLoadingRing delayMs={TUNER_SUSTAIN_MS} step="chunk" /> : <LoadingRing step="chunk" />}>
             {/* 【sessions を渡す】コミュニティは練習日数を公開するので、端末の中の
                 セッションが要る。ここには既に読み込み済みの配列があるので、
                 タブ側でもう一度 IndexedDB を開かせない。 */}
@@ -5921,6 +5926,8 @@ export default function WindToneLabPhaseMode({ startOnJoin = false } = {}) {
               onJoinCard={setJoinCardShown}
               /* 【便DD 審査】参加が不可能と分かった(設定の欠落)ら参加の場面を畳む(下部タブを出す。join の印は書かない)。 */
               onJoinBlocked={foldJoinScene}
+              /* 【便DE】初回の参加の場面では、読み込み画面も参加のカード(JoinIntro)も出さず、すぐプロフィールの入力を出す(コミュニティタブの firstScene)。 */
+              joinFirst={joinSceneNow}
               /* 【便BV 2026-10-04 本人裁定(案B)】広い(iPad)なら、データ・順位は2ペイン(左 = 一覧・右 = 人物のページ)・
                  シェア・マイページは列(--page-max-w)。参加前の見本も2ペインの形。 */
               wide={wide}

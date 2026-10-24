@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useRef, useState } from "react";
-import WindToneLabPhaseMode, { usePersistedState } from "./App.jsx";
+import WindToneLabPhaseMode, { usePersistedState, preloadCommunityTab } from "./App.jsx";
 import { SHEET_PRIMARY_BUTTON_STYLE } from "./sheetButtonStyle.js";
 import { ONBOARDING_KEY, ONBOARDING_INITIAL, normalizeOnboardingDone, startsOnJoinScene } from "./onboarding.jsx";
 import { isTutorialPreviewOn, readTutorialPreviewDone } from "./tutorialPreview.js";
@@ -45,6 +45,7 @@ import { shellAskTrackingAfterConsent } from "./shell/ads.js";
 //   ATT_FOCUS_WAIT_MAX_MS(policy.js)を過ぎたときも、アプリへ進む。記録の書き込み(usePersistedState の effect)は
 //   尋ねる effect より先に宣言してあるので、同じ描画の中で先に走る。見本(?tutorialpreview=1)では尋ねない(本物の状態に触れない)。
 // 【便DC 2026-10-21 本人の指示「チュートリアルの順番で、利用規約の前にコミュニティのプロフィールを作成する順番にしてください」】
+//   【便DE 2026-10-25】同意のあと最初に見える画面はプロフィールの入力(読み込み画面・参加のカードは出さない。コミュニティタブのコードは同意の画面のうちに先読みする)。
 //   同意のあと、参加の印(join)が無い人は、アプリをコミュニティタブの参加の場面から始める(WindToneLabPhaseMode の prop startOnJoin。
 //   判断は onboarding.jsx の startsOnJoinScene)。参加を終えると自動で計測タブへ戻り ① から(App.jsx)。
 //   【便DD 2026-10-21 本人「プロフィールの作成を必須にして。作成中に離脱できないように変更」】見送りの道は無い(下部タブを描かない)。
@@ -213,6 +214,16 @@ export default function AppRoot() {
     Promise.resolve(p).then(() => { if (alive) setAttWaiting(false); });
     return () => { alive = false; };
   }, [attWaiting]);
+  // 【便DE 2026-10-25 本人「規約同意のあと、いきなりプロフィール入力画面」】コミュニティタブのコードを先読みする。対象は「参加の場面から始まる全ての起動」:
+  //   ・同意の画面が出ている間(同意のあと最初に出る参加の場面で読み込み画面が見えないように。式は下の return と同じ。見本 = まだ同意していない / 本物 = 読めてから記録が要る・ATT を待っている)
+  //   ・同意済みの再起動で参加の印(join)が無い人(アプリが描かれる前の、この描画の中で始める。アプリの Suspense が自分で取り始めるより先)
+  // 取得は冪等(同じ動的 import)なので、描画の中で1回だけ呼ぶ(ref で1回)。アカウントには触れない。
+  const consentShown = preview ? !previewAgreed
+    : consentLoaded && onboardingLoaded && (attWaiting || needsConsentScreen({ consent, onboardingDone: normalizeOnboardingDone(onboardingRaw) }));
+  const sceneStarts = !consentShown && (preview ? previewAgreed && startsOnJoinScene({ done: readTutorialPreviewDone() })
+    : consentLoaded && onboardingLoaded && startsOnJoinScene({ done: normalizeOnboardingDone(onboardingRaw) }));
+  const preloadedRef = useRef(false);
+  if ((consentShown || sceneStarts) && !preloadedRef.current) { preloadedRef.current = true; preloadCommunityTab(); }
   const agree = () => {
     if (attWaiting) return;                    // 答えを待つ間の2回目の「次へ」は何もしない
     setConsent(makeConsentRecord());           // 1. 記録を書く

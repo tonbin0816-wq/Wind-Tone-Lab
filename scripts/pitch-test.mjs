@@ -24667,13 +24667,14 @@ console.log("\n========== 検証51: 便G データタブ(D1〜D4) ==========");
       // (【便CB】で足した termsAgreed / onTermsAgreed は【便CC 2026-10-08】参加のカードの同意のチェックと一緒に外した。元の形)
       // 【便CO 2026-10-12】参加の画面のカードの知らせ onJoinCard(既定 null)が wide の前に加わった。landTab / onLanded の形は同じ。
       // 【便DD 審査】参加が不可能な失敗(設定の欠落)の知らせ onJoinBlocked(既定 null)が onJoinCard のあとに加わった。
-      /export default function CommunityTab\(\{ sessions, tuningHz, onAdoptIdeal, landTab = null, onLanded = null, onOnboarding = null, onJoinCard = null, onJoinBlocked = null, wide = false \}\)/.test(comm51)
-      && /<CommunityTabBody [^>]*landTab=\{landTab\} onLanded=\{onLanded\} onOnboarding=\{onOnboarding\} onJoinCard=\{onJoinCard\} onJoinBlocked=\{onJoinBlocked\} wide=\{wide\} \/>/.test(comm51));
+      // 【便DE】初回の参加の場面かの合図 joinFirst(既定 false)が onJoinBlocked のあとに加わった(マウントしたときの値だけ読む)。
+      /export default function CommunityTab\(\{ sessions, tuningHz, onAdoptIdeal, landTab = null, onLanded = null, onOnboarding = null, onJoinCard = null, onJoinBlocked = null, joinFirst = false, wide = false \}\)/.test(comm51)
+      && /<CommunityTabBody [^>]*landTab=\{landTab\} onLanded=\{onLanded\} onOnboarding=\{onOnboarding\} onJoinCard=\{onJoinCard\} onJoinBlocked=\{onJoinBlocked\} joinFirst=\{joinFirst\} wide=\{wide\} \/>/.test(comm51));
     check("51.3 D3 CommunityTabBody: 来ていればそれで始め、来たら state を合わせて onLanded で返す",
       // 【便BP 2026-10-03】末尾に onOnboarding = null が加わった(参加済みと分かったら印を立てる)。
       // 【便BV 2026-10-04】末尾に wide = false が加わった(参加前の見本・参加後の画面へ配るだけ)。
       // 【便CO 2026-10-12】wide の前に onJoinCard = null が加わった(参加の画面のカードが出ているかを App へ知らせる)。
-      /function CommunityTabBody\(\{ sessions, tuningHz, onAdoptIdeal, landTab: landTabRequest = null, onLanded = null, onOnboarding = null, onJoinCard = null, onJoinBlocked = null, wide = false \}\)/.test(comm51)
+      /function CommunityTabBody\(\{ sessions, tuningHz, onAdoptIdeal, landTab: landTabRequest = null, onLanded = null, onOnboarding = null, onJoinCard = null, onJoinBlocked = null, joinFirst = false, wide = false \}\)/.test(comm51)
       && /const \[landTab, setLandTab\] = useState\(landTabRequest \|\| "data"\);/.test(comm51)
       && /if \(!landTabRequest\) return;\s*setLandTab\(landTabRequest\);\s*if \(onLanded\) onLanded\(\);/.test(comm51));
     check("51.3 D3 CommunityTabBody: 開く子タブは今までどおり initialTab で JoinedView へ渡す",
@@ -33911,10 +33912,41 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
       && (app.match(/setJoinScene\(false\)/g) || []).length === 2);
     check("DC.8 【便DD 審査】匿名サインインと保存には上限 15 秒(withinActionLimit。呼び口は2つだけ。読みの上限より長い)",
       /export const COMMUNITY_ACTION_MAX_MS = 15000;/.test(lim)
-      && /const id = await withinActionLimit\(ensureSignedIn\(\)\);/.test(commDC)
+      && /const id = await withinActionLimit\(rawSignInRef\.current\);/.test(commDC)
       && /await withinActionLimit\(saveProfile\(id, r\.doc\)\);/.test(commDC)
       && (commDC.match(/withinActionLimit\(/g) || []).length === 2
       && !/\bawait ensureSignedIn\(\)/.test(commDC) && !/\bawait saveProfile\(/.test(commDC));
+    const gateDE = codeOf(readFileSync(join(__dirname, "..", "src", "ConsentScreen.jsx"), "utf8"));
+    check("DE.1 【便DE】初回の参加の場面はいきなりプロフィールの入力: joinFirst はマウント時の値だけ(firstScene)・phase の初期値が form・裏の確認の枝は読み込み画面と参加のカードへ行かない・ふだんのタブは今までどおり",
+      /const \[firstScene\] = useState\(Boolean\(joinFirst\)\);/.test(commDC)
+      && /const \[phase, setPhase\] = useState\(firstScene \? "form" : "loading"\);/.test(commDC)
+      && /if \(!soft && !firstScene\) \{/.test(commDC)
+      && /if \(firstScene\) \{[\s\S]{0,900}?await ensureUid\(\);[\s\S]{0,200}?return;\n\s*\}\n\s*if \(!id\) \{ setPhase\("notJoined"\);/.test(commDC)
+      && /if \(phase === "loading"\) return <LoadingRing step="account" \/>;/.test(commDC)
+      && /if \(phase === "notJoined"\) \{\n    return \(\n      <JoinIntro/.test(commDC));
+    check("DE.2 【便DE】サインインの元の呼び出しは1つだけ持つ(rawSignInRef。裏・保存の直前・再試行が同じ呼び出しを待つ。片付いたら成功でも失敗でも手放し、onDelete でも手放す)。失敗はフォームの上の「もう一度試す」(設定の欠落だけ失敗の画面へ)",
+      /if \(!rawSignInRef\.current\) \{\n      const raw = Promise\.resolve\(ensureSignedIn\(\)\);\n      rawSignInRef\.current = raw;\n      const release = \(\) => \{ if \(rawSignInRef\.current === raw\) rawSignInRef\.current = null; \};\n      raw\.then\(release, release\);\n    \}\n    const id = await withinActionLimit\(rawSignInRef\.current\);/.test(commDC)
+      && /setProfile\(null\); setUid\(null\);\n\s*rawSignInRef\.current = null;/.test(commDC)
+      && /if \(firstScene && connectErrorOf\(e\) !== CONFIG_ERROR\) \{ setBgError\(connectErrorOf\(e\)\); return; \}/.test(commDC)
+      && /\{firstScene && bgError \? \(/.test(commDC) && /data-join-retry=""/.test(commDC)
+      && (commDC.match(/ensureSignedIn\(\)/g) || []).length === 1);
+    check("DE.4 【便DE 審査】既存プロフィールの確認が済むまで保存を押せない(confirmed。確認の読みの失敗・上限超過では false のまま・アカウントが無い端末は一瞬で true)。ProfileForm の holdSubmit は既定 false(ふだんは変わらない)",
+      /const \[confirmed, setConfirmed\] = useState\(!firstScene\);/.test(commDC)
+      && /holdSubmit=\{firstScene && !confirmed\}/.test(commDC)
+      && /export function ProfileForm\(\{ initial, onSubmit, onCancel, holdSubmit = false \}\) \{/.test(commDC)
+      && /const submit = async \(\) => \{\n    if \(busy \|\| holdSubmit\) return;/.test(commDC)
+      && /disabled=\{busy \|\| holdSubmit\}/.test(commDC)
+      && /if \(p0\) \{ setProfile\(p0\); setPhase\("profile"\); return; \}[^\n]*\n\s*\}\n\s*setConfirmed\(true\);/.test(commDC)
+      && /\{firstScene && !confirmed && !bgError \? \(/.test(commDC));
+    check("DE.3 【便DE】App は初回の参加の場面だけ joinFirst を渡し、読み込みの待ちは遅れて出す輪(最初の TUNER_SUSTAIN_MS は何も描かない)。コードは参加の場面から始まる全ての起動で先読みする(同意の画面が出ている間・同意済みの再起動。アカウントには触れない)",
+      /joinFirst=\{joinSceneNow\}/.test(app)
+      && /<Suspense fallback=\{joinSceneNow \? <DelayedLoadingRing delayMs=\{TUNER_SUSTAIN_MS\} step="chunk" \/> : <LoadingRing step="chunk" \/>\}>/.test(app)
+      && /import LoadingRing, \{ DelayedLoadingRing \} from "\.\/community\/LoadingRing\.jsx";/.test(app)
+      && /export const preloadCommunityTab = \(\) => \{ loadCommunityTab\(\)\.catch\(\(\) => \{\}\); \};/.test(app)
+      && /if \(\(consentShown \|\| sceneStarts\) && !preloadedRef\.current\) \{ preloadedRef\.current = true; preloadCommunityTab\(\); \}/.test(gateDE)
+      && /const sceneStarts = !consentShown && \(preview \? previewAgreed && startsOnJoinScene\(\{ done: readTutorialPreviewDone\(\) \}\)\n\s*: consentLoaded && onboardingLoaded && startsOnJoinScene\(\{ done: normalizeOnboardingDone\(onboardingRaw\) \}\)\);/.test(gateDE)
+      && !/ensureSignedIn|accountRepo/.test(gateDE)
+      && /export function DelayedLoadingRing\(\{ delayMs, \.\.\.props \}\) \{/.test(codeOf(readFileSync(join(__dirname, "..", "src", "community", "LoadingRing.jsx"), "utf8"))));
   }
 
   // --- BZ.7 殻が --ad-h を後から置いたら、環の縮みと計測タブの枠を測り直す(【便BZ 統括の裁定】) ------------------------------

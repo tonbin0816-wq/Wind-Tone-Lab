@@ -110,12 +110,11 @@ async function passConsent() {
   await waitFor(() => !screen(), "アプリ(同意の画面が消える)");
 }
 // 参加の場面を通る: カード → プロフィールの入力 →「プロフィールを作る」→ 自動で計測タブ(下部タブが出る)
+// 【便DE】参加の場面 = 同意のあといきなり出るプロフィールの入力(「プロフィールを作る」のボタンがあるフォーム)
+const sceneForm = () => [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "プロフィールを作る");
 async function joinNow() {
-  await waitFor(() => joinCard(), "参加の場面");
-  await click(joinCard());
-  const make = () => [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "プロフィールを作る");
-  await waitFor(() => make(), "プロフィールの入力");
-  await click(make());
+  await waitFor(() => sceneForm(), "参加の場面(プロフィールの入力)");
+  await click(sceneForm());
   await waitFor(() => navBar(), "計測タブ(下部タブ)");
 }
 
@@ -279,7 +278,7 @@ describe("入れたての人: 1枚目(ようこそ)→ 2枚目(規約)", () => {
     expect(Math.abs(Date.parse(rec.at) - before)).toBeLessThan(5000);
     expect(new Date(rec.at).toISOString()).toBe(rec.at);
     // 【便DC】同意のあとは参加の場面(マイク・案内はまだ)。【便DD】下部タブも無い。参加を終えると、マイクが始まり ① が出る
-    await waitFor(() => joinCard(), "参加の場面");
+    await waitFor(() => sceneForm(), "参加の場面");
     await tick(100);
     expect(gum).toBe(0);
     expect(layerId()).toBe(null);
@@ -311,7 +310,7 @@ describe("入れたての人: 1枚目(ようこそ)→ 2枚目(規約)", () => {
     const rec = structuredClone(kv("termsConsent"));
     await relaunch();
     expect(screen()).toBe(null);
-    await waitFor(() => joinCard(), "【便DD】参加するまでは開き直しても参加の場面");
+    await waitFor(() => sceneForm(), "【便DD】参加するまでは開き直しても参加の場面");
     await tick(200);
     expect(kv("termsConsent")).toEqual(rec);
   }, 30000);
@@ -367,7 +366,7 @@ describe("既存の利用者", () => {
     expect(navBar()).toBe(null);
     await passConsent();
     // 【便DD】参加していない既存の利用者は、同意のあと参加の場面(マイクはまだ)。参加を終えると計測タブでマイク
-    await waitFor(() => joinCard(), "参加の場面");
+    await waitFor(() => sceneForm(), "参加の場面");
     await tick(200);
     expect(gum).toBe(0);
     await joinNow();
@@ -427,7 +426,7 @@ describe("見本(?tutorialpreview=1)", () => {
     expect(gum).toBe(0);
     await passConsent();
     // 【便DC】見本の流れも新しい順(参加の場面 → 計測 ①)。この端末の作り物のサーバーは参加していないので参加のカードが出る
-    await waitFor(() => joinCard(), "見本の参加の場面");
+    await waitFor(() => sceneForm(), "見本の参加の場面");
     expect(layerId()).toBe(null);
     expect(navBar()).toBe(null);
     await joinNow();
@@ -460,10 +459,10 @@ describe("参加のカード(根 → アプリ → コミュニティ → JoinIn
     expect(joinBtn().hasAttribute("aria-disabled")).toBe(false);
     expect(joinCard().querySelectorAll("button")).toHaveLength(0);
   };
-  it("起動の最初に同意した人", async () => {
+  it("同意の記録があり参加の印がある人(ふだんのタブ)", async () => {
     mod = await loadApp();
+    await seed({ kvEntries: { termsConsent: { at: "2026-10-08T00:00:00.000Z", version: "2026-10-08" }, onboardingDone: { ...GATES, join: true } } });
     await launch();
-    await passConsent();
     await openCommunity();
     expectNoCheck();
   }, 40000);

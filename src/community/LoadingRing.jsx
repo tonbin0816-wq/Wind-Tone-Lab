@@ -130,3 +130,14 @@ export default function LoadingRingBox({ step = null }) {
     </div>
   );
 }
+
+// 【便DE 審査】遅れて出す輪。最初の delayMs の間は何も描かず、過ぎても待っているときだけ輪を出す(参加の場面で、コードの取得が速いときに読み込み画面が一瞬ちらつかず、
+// 遅いときは空白のままにしない)。props は LoadingRingBox(step)へそのまま渡す。
+export function DelayedLoadingRing({ delayMs, ...props }) {
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setOn(true), delayMs);
+    return () => clearTimeout(t);
+  }, [delayMs]);
+  return on ? <LoadingRingBox {...props} /> : null;
+}
