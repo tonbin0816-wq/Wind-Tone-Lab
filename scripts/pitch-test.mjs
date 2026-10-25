@@ -32615,9 +32615,9 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
       typeof photoAdd === "string" && photoAdd.trim().length > 0 && photoAdd.includes("保存"), JSON.stringify(photoAdd));
     check("K.5 Info.plist: iPhone の向きは UIInterfaceOrientationPortrait 1つだけ(縦固定)",
       JSON.stringify(valueOf("UISupportedInterfaceOrientations")) === JSON.stringify(["UIInterfaceOrientationPortrait"]), JSON.stringify(valueOf("UISupportedInterfaceOrientations")));
-    check("K.5 Info.plist: iPad(~ipad)は4つの向き全部",
-      JSON.stringify((valueOf("UISupportedInterfaceOrientations~ipad") || []).slice().sort()) === JSON.stringify([
-        "UIInterfaceOrientationLandscapeLeft", "UIInterfaceOrientationLandscapeRight", "UIInterfaceOrientationPortrait", "UIInterfaceOrientationPortraitUpsideDown"]),
+    // 【便S4 2026-10-25 本人裁定】iPhone だけで出す(iPad 対応はあとの更新で戻す)。~ipad の向きは書かない(TARGETED_DEVICE_FAMILY = 1 は src/shell/releaseConfig.test.js)
+    check("K.5 Info.plist: 【便S4】iPhone だけ ── UISupportedInterfaceOrientations~ipad を書かない",
+      plist.length > 0 && valueOf("UISupportedInterfaceOrientations~ipad") === undefined && !plist.includes("~ipad"),
       JSON.stringify(valueOf("UISupportedInterfaceOrientations~ipad")));
     check("K.5 Info.plist: UIRequiresFullScreen を書かない・ITSAppUsesNonExemptEncryption = false",
       plist.length > 0 && !plist.includes("UIRequiresFullScreen") && valueOf("ITSAppUsesNonExemptEncryption") === false);
@@ -33133,9 +33133,16 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     const devBody = strip(dev).replace(/^  ios-dev:\n    name: [^\n]*\n/, "")
       .replace(/\n      - name: Dev shell - load[^\n]*\n        script: [^\n]*\n/, "\n")
       .replace(/\n      - name: Dev shell - home screen[^\n]*\n        script: \|\n(?:          [^\n]*\n)+/, "\n")
+      // 【便S4】開発版は広告を試験のまま(Info.plist のアプリ ID を Google の sample へ書き戻す1段)
+      .replace(/\n      - name: Dev shell - test ads \(GADApplicationIdentifier back to the Google sample\)\n        script: node scripts\/shell-ads-ids\.mjs dev\n/, "\n")
       .replace(/\n      - name: Set build number and the dev version line \(99\.0\)\n/, "\n      - name: Set build number\n")
       .replace(/\n          agvtool new-marketing-version 99\.0\n/, "\n");
-    check("K.15 開発版の中身は本番と同じ(名前・triggering・開発版の2手順・版の1行を除いて一字一句)", prodBody.trim().length > 0 && prodBody.trim() === devBody.trim());
+    check("K.15 開発版の中身は本番と同じ(名前・triggering・開発版の3手順・版の1行を除いて一字一句)", prodBody.trim().length > 0 && prodBody.trim() === devBody.trim());
+    // 【便S4】開発版の広告は試験: 署名の前(build-ipa の前)に node scripts/shell-ads-ids.mjs dev。本番(ios-testflight)には無い
+    const iAds = devSteps.indexOf("node scripts/shell-ads-ids.mjs dev");
+    check("K.15 【便S4】開発版(ios-dev)だけが Info.plist のアプリ ID を試験に戻す(cap sync の後・build-ipa の前に node scripts/shell-ads-ids.mjs dev)。本番には無い",
+      iAds > iSync && iAds < iIpa && devSteps.filter((x) => x === "node scripts/shell-ads-ids.mjs dev").length === 1
+      && !/shell-ads-ids/.test(strip(prod)), JSON.stringify(devSteps));
     const sc = codeOf(readS("scripts/shell-dev-server-url.mjs"));
     check("K.15 scripts/shell-dev-server-url.mjs: 書くのは生成物 ios/App/App/capacitor.config.json だけ・URL は https://wind-tone-lab.vercel.app・packageClassList が無ければ止める",
       /export const DEV_SERVER_URL = "https:\/\/wind-tone-lab\.vercel\.app";/.test(sc)
@@ -33232,7 +33239,8 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     // この検査は手元(と統括の検収)でしか走らない。Codemagic では走らないので、試験の ID のままの提出そのものは止めない。
     // 止めるのは ios-release のビルドの前の門(adsConfig.js か Info.plist に demo の番号があれば exit 1)。
     // S4 で本番の ID にしたら、この1行を "production" にする(手元の検査も本番の段を見張る)。
-    const SHELL_ADS_EXPECTED_PHASE = "test";
+    // 【便S4 2026-10-25】本番の ID にした。開発版の試験の値は adsConfig の ADMOB_DEV_* に分けた(この3か所の揃いには入らない)。
+    const SHELL_ADS_EXPECTED_PHASE = "production";
     const SAMPLE_APP_ID = "ca-app-pub-3940256099942544~1458002511";   // quick-start の「Sample AdMob app ID」(手で写した)
     const useTest = cfgVal("ADMOB_USE_TEST_ADS");
     const unit = cfgVal("ADMOB_BANNER_UNIT_ID_IOS");
@@ -33244,12 +33252,19 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
       : "mixed";
     check(`K.19 広告の ID の段が ${SHELL_ADS_EXPECTED_PHASE}(adsConfig の2つと Info.plist のアプリ ID が揃っている)`, phase === SHELL_ADS_EXPECTED_PHASE,
       JSON.stringify({ phase, useTest, unit, plistAppId }));
-    // 試験の段の値そのもの(Google の文書から手で写した綴り。adsConfig の定数から逆算しない)
-    check("K.19 試験の段の値: バナーは iOS の Anchored Adaptive Banner の demo(…/2435281174)・アプリ ID は quick-start の sample(…~1458002511)",
-      SHELL_ADS_EXPECTED_PHASE !== "test" || (unit === "ca-app-pub-3940256099942544/2435281174" && plistAppId === SAMPLE_APP_ID));
-    // ios-release の門は adsConfig.js を丸ごと grep する。値の行のほかに demo の番号があると、本番の ID にしても門が開かない
-    check("K.19 adsConfig.js の中で demo の番号が現れるのは値の行だけ(注記・印の定数に書かない。ios-release の門が S4 で開くため)",
-      cfgRaw.split("\n").filter((l) => l.includes(DEMO)).every((l) => /^export const ADMOB_BANNER_UNIT_ID_IOS = "/.test(l))
+    // 段の値そのもの(Google の文書と本人の AdMob の値から手で写した綴り。adsConfig の定数から逆算しない)
+    check("K.19 段の値: 試験 = iOS の Anchored Adaptive Banner の demo(…/2435281174)と quick-start の sample(…~1458002511)/ 【便S4】本番 = 本人のバナー(…/6801189906)とアプリ ID(…~1796275239)",
+      SHELL_ADS_EXPECTED_PHASE === "test" ? (unit === "ca-app-pub-3940256099942544/2435281174" && plistAppId === SAMPLE_APP_ID)
+        : (unit === "ca-app-pub-8488624336436415/6801189906" && plistAppId === "ca-app-pub-8488624336436415~1796275239"
+          && cfgVal("ADMOB_APP_ID_IOS") === "ca-app-pub-8488624336436415~1796275239"), JSON.stringify({ unit, plistAppId }));
+    // 【便S4】開発版(Ficus Dev)は試験の値のまま: adsConfig の ADMOB_DEV_* は Google の demo(手で写した綴り)
+    check("K.19 【便S4】開発版の値(ADMOB_DEV_*)は Google の demo のまま(バナー …/2435281174・アプリ ID …~1458002511・試験の目印 true)",
+      cfgVal("ADMOB_DEV_USE_TEST_ADS") === true && cfgVal("ADMOB_DEV_BANNER_UNIT_ID_IOS") === "ca-app-pub-3940256099942544/2435281174"
+      && cfgVal("ADMOB_DEV_APP_ID_IOS") === SAMPLE_APP_ID);
+    // demo の番号が現れるのは値の行だけ(本番の値の行・注記には現れない)。【便S4】ios-release の門は値を読む形になった(scripts/shell-ads-ids.mjs release)
+    check("K.19 adsConfig.js の中で demo の番号が現れるのは開発版の値の行(ADMOB_DEV_BANNER_UNIT_ID_IOS・ADMOB_DEV_APP_ID_IOS)だけ",
+      JSON.stringify(cfgRaw.split("\n").filter((l) => l.includes(DEMO)).map((l) => (/^export const (\w+) = "/.exec(l) || [])[1] || l))
+        === JSON.stringify(["ADMOB_DEV_BANNER_UNIT_ID_IOS", "ADMOB_DEV_APP_ID_IOS"])
       && !/ADMOB_APP_ID_PLACEHOLDER/.test(cfgRaw), cfgRaw.split("\n").filter((l) => l.includes(DEMO)).join(" / "));
     // demo の番号の綴りは adsConfig.js の外(src。検査を除く)に無い ── 試験の ID を2か所に書かない
     const walkA = (dir, out = []) => {
@@ -33261,8 +33276,9 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
       return out;
     };
     const hits = walkA("src").filter((f) => readA(f).includes(DEMO));
-    check("K.19 demo の番号 3940256099942544 の綴りは src の中では src/shell/adsConfig.js にだけ(試験の段)",
-      SHELL_ADS_EXPECTED_PHASE !== "test" ? hits.length === 0 : JSON.stringify(hits) === JSON.stringify(["src/shell/adsConfig.js"]), hits.join(", "));
+    // 【便S4】本番の段でも開発版の値が adsConfig.js に残る(開発版は試験の広告)。どちらの段でも adsConfig.js の1か所だけ
+    check("K.19 demo の番号 3940256099942544 の綴りは src の中では src/shell/adsConfig.js にだけ",
+      JSON.stringify(hits) === JSON.stringify(["src/shell/adsConfig.js"]), hits.join(", "));
   }
 
   // --- K.20 部品(ads.native.js・ads.js・policy.js) ------------------------------------------------------------------
@@ -33272,7 +33288,9 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     const pol = codeOf(readA("src/shell/policy.js"));
     check("K.20 ads.native.js: プラグインを静的に import するのはここ(@capacitor-community/admob)・ID は adsConfig から・位置の式と待ちは policy から",
       /^import \{ AdMob, BannerAdSize, BannerAdPosition, BannerAdPluginEvents \} from "@capacitor-community\/admob";$/m.test(nat)
-      && /^import \{ ADMOB_USE_TEST_ADS, ADMOB_BANNER_UNIT_ID_IOS \} from "\.\/adsConfig\.js";$/m.test(nat)
+      // 【便S4】ID はビルドの種類(native.js の shellBuildKind)から adsConfig の admobIds で選ぶ
+      && /^import \{ admobIds \} from "\.\/adsConfig\.js";$/m.test(nat) && /^import \{ shellBuildKind \} from "\.\/native\.js";$/m.test(nat)
+      && (nat.match(/admobIds\(/g) || []).length === 1 && /\n  const ids = admobIds\(shellBuildKind\(\)\);\n/.test(nat) && !/ADMOB_/.test(nat)
       && /^import \{ adBannerMargin, ATT_RETRY_DELAY_MS, ATT_FOCUS_WAIT_MAX_MS \} from "\.\/policy\.js";$/m.test(nat));
     const ask = (/async function askTracking\(\) \{([\s\S]*?)\n\}/.exec(nat) || [])[1] || "";
     const again = (/async function askTrackingAgain\(\) \{([\s\S]*?)\n\}/.exec(nat) || [])[1] || "";
@@ -33287,7 +33305,7 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
       && (nat.match(/requestTrackingAuthorization\(/g) || []).length === 2, (ask + " / " + again).replace(/\s+/g, " "));
     const at = (s) => nat.indexOf(s);
     const order = [
-      "await AdMob.initialize({ initializeForTesting: ADMOB_USE_TEST_ADS });",
+      "await AdMob.initialize({ initializeForTesting: ids.useTestAds });",
       "const now = askedAtConsent ? (await AdMob.trackingAuthorizationStatus()).status : await askTracking();",
       'npa = now !== "authorized";',
       "await AdMob.showBanner(lastShow);",
@@ -33301,10 +33319,10 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
       && (nat.match(/askTracking\(\)/g) || []).length === 3, afterConsent.replace(/\s+/g, " "));
     const show = (/lastShow = \{([\s\S]*?)\n  \};/.exec(nat) || [])[1] || "";
     check("K.20 ads.native.js: showBanner は adsConfig のユニット・ADAPTIVE_BANNER・BOTTOM_CENTER・margin は adBannerMargin(すき間込み)・isTesting は false・npa",
-      /adId: ADMOB_BANNER_UNIT_ID_IOS, adSize: BannerAdSize\.ADAPTIVE_BANNER, position: BannerAdPosition\.BOTTOM_CENTER,/.test(show)
+      /adId: ids\.bannerUnitId, adSize: BannerAdSize\.ADAPTIVE_BANNER, position: BannerAdPosition\.BOTTOM_CENTER,/.test(show)
       && /margin: adBannerMargin\(\{ innerHeight, navTop, inset, gap \}\),/.test(show) && /\n\s*isTesting: false,\n/.test(show) && /\n\s*npa,$/.test(show)
       // isTesting: true にするとプラグイン(AdMobPlugin.swift の getAdId)が adId を Android の demo(/6300978111)に替える
-      && !/isTesting: ADMOB_USE_TEST_ADS|isTesting: true/.test(nat), show.replace(/\s+/g, " "));
+      && !/isTesting: ADMOB_USE_TEST_ADS|isTesting: ids\.useTestAds|isTesting: true/.test(nat), show.replace(/\s+/g, " "));
     check("K.20 ads.native.js: SizeChanged は高さ 0 を無視して実寸だけ onHeight へ(隠しても --ad-h を戻さない)・FailedToLoad で 0・Loaded のたびに隠したい間は隠し直す",
       /AdMob\.addListener\(BannerAdPluginEvents\.SizeChanged, \(size\) => \{ if \(size\?\.height > 0\) onHeight\(size\.height\); \}\);/.test(nat)
       && /AdMob\.addListener\(BannerAdPluginEvents\.FailedToLoad, \(\) => onHeight\(0\)\);/.test(nat)
@@ -33430,15 +33448,18 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     const steps = [...rel.matchAll(/\n      - name: ([^\n]+)/g)].map((m) => m[1]);
     check("K.23 ios-release: 最初の手順が「Refuse the demo ad IDs」(npm ci・ビルドより前)",
       rel.length > 0 && steps[0] === "Refuse the demo ad IDs (release only)" && steps[1] === "Install npm dependencies", JSON.stringify(steps));
-    check("K.23 ios-release の門: adsConfig.js と Info.plist が在ることを確かめ、どちらかに demo の番号があれば exit 1",
-      /\n          for f in src\/shell\/adsConfig\.js ios\/App\/App\/Info\.plist; do test -f "\$f" \|\| \{ echo "[^"\n]*"; exit 1; \}; done\n          if grep -n "3940256099942544" src\/shell\/adsConfig\.js ios\/App\/App\/Info\.plist; then\n            echo "[^"\n]*"\n            exit 1\n          fi\n/.test(rel));
-    check("K.23 ios-testflight と ios-dev には門が無い(試験の ID のまま通す)",
+    // 【便S4】adsConfig.js が開発版の試験の値も持つようになったので、丸ごと grep する門をやめ、値を読む門(scripts/shell-ads-ids.mjs release)にした。
+    // 門の中身(何を見て exit 1 にするか)は src/shell/releaseConfig.test.js が関数を呼んで確かめる
+    check("K.23 【便S4】ios-release の門: node scripts/shell-ads-ids.mjs release(本番の値が揃っていなければ exit 1)",
+      /\n      - name: Refuse the demo ad IDs \(release only\)\n(?:        #[^\n]*\n)*        script: node scripts\/shell-ads-ids\.mjs release\n/.test(rel)
+      && /process\.exit\(1\)/.test(readA("scripts/shell-ads-ids.mjs")));
+    check("K.23 ios-testflight と ios-dev には門が無い",
       !/Refuse the demo ad IDs|3940256099942544/.test(prod) && !/Refuse the demo ad IDs|3940256099942544/.test((blocks["ios-dev"] || "").split("\n").filter((l) => !/^\s*#/.test(l)).join("\n")));
     // K.15 と同じ作法: 注記・名前・triggering を除き、門の1段を抜けば ios-testflight と一字一句同じ
     const strip = (b) => b.split("\n").filter((l) => !/^\s*#/.test(l)).map((l) => l.replace(/\s+#.*$/, "")).join("\n");
     const prodBody = strip(prod).replace(/^  ios-testflight:\n    name: [^\n]*\n/, "").replace(/\n    triggering:\n(?:      [^\n]*\n|        [^\n]*\n)*/, "\n");
     const relBody = strip(rel).replace(/^  ios-release:\n    name: [^\n]*\n/, "")
-      .replace(/\n      - name: Refuse the demo ad IDs \(release only\)\n        script: \|\n(?:          [^\n]*\n)+/, "\n");
+      .replace(/\n      - name: Refuse the demo ad IDs \(release only\)\n        script: node scripts\/shell-ads-ids\.mjs release\n/, "\n");
     check("K.23 ios-release の中身は ios-testflight と同じ(名前・triggering・門の1段を除いて一字一句)・手でだけ開始(triggering が無い)",
       prodBody.trim().length > 0 && prodBody.trim() === relBody.trim() && !/\n\s+triggering:/.test(rel) && /\n\s+submit_to_app_store: false\b/.test(rel));
     check("K.23 ios-release に server.url を足す手順・版の変更が無い",
@@ -34217,11 +34238,11 @@ console.log("========== 検証CI: 便CI 参加のカードは見出しと1行だ
     && cssCI.includes(".coach-dim { position: fixed; inset: 0; pointer-events: none; background: var(--c-coach-dim); }"));
   const termsCI = readFileSync(join(__dirname, "..", "public", "terms.html"), "utf8");
   const privCI = readFileSync(join(__dirname, "..", "public", "privacy.html"), "utf8");
-  check("CI.3 カードから外した事実は規約とポリシーにある(匿名のアカウントは端末に紐づく・替える/消すと失われ元に戻せない・氏名やメールと結び付かない)。最終更新日は 2026年10月8日 のまま",
+  check("CI.3 カードから外した事実は規約とポリシーにある(匿名のアカウントは端末に紐づく・替える/消すと失われ元に戻せない・氏名やメールと結び付かない)。最終更新日は規約 2026年10月8日 のまま・【便S4】ポリシーは 2026年10月25日",
     termsCI.includes("コミュニティの匿名アカウントは端末に紐づいています。") && termsCI.includes("端末を替えたりアプリを削除したりすると失われ、元に戻せません。")
     && privCI.includes("匿名アカウントはお使いの端末に紐づいています。") && privCI.includes("端末を替えたりアプリを削除したりするとアカウントは失われ、元に戻せません。")
     && privCI.includes("氏名・メールアドレス・電話番号とは結び付いていません。")
-    && termsCI.includes("最終更新日: 2026年10月8日") && privCI.includes("最終更新日: 2026年10月8日"));
+    && termsCI.includes("最終更新日: 2026年10月8日") && privCI.includes("最終更新日: 2026年10月25日"));
   const dsCI = readFileSync(join(__dirname, "..", "design", "DESIGN-SYSTEM.md"), "utf8");
   const s45bCI = dsCI.slice(dsCI.indexOf("## 4.5b"), dsCI.indexOf("## 4.5c"));
   check("CI.4 DESIGN-SYSTEM §4.5b: 【便CI】中身はアイコン・見出し・1行だけ・カードの外を押しても参加が始まる(下部タブは枠の外)",

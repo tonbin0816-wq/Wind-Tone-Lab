@@ -21,7 +21,8 @@ describe("同意の版と記録", () => {
     expect(terms).toContain("本アプリの利用開始時（初めて起動したとき）に、本規約とプライバシーポリシーへの同意をいただいています。");
     expect(terms).not.toContain("同意したものとみなします");
     expect(privacy).toContain("本アプリの利用開始時（初めて起動したとき）に、利用規約と本ポリシーへの同意をいただいています。");
-    expect(privacy).toMatch(/最終更新日: 2026年10月8日/);
+    // 【便S4 2026-10-25】プライバシーポリシーだけ改定(初回のプロフィール作成・録音を保存しない・引継のファイル・カメラ)。規約は 10月8日のまま(版を上げない)
+    expect(privacy).toMatch(/最終更新日: 2026年10月25日/);
   });
   it("鍵の綴りは termsConsent(変えると保存済みの同意と引継のファイルが読めなくなる)", () => {
     expect(TERMS_CONSENT_KEY).toBe("termsConsent");

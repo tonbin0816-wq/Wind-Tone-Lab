@@ -56,11 +56,15 @@ workflows:
         submit_to_testflight: false
         submit_to_app_store: false
 
-  # 【殻 S2 統括の裁定】開発版。中身は ios-testflight と同じで、違いは3つだけ:
+  # 【殻 S2 統括の裁定】開発版。中身は ios-testflight と同じで、違いは4つだけ:
   #   (1) cap sync の後で、生成物 ios/App/App/capacitor.config.json に server.url(Vercel の配信)を足す
   #       (scripts/shell-dev-server-url.mjs。根の capacitor.config.json は変えない)
   #   (2) ホーム画面の名前を「Ficus Dev」に、TestFlight の「テストの内容(What to Test)」に開発版と書く(release_notes.txt)
-  #   (3) 版を 99.0 にする(agvtool new-marketing-version。本番の 1.x の並びと審査の提出の候補に混ざらない)
+  #   (3) 【便S4】広告は試験のまま: Info.plist の GADApplicationIdentifier を Google の sample に書き戻す
+  #       (scripts/shell-ads-ids.mjs dev。値は src/shell/adsConfig.js の ADMOB_DEV_APP_ID_IOS)。バナーのユニットは、
+  #       JS が「server.url で読んでいる = 開発版」と見て試験の ID を選ぶ(src/shell/native.js の shellBuildKind)。
+  #       本人が毎日触るので、本物の広告を誤って押すと AdMob の無効なトラフィックになる。
+  #   (4) 版を 99.0 にする(agvtool new-marketing-version。本番の 1.x の並びと審査の提出の候補に混ざらない)
   # main へ push すれば、開発版のアプリを開き直すだけで画面の変更が届く。ネイティブの変更(Swift・Info.plist・
   # プラグインの追加)はこの workflow の再ビルドが要る。手でだけ開始する(triggering を書かない)。
   # **審査には出さない**(server.url は審査の 4.2 の論点そのもの。本番の ios-testflight には入れない。pitch-test K.15 が見張る)。
@@ -95,6 +99,8 @@ workflows:
           /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName 'Ficus Dev'" ios/App/App/Info.plist
           printf '%s\n' "開発版(Web の配信 https://wind-tone-lab.vercel.app を読み込む)。main への push はアプリを開き直すだけで反映。審査に出さない。" "commit: $(git rev-parse --short HEAD)" > release_notes.txt
           cat release_notes.txt
+      - name: Dev shell - test ads (GADApplicationIdentifier back to the Google sample)
+        script: node scripts/shell-ads-ids.mjs dev
       - name: Set build number and the dev version line (99.0)
         # 【殻 S2 審査】開発版は版 99.0 の並びに分ける(本番の 1.x の並びと、審査の提出の候補に混ざらない)。
         # 99 にするのは、1.0 が承認されたあとはそれより低い版を上げられないため。本番(ios-testflight)は版を変えない。
@@ -121,9 +127,11 @@ workflows:
         submit_to_app_store: false
 
   # 【殻 S3 統括の裁定】審査に出す専用。中身は ios-testflight と同じで、違いは2つだけ:
-  #   (1) ビルドの前の1段: 試験の広告 ID(Google の demo)が adsConfig.js か Info.plist に残っていれば exit 1
+  #   (1) ビルドの前の1段: 本番の広告 ID が揃っていなければ exit 1(【便S4】scripts/shell-ads-ids.mjs release)
   #   (2) 手でだけ開始する(triggering を書かない。タグの push では走らない)
-  # **審査に出すビルドはこの workflow で作る。** ios-testflight と ios-dev は試験の ID のまま通す(テストに使うため)。
+  # **審査に出すビルドはこの workflow で作る。**
+  # 【便S4 2026-10-25】git の中の値は本番の ID になった。同梱の資産を読む ios-testflight もこの workflow も本物の広告を出す
+  # (押さない)。開発版の ios-dev だけが試験の広告(上の ios-dev の (3))。
   # pitch-test K.23 が「ios-testflight との差はこの2つだけ」を見張る。
   ios-release:
     name: Ficus iOS RELEASE (for App Review)
@@ -144,14 +152,11 @@ workflows:
       xcode: 26.2
     scripts:
       - name: Refuse the demo ad IDs (release only)
-        # 【殻 S3 統括の裁定】審査に出すビルドに試験の広告 ID(Google の demo の発行元の番号)が残っていたら止める。
-        # 見るのは値の唯一の答えの2か所(src/shell/adsConfig.js と ios/App/App/Info.plist)。ios-testflight と ios-dev は試験の ID のまま通す。
-        script: |
-          for f in src/shell/adsConfig.js ios/App/App/Info.plist; do test -f "$f" || { echo "見つからない: $f"; exit 1; }; done
-          if grep -n "3940256099942544" src/shell/adsConfig.js ios/App/App/Info.plist; then
-            echo "試験用の広告 ID が残っています。adsConfig.js と Info.plist を本番の ID にしてから ios-release を走らせてください(殻の仕様 便S4)。"
-            exit 1
-          fi
+        # 【殻 S3 統括の裁定 → 便S4】審査に出すビルドの本番の広告 ID を確かめ、揃っていなければ止める。
+        # 見るのは値の唯一の答えの2か所(src/shell/adsConfig.js の本番の値と JS の選び方・ios/App/App/Info.plist のアプリ ID)。
+        # 【便S4】adsConfig.js は開発版のための試験の ID も持つようになったので、ファイルを丸ごと grep する門はやめた。
+        # npm ci より前に走る(node の組み込みと adsConfig.js だけを読む)。
+        script: node scripts/shell-ads-ids.mjs release
       - name: Install npm dependencies
         script: npm ci
       - name: Build web

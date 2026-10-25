@@ -3,6 +3,7 @@
 // スクリーンショット1枚で切り分けるためのもの。**読むだけで、音にもマイクにも何もしない。**(【便CT】例外は Web の試し口 gain のボタンを押したときだけ)
 //
 // 開き方: 計測タブにいるとき、下部タブの「計測」(data-coach="nav-measure")を長押しする。
+//   【便S4】本番の殻(App Store に出すビルド)では開かない(audioDiagAvailable)。開発版の殻と Web では開ける。
 //   長さはリードの並び替えの長押しと同じ値を App.jsx から受け取る(新しい値を作らない)。
 //   長押しが成立したら、その直後の click(= 計測タブの再タップ)は飲み込む。
 //   新しいボタンは画面に置かない(普段の画面は1px も変わらない)。
@@ -29,7 +30,7 @@
 //   running を受けた・failed を受けた で下ろす(古い interrupted を残さない。failed は取り直しの始めが st= で読んだ後に下ろす)。
 import { useEffect, useRef, useState } from "react";
 import { shellAudioSessionInfo, shellNativeAudio } from "./shell/audio.js";
-import { isNativeShell } from "./shell/native.js";
+import { isNativeShell, shellBuildKind } from "./shell/native.js";
 import { NATIVE_AUDIO, nativeHostClock } from "./shell/nativeAudio.js";
 
 // 【便CT 2026-10-13】板の試し口 gain(聞き比べ用。**保存しない** = アプリを開き直せば ×1)。【便CX】Web だけ。
@@ -307,12 +308,19 @@ export function audioDiagRows(session, now = Date.now()) {
   return rows;
 }
 
+// 【便S4 2026-10-25】診断の板を開けるビルドか。本番の殻(同梱の資産を読むビルド = ios-release / ios-testflight)では開かない。
+// 開発版の殻(Ficus Dev)と Web(Vercel・dev サーバ)では今までどおり開ける。判定は広告の ID と同じ印(native.js の shellBuildKind)。
+export function audioDiagAvailable(kind = shellBuildKind()) {
+  return kind !== "release";
+}
+
 // 計測タブの「計測」の長押しで開く。enabled が false の間は何もしない。
+// 【便S4】本番の殻(audioDiagAvailable() が false)でも何もしない(長押しを見張らない = 板は開かず、その後の click も飲み込まない)。
 export function useAudioDiagLongPress(enabled, holdMs, onOpen) {
   const openRef = useRef(onOpen);
   useEffect(() => { openRef.current = onOpen; }, [onOpen]);
   useEffect(() => {
-    if (!enabled) return undefined;
+    if (!enabled || !audioDiagAvailable()) return undefined;
     let timer = null;
     let fired = false;
     const clear = () => { if (timer) { clearTimeout(timer); timer = null; } };

@@ -2,7 +2,8 @@
 // 殻の枝(src/shell/ads.js の shellStartAdsOnce / shellSetAdsHidden)からだけ動的 import で読む。
 // プラグインは @capacitor-community/admob 8.1.0(iOS の実装 = node_modules/@capacitor-community/admob/ios/Sources/AdMobPlugin)。
 import { AdMob, BannerAdSize, BannerAdPosition, BannerAdPluginEvents } from "@capacitor-community/admob";
-import { ADMOB_USE_TEST_ADS, ADMOB_BANNER_UNIT_ID_IOS } from "./adsConfig.js";
+import { admobIds } from "./adsConfig.js";
+import { shellBuildKind } from "./native.js";
 import { adBannerMargin, ATT_RETRY_DELAY_MS, ATT_FOCUS_WAIT_MAX_MS } from "./policy.js";
 
 let started = false;
@@ -69,7 +70,9 @@ export async function startAds({ onHeight, navTop, inset = 0, gap = 0, innerHeig
   if (started) return;
   started = true;
   hidden = !!hiddenAtStart;
-  await AdMob.initialize({ initializeForTesting: ADMOB_USE_TEST_ADS });
+  // 【便S4】本番(同梱の資産を読むビルド)は本人の ID・開発版(Ficus Dev)は Google の demo(adsConfig.js の admobIds)。
+  const ids = admobIds(shellBuildKind());
+  await AdMob.initialize({ initializeForTesting: ids.useTestAds });
   // 「許可」以外(拒否・制限・未決定のまま・読めない)はパーソナライズしない広告(npa。本人裁定)。拒否でも帯は出る。
   let npa = true;
   let askAgain = false;
@@ -86,11 +89,11 @@ export async function startAds({ onHeight, navTop, inset = 0, gap = 0, innerHeig
   // 隠す相手が居ない(ログを出すだけ)ので、届くたび(自動の更新・取り直しを含む)に、隠したい間なら隠し直す。
   AdMob.addListener(BannerAdPluginEvents.Loaded, () => { if (hidden) AdMob.hideBanner().catch(() => {}); });
   lastShow = {
-    adId: ADMOB_BANNER_UNIT_ID_IOS, adSize: BannerAdSize.ADAPTIVE_BANNER, position: BannerAdPosition.BOTTOM_CENTER,
+    adId: ids.bannerUnitId, adSize: BannerAdSize.ADAPTIVE_BANNER, position: BannerAdPosition.BOTTOM_CENTER,
     margin: adBannerMargin({ innerHeight, navTop, inset, gap }),
     // isTesting は常に false。このプラグインは isTesting が true だと adId を捨てて自前の試験用 ID
     // (AdMobPlugin.swift の showBanner → getAdId。末尾 /6300978111)に替える。それは Android の demo のバナーで
-    // (https://developers.google.com/admob/android/test-ads)、iOS の demo ではない。試験用の広告は adsConfig.js の iOS の demo で出す。
+    // (https://developers.google.com/admob/android/test-ads)、iOS の demo ではない。試験用の広告(開発版)は adsConfig.js の iOS の demo で出す。
     isTesting: false,
     npa,
   };

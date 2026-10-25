@@ -106,6 +106,7 @@ afterEach(() => {
 
 describe("殻: 広告の帯を始める順と、帯の高さ(--ad-h = 帯 + すき間 --sp-2)", () => {
   it("initialize → ATT の状態 → 未決定なら尋ねて読み直す → 聞き手 → showBanner の順。中身は iOS の demo のユニット・アダプティブ・下中央・margin 55", async () => {
+    // 【便S4】jsdom のページは http: なので、殻の作り物の上では「開発版」(native.js の shellBuildKind = "dev")= 試験の広告。本番の枝は adsRelease.test.jsx
     asShell(); placeNav();
     ads.shellStartAdsOnce();
     expect(adH()).toBe("58px");   // 来るまでの仮の高さ 50(仕様 §5.3 の AD_H_INITIAL_PX)+ すき間 8
@@ -355,10 +356,14 @@ describe("帯の位置の式・ID・プラグインとネイティブの名前�
     expect(AD_MARGIN_MODE).toBe("safe-area");
   });
 
-  it("試験の段(S1〜S3): バナーは Google の iOS の demo(押しても課金されない)。S4 で本番の ID に替えたらこの検査を逆にする", async () => {
+  // 【便S4 2026-10-25】S3 の「試験の段」を逆にした: 本番の値は本人の AdMob・開発版の値は Google の iOS の demo(押しても課金されない)。
+  // 期待値は本人の AdMob の値と Google の文書から手で写した(adsConfig の定数から逆算しない)。選び方は adsRelease.test.jsx。
+  it("【便S4】本番の段: 本番の値は本人のバナー・試験でない。開発版の値は Google の iOS の demo のまま", async () => {
     const c = await import("./adsConfig.js");
-    expect(c.ADMOB_USE_TEST_ADS).toBe(true);
-    expect(c.ADMOB_BANNER_UNIT_ID_IOS).toBe("ca-app-pub-3940256099942544/2435281174");
+    expect(c.ADMOB_USE_TEST_ADS).toBe(false);
+    expect(c.ADMOB_BANNER_UNIT_ID_IOS).toBe("ca-app-pub-8488624336436415/6801189906");
+    expect(c.ADMOB_DEV_USE_TEST_ADS).toBe(true);
+    expect(c.ADMOB_DEV_BANNER_UNIT_ID_IOS).toBe("ca-app-pub-3940256099942544/2435281174");
   });
 
   it("プラグインの列挙の値は Swift の綴りと同じ(BannerAdPluginEvents.swift の rawValue・BannerExecutor.swift の switch)", async () => {

@@ -748,6 +748,22 @@ describe("【便CQ 統括の決定B】音の診断の板(計測タブで下部�
     await settle();
     expect(panel()).toBe(null);
   }, 30000);
+  // 【便S4 2026-10-25】本番の殻(同梱の資産を読むビルド)では開かない。jsdom のページは http: なので、上の殻の検査は開発版(Ficus Dev)の殻になる。
+  // 本番は native.js の shellBuildKind だけを "release" にした作り物で描く(scheme の判定そのものは adsRelease.test.jsx)。
+  it("【便S4】本番の殻(shellBuildKind = release): 計測タブで長押ししても開かない", async () => {
+    asShell();
+    vi.doMock("./native.js", async (importOriginal) => ({ ...(await importOriginal()), shellBuildKind: () => "release" }));
+    try {
+      mod = await loadApp();
+      await render();
+      await waitMic();
+      await press(500);
+      await settle();
+      await tick(300);
+      expect(panel()).toBe(null);
+      expect(nav("計測")).not.toBe(null);   // 下部タブは描かれている(押した相手はある)
+    } finally { vi.doUnmock("./native.js"); }
+  }, 30000);
   it("殻のビルドが古い(sessionInfo・audioInfo が無い)と「要ビルド」", async () => {
     asShell();
     cap.session = null;
