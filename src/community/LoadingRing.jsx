@@ -69,6 +69,12 @@ export function LoadingRing({ p, size = null }) {
   );
 }
 
+// 【便DG】包みの上端(top)が、タブの帯が出ていないときの上端(top0)より下がっていたぶん。top0 が測れない(card の外)ときは 0 = 今までどおり。
+export function loadingRingShift(top, top0) {
+  if (!Number.isFinite(top) || !Number.isFinite(top0)) return 0;
+  return Math.max(0, top - top0);
+}
+
 // step: この待ちがどの段階かを進捗の帳簿に伝える。**省くと帳簿を進めずに
 // 今の値のまま出す** ── 目安の一覧のように名簿と**並行して**走る読みは、
 // 段階をもう1つ足すと「名簿より先に終わった側で数字が巻き戻る」ので、
@@ -81,13 +87,24 @@ export default function LoadingRingBox({ step = null }) {
   // 上端は文書座標で1度測る(スクロール位置に依らない。App.jsx の fillViewportMinHeight と同じ考え)。
   // 新しい数は書かない: 100dvh と --page-bottom-gap は既存のトークン、上端は実測値。
   // dvh 未対応の環境では minHeight の宣言ごと落ちて、以前どおり中身の高さになる。
+  // 【便DG 2026-10-26 本人の実機のスクショ】ロードが進んで上にタブ(データ・順位・シェア・マイページ)が出ると、この包みの上端が下がり、中央が top の増えたぶんの半分だけ下へずれていた
+  // (2000px 換算で 54% の y≈895 → 81% の y≈945)。芽の位置を**ロードの途中で動かさない**ため、中央を「タブが出ていないときの上端(card の中身の先頭 = top0)〜下部ナビの上端」の中央に固定する:
+  // 上端が top0 より下がっていたぶん(shift = top − top0)だけ下の余白を足して、中身を半分(shift / 2)持ち上げ、top0 の中央に戻す。top0 = 包みを含む .surf-card(無ければ .app-root)の中身の先頭の文書座標。
+  // 位置はタブが出ていないとき(以前の 54% の画面)に揃える ── ほとんどの時間はこの状態で、ここから動かさないほうが見た目の変化が少ないため。タブが出ていない画面では shift = 0 = 今までと1pxも変わらない。
+  // 新しい数は書かない: 100dvh・--page-bottom-gap・--sp-6 は既存のトークン、top / top0 は実測値。
   const boxRef = useRef(null);
   const [top, setTop] = useState(0);
+  const [top0, setTop0] = useState(null);
   useLayoutEffect(() => {
     const measure = () => {
       const el = boxRef.current;
       if (!el) return;
-      setTop(Math.max(0, el.getBoundingClientRect().top + (window.scrollY || 0)));
+      const scrollY = window.scrollY || 0;
+      setTop(Math.max(0, el.getBoundingClientRect().top + scrollY));
+      const card = el.closest(".surf-card") || el.closest(".app-root");
+      if (!card) { setTop0(null); return; }
+      const cs = window.getComputedStyle(card);
+      setTop0(Math.max(0, card.getBoundingClientRect().top + scrollY + (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.paddingTop) || 0)));
     };
     measure();
     window.addEventListener("resize", measure);
@@ -114,6 +131,9 @@ export default function LoadingRingBox({ step = null }) {
     <div role="img" aria-label="読み込み中" ref={boxRef}
       style={{
         padding: "var(--sp-6)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+        boxSizing: "border-box",
+        // 【便DG】上端が top0 より下がっていたぶん(タブの帯)だけ下の余白を足す = 中身の中央を top0 の中央へ戻す(上の注記)
+        paddingBottom: `calc(var(--sp-6) + ${loadingRingShift(top, top0)}px)`,
         minHeight: `calc(100dvh - var(--page-bottom-gap) - ${top}px)`,
       }}>
       {/* 【中央に来るのは絵】数字は絵の下に**絶対配置**で添える ── 流れの中に置くと

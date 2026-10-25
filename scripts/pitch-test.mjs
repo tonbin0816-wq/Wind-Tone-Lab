@@ -24827,7 +24827,7 @@ console.log("\n========== 検証52: 便H コミュニティ(C1〜C12) ==========
     check("52.1 C1 高さは 100dvh − --page-bottom-gap − 包みの上端(既存のトークン + 実測。新しい数を書かない)",
       /minHeight: `calc\(100dvh - var\(--page-bottom-gap\) - \$\{top\}px\)`/.test(ring52));
     check("52.1 C1 上端は文書座標で測る(rect.top + scrollY。App.jsx の fillViewportMinHeight と同じ考え)",
-      /useLayoutEffect\(/.test(ring52) && /el\.getBoundingClientRect\(\)\.top \+ \(window\.scrollY \|\| 0\)/.test(ring52)
+      /useLayoutEffect\(/.test(ring52) && /const scrollY = window\.scrollY \|\| 0;\n\s*setTop\(Math\.max\(0, el\.getBoundingClientRect\(\)\.top \+ scrollY\)\);/.test(ring52)
       && /window\.addEventListener\("resize", measure\)/.test(ring52));
     check("52.1 C1 中央に来るのは**輪**。数字は輪の下に絶対配置(流れの中に置くと輪が中点より上にずれる)",
       /<div style=\{\{ position: "relative" \}\}>\s*<LoadingRing p=\{pct \/ 100\} \/>/.test(ring52)
@@ -33951,6 +33951,13 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
       && /if \(firstScene && connectErrorOf\(e\) !== CONFIG_ERROR\) \{ setBgError\(connectErrorOf\(e\)\); return; \}/.test(commDC)
       && /\{firstScene && bgError \? \(/.test(commDC) && /data-join-retry=""/.test(commDC)
       && (commDC.match(/ensureSignedIn\(\)/g) || []).length === 1);
+    const lrDG = codeOf(readFileSync(join(__dirname, "..", "src", "community", "LoadingRing.jsx"), "utf8"));
+    check("DG.1 【便DG】ロード中の芽の位置はタブの帯の有無で動かない: 包みの上端(top)が card の中身の先頭(top0)より下がったぶん(shift)を下の余白に足して中央を top0 に戻す・新しい px は書かない(測った値だけ)・border-box",
+      /export function loadingRingShift\(top, top0\) \{\n  if \(!Number\.isFinite\(top\) \|\| !Number\.isFinite\(top0\)\) return 0;\n  return Math\.max\(0, top - top0\);\n\}/.test(lrDG)
+      && /const card = el\.closest\("\.surf-card"\) \|\| el\.closest\("\.app-root"\);/.test(lrDG)
+      && /paddingBottom: `calc\(var\(--sp-6\) \+ \$\{loadingRingShift\(top, top0\)\}px\)`,/.test(lrDG)
+      && /minHeight: `calc\(100dvh - var\(--page-bottom-gap\) - \$\{top\}px\)`,/.test(lrDG)
+      && /boxSizing: "border-box",/.test(lrDG));
     check("DE.4 【便DE 審査】既存プロフィールの確認が済むまで保存を押せない(confirmed。確認の読みの失敗・上限超過では false のまま・アカウントが無い端末は一瞬で true)。ProfileForm の holdSubmit は既定 false(ふだんは変わらない)",
       /const \[confirmed, setConfirmed\] = useState\(!firstScene\);/.test(commDC)
       && /holdSubmit=\{firstScene && !confirmed\}/.test(commDC)

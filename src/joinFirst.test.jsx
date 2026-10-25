@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createFakeIndexedDb } from "./backup/fakeIndexedDb.testutil.js";
@@ -176,6 +176,9 @@ function installFakeMic() {
   });
 }
 
+// コミュニティタブのコードの変換(vitest の初回の transform)を先に済ませておく。初回の変換が 1 秒を超えると、遅れて出す輪(最初の 1 秒は何も描かない)が
+// 本当に出て「読み込み画面は一度も出ない」の検査が揺れる(本番の先読みは回線の話で、ここで見たいのは描画の決まり)。評価は各検査で作り直すので、取得の数などは変わらない。
+beforeAll(async () => { await import("./community/CommunityTab.jsx"); }, 60000);
 beforeEach(() => {
   fake = createFakeIndexedDb();
   server.uid = null; server.profile = null; server.signIns = 0; server.signInCalls = 0; server.signInGate = null; server.releaseSignIn = null; server.loadGate = null; server.hangLoadProfile = false; server.savedUids = []; server.failSignIn = false; server.failLoad = false; server.configMissing = null; server.hangSignIn = false; server.hangSave = false; server.saves = 0;
