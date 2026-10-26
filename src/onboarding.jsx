@@ -320,7 +320,9 @@ export const COACH_STEPS = {
   // 【便BW 本人の要望8】⑭ 音の傾向カード。My Data の最下段なので、初回だけ的へスクロール。押す=済。
   trend: {
     flag: "trend", icon: "data",
-    title: "データが溜まると、平均がここにグラフで出ます", line: null,
+    // 【便DL 2026-10-26 本人の指示】見出しを「データが蓄積すると(ニックネーム)さんの平均値がグラフで出ます」に(1行なしは変えない)。
+    // {call} = コミュニティの呼び方(callNameOf)。取れていなければ「あなた」。折り返しは CoachText の文節の切れ目(蓄積すると | 〇〇さんの | 平均値が | …)
+    title: "データが蓄積すると{call}の平均値がグラフで出ます", line: null,
     target: '[data-coach="trend"]', pad: 0, shape: "rect", markOnDismiss: true, scrollIntoView: true,
   },
   // 【便BW 本人の要望9・本人裁定 2026-10-06】⑮ みんなの平均を目安にしたあと、帯の「見る」で来たときだけ。的は ⑭ と同じ音の傾向カード

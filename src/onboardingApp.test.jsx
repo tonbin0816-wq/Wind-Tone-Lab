@@ -756,7 +756,7 @@ describe("【便BW】データタブ: ⑫ 日のマス → ⑬ 記録の行 →(
     await click(backToList());
     await waitFor(() => layerId() === "trend", "⑭ 音の傾向");
     expect(scrollCalls).toEqual([["trend", { block: "center", behavior: "auto" }]]);   // 画面の外だったので1回だけ送った
-    expect(layer().querySelector(".coach-title").textContent).toBe("データが溜まると、平均がここにグラフで出ます");
+    expect(layer().querySelector(".coach-title").textContent).toBe("データが蓄積するとあなたの平均値がグラフで出ます");
     const hole = layer().querySelector(".coach-hole");
     expect([hole.style.left, hole.style.top, hole.style.width, hole.style.height]).toEqual(["14px", "216px", "347px", "380px"]);
     await click(layer().querySelector(".coach-card"));                                  // 押す=済

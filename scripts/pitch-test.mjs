@@ -33733,7 +33733,7 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     const titles = ["まずは吹いてみよう", "メトロノームを使ってみよう", "テンポを決めよう", "タップでスタート", "リードを登録しよう",
       "使っているリードを登録しよう", "このリードで計測してみよう", "選んだリードが紐づいています", "最初の計測を記録しよう",
       "計測の記録を見てみよう", "計測を始めると、ここに貯まります", "計測した日を押してみよう", "記録を開いてみよう",
-      "データが溜まると、平均がここにグラフで出ます", "みんなの平均を目安にしました", "みんなの平均を目安にしてみよう",
+      "データが蓄積すると{call}の平均値がグラフで出ます", "みんなの平均を目安にしました", "みんなの平均を目安にしてみよう",
       // 【便BX】新しい6段
       "ここはリードタブ", "ここはデータタブ", "みんなのデータも見てみよう", "ここはコミュニティ", "計測タブに戻ろう", "Ficusで{call}の音を分析しよう！"];
     const missing = titles.filter((t) => !sec.includes(t));
@@ -34582,8 +34582,8 @@ console.log("========== 検証CI: 便CI 参加のカードは見出しと1行だ
     /title: "使っているリードを登録しよう", line: "登録したリードは計測に紐づけることができます",/.test(stepDH("reeds"))
     && /title: "ここはリードタブ", line: "自分のリードを管理できます",/.test(stepDH("arriveReeds"))
     && /title: "まずは吹いてみよう", line: "音程がリアルタイムで表示されます",/.test(stepDH("tuner")));
-  check("DH.2 {call} を持つ文は2つだけ(finish の見出し・arriveCommunity の1行)。段の数・順・的・パッドは触っていない(段は24・arrival は4)",
-    (stepsDH.match(/\{call\}/g) || []).length === 2 && /Ficusで\{call\}の音を分析しよう！/.test(stepDH("finish")) && /見て\{call\}のデータと/.test(stepDH("arriveCommunity"))
+  check("DH.2 {call} を持つ文は3つだけ(finish の見出し・arriveCommunity の1行・【便DL】trend の見出し)。段の数・順・的・パッドは触っていない(段は24・arrival は4)",
+    (stepsDH.match(/\{call\}/g) || []).length === 3 && /Ficusで\{call\}の音を分析しよう！/.test(stepDH("finish")) && /見て\{call\}のデータと/.test(stepDH("arriveCommunity"))
     && [...stepsDH.matchAll(/\n  ([A-Za-z]+): \{/g)].length === 24 && (stepsDH.match(/arrival: true/g) || []).length === 4);
 
   // --- DH.3 呼び名は1つの関数(写しを作らない) ---------------------------------------------------------------
@@ -34709,6 +34709,41 @@ console.log("========== 検証CI: 便CI 参加のカードは見出しと1行だ
   check("DK.3 保存の帯の渡し方(文・「開く」・coach: \"measure\")と ActionNotice の見た目は変えていない / 書類(DESIGN-SYSTEM §4.5b・COACH3-SPEC §7)に【便DK】",
     /actionLabel: "開く",\n\s*onAction: \(\) => openSessionFromNotice\(pendingSession\.id\),/.test(appDK) && /coach: "measure",\n\s*\}\);/.test(appDK)
     && /【便DK/.test(rdDK("design/DESIGN-SYSTEM.md")) && /【便DK/.test(rdDK("design/COACH3-SPEC.md")));
+  console.log("  -> done");
+}
+
+// ------------------------------------------------------------------
+// 【便DL 2026-10-26 本人の指示】trend(⑭ 音の傾向カード)の見出しを「データが蓄積すると(ニックネーム)さんの平均値がグラフで出ます」に。綴りだけを見る
+// (描いて見る検査は src/onboarding.test.jsx・src/onboardingApp.test.jsx / 切れ目は src/coachPhrase.test.js)。
+// ------------------------------------------------------------------
+{
+  console.log("\n[便DL] trend の見出し");
+  const rdDL = (p) => { try { return readFileSync(join(__dirname, "..", p), "utf8").replace(/\r\n/g, "\n"); } catch { return ""; } };
+  const obDL = codeOf(rdDL("src/onboarding.jsx"));
+  const trDL = (/\n  trend: \{([\s\S]*?)\n  \},/.exec(obDL) || [])[1] || "";
+  check("DL.1 COACH_STEPS.trend = 見出し「データが蓄積すると{call}の平均値がグラフで出ます」・1行なし(null)。印・的・pad・押す=済・的へ送る は変えていない",
+    /flag: "trend", icon: "data",\n\s*title: "データが蓄積すると\{call\}の平均値がグラフで出ます", line: null,\n\s*target: '\[data-coach="trend"\]', pad: 0, shape: "rect", markOnDismiss: true, scrollIntoView: true,/.test(trDL));
+  // 旧文は2つに割って書く(この検査自身が旧文を持たない)。語の別表記(溜まる / たまる)も残さない
+  const OLD_DL = [["データが溜まると、", "平均がここにグラフで出ます"], ["データが", "たまると、平均がここにグラフで出ます"]].map((p) => p.join(""));
+  const TEXT_EXT_DL = /\.(?:jsx?|mjs|cjs|css|md|html|json|txt|webmanifest|svg|yaml|yml)$/;
+  const leftDL = [];
+  let nDL = 0;
+  for (const d of ["src", "scripts", "design", "public"]) {
+    let ents = [];
+    try { ents = readdirSync(join(__dirname, "..", d), { recursive: true, withFileTypes: true }); } catch { ents = []; }
+    for (const e of ents) {
+      if (!e.isFile() || !TEXT_EXT_DL.test(e.name) || /node_modules/.test(e.parentPath ?? e.path ?? "")) continue;
+      const f = join(e.parentPath ?? e.path, e.name);
+      let t = ""; try { t = _readFileSyncRaw(f, "utf8"); } catch { continue; }
+      nDL += 1;
+      for (const o of OLD_DL) if (t.includes(o)) leftDL.push(`${e.name}: ${o}`);
+    }
+  }
+  check("DL.2 旧文(trend の見出し)が src・scripts・design・public(design/SUBMISSION.md を含む)のどこにも残っていない(走査したファイルが100を超える)",
+    nDL > 100 && leftDL.length === 0, `${nDL}ファイル / ${leftDL.join(" | ")}`);
+  check("DL.3 書類に新しい見出し: DESIGN-SYSTEM §4.5b の ⑭・COACH2/COACH3-SPEC の段の表 / 「蓄積」「平均値」は指示どおりの語",
+    rdDL("design/DESIGN-SYSTEM.md").includes("データが蓄積すると{call}の平均値がグラフで出ます") && rdDL("design/COACH3-SPEC.md").includes("| trend | data | data | データが蓄積すると{call}の平均値がグラフで出ます | null |")
+    && rdDL("design/COACH2-SPEC.md").includes("| trend | data | データが蓄積すると{call}の平均値がグラフで出ます | null |"));
   console.log("  -> done");
 }
 

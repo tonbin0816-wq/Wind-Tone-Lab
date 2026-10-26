@@ -64,7 +64,7 @@ describe("文言(凍結仕様の表と本人の指示のとおり、一字一句
     goData: ["計測の記録を見てみよう", null, "data"],
     calendarDay: ["計測した日を押してみよう", null, "data"],
     daySession: ["記録を開いてみよう", null, "data"],
-    trend: ["データが溜まると、平均がここにグラフで出ます", null, "data"],
+    trend: ["データが蓄積すると{call}の平均値がグラフで出ます", null, "data"],   // 【便DL】見出しを替えた({call} = 呼び名)
     // 【便BW 本人裁定 2026-10-06】⑮ はデータタブの音の傾向カード
     idealSeen: ["みんなの平均を目安にしました", "my平均と目安を重ねて見られます", "target"],
     // 【便BX 2026-10-06 凍結仕様 §2.3】到着4つ・⑭'・⑰(「！」は全角・「ここはコミュニティ」に「タブ」を付けない)
@@ -2319,9 +2319,9 @@ describe("【便DH】呼び名({call})= コミュニティの「ニックネー�
     expect(title()).toBe("Ficusであなたの音を分析しよう！");
     expect(live().textContent).toBe("Ficusであなたの音を分析しよう！。これでチュートリアルは終了です");
   });
-  it("呼び名の入る文は2つだけ(finish の見出し・arriveCommunity の1行)。ほかの段の文には {call} が入らない", () => {
+  it("呼び名の入る文は3つだけ(finish の見出し・arriveCommunity の1行・【便DL】trend の見出し)。ほかの段の文には {call} が入らない", () => {
     const withCall = Object.entries(COACH_STEPS).flatMap(([id, s]) => [["title", s.title], ["line", s.line]].filter(([, t]) => typeof t === "string" && t.includes("{call}")).map(([k]) => `${id}.${k}`));
-    expect(withCall.sort()).toEqual(["arriveCommunity.line", "finish.title"]);
+    expect(withCall.sort()).toEqual(["arriveCommunity.line", "finish.title", "trend.title"]);
   });
 });
 
@@ -2377,6 +2377,52 @@ describe("【便DJ】⑱ の補足文「これでチュートリアルは終了�
     expect(card.getAttribute("data-coach-side")).toBe("center");
     // 読み上げは見出し + 補足文
     expect(live().textContent).toBe("Ficusでたろうさんの音を分析しよう！。これでチュートリアルは終了です");
+  });
+});
+
+// ------------------------------------------------------------------
+// 【便DL 2026-10-26 本人の指示】⑭ trend の見出しを「データが蓄積すると(ニックネーム)さんの平均値がグラフで出ます」に。呼び名は {call}(callNameOf)。
+// 期待値は本人の指示の文と、文節の切れ目(データが|蓄積すると|〇〇さんの|平均値が|グラフで|出ます)から手で書いた。
+// ------------------------------------------------------------------
+describe("【便DL】⑭ trend の見出し(呼び名入り)", () => {
+  const drawTrend = (nickname) => act(async () => {
+    root.render(<><Nav /><TrendCard r="14,300,347,380" /><OnboardingCoach candidates={["trend"]} done={ALL_FALSE} hidden={false} nickname={nickname} /></>);
+  });
+  const title = () => layer().querySelector(".coach-title").textContent;
+  it("ニックネームがあれば「〇〇さん」: 見出し・読み上げ・<wbr> の切れ目。1行は無い", async () => {
+    await drawTrend("たろう");
+    await frames();
+    expect(layerId()).toBe("trend");
+    expect(title()).toBe("データが蓄積するとたろうさんの平均値がグラフで出ます");
+    expect(layer().querySelector(".coach-line")).toBe(null);
+    expect(layer().querySelector(".coach-title").innerHTML).toBe("データが<wbr>蓄積すると<wbr>たろうさんの<wbr>平均値が<wbr>グラフで<wbr>出ます");
+    expect(live().textContent).toBe("データが蓄積するとたろうさんの平均値がグラフで出ます");
+  });
+  it("ニックネームが無い(null・未定義・空・空白だけ・文字列でない)ときは「あなた」。「あなたさん」にならない", async () => {
+    for (const nick of [null, undefined, "", " ", "　", 0, {}, []]) {
+      act(() => root.unmount());
+      root = createRoot(host);
+      await drawTrend(nick);
+      await frames();
+      expect(title(), String(nick)).toBe("データが蓄積するとあなたの平均値がグラフで出ます");
+      expect(live().textContent, String(nick)).toBe("データが蓄積するとあなたの平均値がグラフで出ます");
+      expect(document.body.textContent.includes("あなたさん")).toBe(false);
+    }
+  });
+  it("ニックネームを変えたら次の描画で文も変わる(カードは作り直さない)。20字でも呼び名は1つの塊(中に <wbr> を置かない)", async () => {
+    await drawTrend("たろう");
+    await frames();
+    const card = layer().querySelector(".coach-card");
+    await drawTrend("はなこ");
+    expect(layer().querySelector(".coach-card")).toBe(card);
+    expect(title()).toBe("データが蓄積するとはなこさんの平均値がグラフで出ます");
+    const long = "山の上のうさぎの太郎と花子の会のひとびと";
+    await drawTrend(long);
+    expect(layer().querySelector(".coach-title").innerHTML).toBe(`データが<wbr>蓄積すると<wbr>${long}さんの<wbr>平均値が<wbr>グラフで<wbr>出ます`);
+  });
+  it("押す=済(markOnDismiss)・的へ送る・的は音の傾向カードのまま(文だけ替えた)", () => {
+    expect([COACH_STEPS.trend.flag, COACH_STEPS.trend.target, COACH_STEPS.trend.pad, COACH_STEPS.trend.shape, COACH_STEPS.trend.markOnDismiss, COACH_STEPS.trend.scrollIntoView, COACH_STEPS.trend.line])
+      .toEqual(["trend", '[data-coach="trend"]', 0, "rect", true, true, null]);
   });
 });
 

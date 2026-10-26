@@ -98,7 +98,7 @@
 | ⑪ | `data` | `measure`(既存) | 計測が**無い**(`!hasSessions`)・読み込み済み | `[data-coach="nav-measure"] svg`(既存) | 計測を始めると、ここに貯まります / 計測タブから計測してみよう(既存) | 計測が保存された | 消える(単独。既存) |
 | ⑫ | `calendarDay` | `calendarDay`(新) | 計測がある・`!done.calendarDay` | `[data-coach="calendarDay"]` = カレンダーの**最新の計測の日のマス**(§7.4。その日の枠が閉じているときだけ名乗る)。circle・pad 0 | 計測した日を押してみよう / (なし) | その日の枠が開いた(`toggleDay` で `next !== null`) | 消える(データタブ群) |
 | ⑬ | `daySession` | `daySession`(新) | 計測がある・`!done.daySession` | `[data-coach="daySession"]` = 開いた日の枠の**先頭の記録の行**(`DaySessionRow` の1つ目)。rect・pad 4 | 記録を開いてみよう / (なし) | 計測の詳細が開いた(`AnalysisLabView` の `selectedSession` が非 null。帯の「開く」から入っても済む) | 同上 |
-| ⑭ | `trend` | `trend`(新) | ⑬済・`!done.trend` | `[data-coach="trend"]` = 音の傾向カード(App.jsx:17108 `<div className="card" style={{ marginTop: "var(--sp-3)" }}>`)。rect・pad 0。**初回だけ的へスクロール**(§7.5) | データが溜まると、平均がここにグラフで出ます / (なし) | **押す=済** | 押す=済 |
+| ⑭ | `trend` | `trend`(新) | ⑬済・`!done.trend` | `[data-coach="trend"]` = 音の傾向カード(App.jsx:17108 `<div className="card" style={{ marginTop: "var(--sp-3)" }}>`)。rect・pad 0。**初回だけ的へスクロール**(§7.5) | データが蓄積すると{call}の平均値がグラフで出ます / (なし) | **押す=済** | 押す=済 |
 
 - データタブ群(`DATA_TAB_STEPS`)= `["calendarDay","daySession","trend"]`。
 - **`dataSeen` の段は無くす**(「計測したデータがここに貯まります」)。役目は ⑫⑬⑭ が継ぐ。印の名前 `dataSeen` は `ONBOARDING_FLAGS` に**残す**(前の版が保存した値を移行で読むため。§8.1)。`COACH_STEPS.dataSeen`・`anchor`・`dataSeenDeferred`・App.jsx:5126-5131 の `sawNoSessionsThisLaunch` は消す(0件 → 1件の起動で2枚続くのを避ける決まりは、新しい流れでは**続いてほしい**ので要らない。帯が 5 秒出ている間はどのみち隠れる)。
@@ -137,7 +137,7 @@
 | data | data | 計測を始めると、ここに貯まります | 計測タブから計測してみよう |
 | calendarDay | data | 計測した日を押してみよう | null |
 | daySession | data | 記録を開いてみよう | null |
-| trend | data | データが溜まると、平均がここにグラフで出ます | null |
+| trend | data | データが蓄積すると{call}の平均値がグラフで出ます | null |
 | idealSeen | target | 目安を設定しました | 計測の記録で、目安の破線と比べられます |
 | adoptAverage | target | みんなの平均を目安にしてみよう | 目安に設定すると自分の音と比べられます |
 
@@ -551,7 +551,7 @@ export function migrateOnboardingDone(prev, { sessions = [], reeds = [], idealPr
 
 **(2) 既存の利用者(計測あり)に新しい段を 0 枚にする(§8.1)**
 - 既定 **ア**: 0 枚。本人は見本で見る。
-- イ: データタブの ⑭(「データが溜まると、平均がここにグラフで出ます」)だけは既存の人にも1回出す(便BS で dataSeen を1回出したのと同じ扱い)。移行で `trend` を立てない。
+- イ: データタブの ⑭(「データが蓄積すると{call}の平均値がグラフで出ます」)だけは既存の人にも1回出す(便BS で dataSeen を1回出したのと同じ扱い)。移行で `trend` を立てない。
 - 聞く理由: 便BS のときは「既存の人にも1回」を選んでいた。
 
 **(3) 「表示の変更」の読み(§0 の 2・段③)**

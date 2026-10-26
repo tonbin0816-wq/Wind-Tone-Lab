@@ -149,7 +149,7 @@
 | **arriveData** | data | data | ここはデータタブ | 計測の記録はここに貯まります |
 | calendarDay | data | data | 計測した日を押してみよう | null |
 | daySession | data | data | 記録を開いてみよう | null |
-| trend | data | data | データが溜まると、平均がここにグラフで出ます | null |
+| trend | data | data | データが蓄積すると{call}の平均値がグラフで出ます | null |
 | **goCommunity** | community | data | みんなのデータも見てみよう | null |
 | idealSeen | target | data | みんなの平均を目安にしました | my平均と目安を重ねて見られます |
 | **goMeasure** | measure | data | 計測タブに戻ろう | null |
