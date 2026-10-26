@@ -24668,13 +24668,15 @@ console.log("\n========== 検証51: 便G データタブ(D1〜D4) ==========");
       // 【便CO 2026-10-12】参加の画面のカードの知らせ onJoinCard(既定 null)が wide の前に加わった。landTab / onLanded の形は同じ。
       // 【便DD 審査】参加が不可能な失敗(設定の欠落)の知らせ onJoinBlocked(既定 null)が onJoinCard のあとに加わった。
       // 【便DE】初回の参加の場面かの合図 joinFirst(既定 false)が onJoinBlocked のあとに加わった(マウントしたときの値だけ読む)。
-      /export default function CommunityTab\(\{ sessions, tuningHz, onAdoptIdeal, landTab = null, onLanded = null, onOnboarding = null, onJoinCard = null, onJoinBlocked = null, joinFirst = false, wide = false \}\)/.test(comm51)
-      && /<CommunityTabBody [^>]*landTab=\{landTab\} onLanded=\{onLanded\} onOnboarding=\{onOnboarding\} onJoinCard=\{onJoinCard\} onJoinBlocked=\{onJoinBlocked\} joinFirst=\{joinFirst\} wide=\{wide\} \/>/.test(comm51));
+      // 【便DH 2026-10-26】自分のニックネームを案内の文へ知らせる口 onNickname(既定 null)が onJoinBlocked のあと・joinFirst の前に加わった。
+      /export default function CommunityTab\(\{ sessions, tuningHz, onAdoptIdeal, landTab = null, onLanded = null, onOnboarding = null, onJoinCard = null, onJoinBlocked = null, onNickname = null, joinFirst = false, wide = false \}\)/.test(comm51)
+      && /<CommunityTabBody [^>]*landTab=\{landTab\} onLanded=\{onLanded\} onOnboarding=\{onOnboarding\} onJoinCard=\{onJoinCard\} onJoinBlocked=\{onJoinBlocked\} onNickname=\{onNickname\} joinFirst=\{joinFirst\} wide=\{wide\} \/>/.test(comm51));
     check("51.3 D3 CommunityTabBody: 来ていればそれで始め、来たら state を合わせて onLanded で返す",
       // 【便BP 2026-10-03】末尾に onOnboarding = null が加わった(参加済みと分かったら印を立てる)。
       // 【便BV 2026-10-04】末尾に wide = false が加わった(参加前の見本・参加後の画面へ配るだけ)。
       // 【便CO 2026-10-12】wide の前に onJoinCard = null が加わった(参加の画面のカードが出ているかを App へ知らせる)。
-      /function CommunityTabBody\(\{ sessions, tuningHz, onAdoptIdeal, landTab: landTabRequest = null, onLanded = null, onOnboarding = null, onJoinCard = null, onJoinBlocked = null, joinFirst = false, wide = false \}\)/.test(comm51)
+      // 【便DH】onNickname = null が onJoinBlocked のあとに加わった。
+      /function CommunityTabBody\(\{ sessions, tuningHz, onAdoptIdeal, landTab: landTabRequest = null, onLanded = null, onOnboarding = null, onJoinCard = null, onJoinBlocked = null, onNickname = null, joinFirst = false, wide = false \}\)/.test(comm51)
       && /const \[landTab, setLandTab\] = useState\(landTabRequest \|\| "data"\);/.test(comm51)
       && /if \(!landTabRequest\) return;\s*setLandTab\(landTabRequest\);\s*if \(onLanded\) onLanded\(\);/.test(comm51));
     check("51.3 D3 CommunityTabBody: 開く子タブは今までどおり initialTab で JoinedView へ渡す",
@@ -33412,7 +33414,8 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
       && /const markCoachShown = useCallback\(\(\) => \{\n    if \(tutorialPreview\) return;\n    setOnboardingShown\(true\);\n  \}, \[setOnboardingShown, tutorialPreview\]\);/.test(app)
       // 【便CJ】onShown の次に外押しの知らせ onDismiss
       // 【便CO】その次にカードがあるかの知らせ onPresence(広告の帯を止める)
-      && /\n        onShown=\{markCoachShown\}\n        onDismiss=\{markCoachDismissed\}\n        onPresence=\{setCoachPresent\}\n      \/>/.test(app));
+      // 【便DH】その次に自分のニックネーム nickname(案内の文の「〇〇さん」)
+      && /\n        onShown=\{markCoachShown\}\n        onDismiss=\{markCoachDismissed\}\n        onPresence=\{setCoachPresent\}\n        nickname=\{coachNickname\}\n      \/>/.test(app));
     // 【殻 S3 統括の裁定】帯と下部タブの間に押せないすき間 --sp-2(地は塗らない)。見本の帯も殻と同じ置き方
     check("K.21 見本の帯: 下端 = 下部タブ + 安全域 + --sp-2・高さ = --ad-h − --sp-2。index.css の見本の --ad-h = 50px + --sp-2",
       /bottom: "calc\(var\(--nav-h\) \+ env\(safe-area-inset-bottom\) \+ var\(--sp-2\)\)",\n\s*height: "calc\(var\(--ad-h\) - var\(--sp-2\)\)",/.test(app)
@@ -33727,12 +33730,12 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
       `${blk.length}文字 / fnv1a=${fnvBW(blk)}`);
     const ds = rd("design/DESIGN-SYSTEM.md");
     const sec = ds.slice(ds.indexOf("## 4.5b"), ds.indexOf("\n## 5. "));
-    const titles = ["まずは吹いてみよう", "メトロノームも使えます", "テンポを決めよう", "タップでスタート", "次はリードを登録しよう",
+    const titles = ["まずは吹いてみよう", "メトロノームを使ってみよう", "テンポを決めよう", "タップでスタート", "リードを登録しよう",
       "使っているリードを登録しよう", "このリードで計測してみよう", "選んだリードが紐づいています", "最初の計測を記録しよう",
       "計測の記録を見てみよう", "計測を始めると、ここに貯まります", "計測した日を押してみよう", "記録を開いてみよう",
       "データが溜まると、平均がここにグラフで出ます", "みんなの平均を目安にしました", "みんなの平均を目安にしてみよう",
       // 【便BX】新しい6段
-      "ここはリードタブ", "ここはデータタブ", "みんなのデータも見てみよう", "ここはコミュニティ", "計測タブに戻ろう", "チューナーとメトロノームを使って、あなたのデータを貯めよう！"];
+      "ここはリードタブ", "ここはデータタブ", "みんなのデータも見てみよう", "ここはコミュニティ", "計測タブに戻ろう", "Ficusで{call}の音を分析しよう！"];
     const missing = titles.filter((t) => !sec.includes(t));
     check("BW.7 DESIGN-SYSTEM §4.5b に段の見出しが全部ある(【便BX】23 の段。⑦⑨ は同じ見出し)",
       sec.length > 1000 && missing.length === 0 && /【便BW/.test(sec), missing.join(" / "));
@@ -33789,11 +33792,13 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     stepIds.length === 24 && stepIds.every((id) => /\n\s*flag: "[A-Za-z]+", icon: "[a-z]+",\n/.test("\n" + stepOf(id) + "\n"))
     && !/\bchapter:/.test(stepsBlk), `${stepIds.length}段`);
   check("BX.1 ⑱ finish の文(一字一句)・アイコン tuner・章 measure",
-    /flag: "finish", icon: "measure",\n\s*title: "チューナーとメトロノームを使って、あなたのデータを貯めよう！", line: "はじめの案内はこれで終わりです",/.test(stepOf("finish")));
+    // 【便DH 2026-10-26 本人の指示】見出しは「Ficusで{call}の音を分析しよう！」({call} = コミュニティの呼び名)・1行は削除
+    /flag: "finish", icon: "measure",\n\s*title: "Ficusで\{call\}の音を分析しよう！", line: null,/.test(stepOf("finish")));
   check("BX.1 到着3つ・⑭'・⑰ の文(一字一句)",
-    /title: "ここはリードタブ", line: "使っているリードを登録して、計測に紐づけます",/.test(stepOf("arriveReeds"))
+    // 【便DH】arriveReeds の1行・arriveCommunity の1行を替えた
+    /title: "ここはリードタブ", line: "自分のリードを管理できます",/.test(stepOf("arriveReeds"))
     && /title: "ここはデータタブ", line: "計測の記録はここに貯まります",/.test(stepOf("arriveData"))
-    && /title: "ここはコミュニティ", line: "参加した人の計測データと、みんなの平均が見られます",/.test(stepOf("arriveCommunity"))
+    && /title: "ここはコミュニティ", line: "他の奏者のデータを見て\{call\}のデータと比較できます",/.test(stepOf("arriveCommunity"))
     // 【便BZ 統括の裁定】下部タブの的はボタンの箱(絵柄 + 名前)・角丸の矩形・pad 0
     && /flag: "goCommunity", icon: "community",\n\s*title: "みんなのデータも見てみよう", line: null,\n\s*target: '\[data-coach="nav-community"\]', pad: 0, shape: "rect",/.test(stepOf("goCommunity"))
     && /flag: "goMeasure", icon: "measure",\n\s*title: "計測タブに戻ろう", line: null,\n\s*target: '\[data-coach="nav-measure"\]', pad: 0, shape: "rect",/.test(stepOf("goMeasure")));
@@ -33849,7 +33854,8 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
   // その起動の最大 shownMaxRef・部品 CoachProgress は使い手が無くなったので消した。カードの最初の子はアイコン(見出し・1行は今のまま)
   check("BX.3 【便CG】目印は無い: COACH_ORDER・coachProgress・COACH_SKIPPED・COACH_STEP_ALIAS・shownMaxRef・CoachProgress・coach-progress が onboarding.jsx の動く側に無い。カードの最初の子は CoachIcon",
     !/COACH_ORDER|coachProgress|COACH_SKIPPED|COACH_STEP_ALIAS|shownMaxRef|CoachProgress|coach-progress|COACH_TABS|aria-label=\{`案内/.test(ob)
-    && /onClick=\{view\.arrival \? advance : dismiss\}\n\s*>\n\s*<CoachIcon name=\{step\.icon\} \/>\n\s*<div className="coach-title">\{step\.title\}<\/div>\n\s*\{step\.line \? <div className="coach-line">\{step\.line\}<\/div> : null\}\n\s*<\/div>/.test(ob)
+    // 【便DH 2026-10-26】見出し・1行は CoachText(文節の切れ目に <wbr>・.coach-text)で描く。先頭の子がアイコンであることは変えていない
+    && /onClick=\{view\.arrival \? advance : dismiss\}\n\s*>\n\s*<CoachIcon name=\{step\.icon\} \/>\n\s*<CoachText className="coach-title" text=\{step\.title\} call=\{call\} \/>\n\s*\{step\.line \? <CoachText className="coach-line" text=\{step\.line\} call=\{call\} \/> : null\}\n\s*<\/div>/.test(ob)
     && !/coach-progress|coachProgress|COACH_ORDER/.test(app));
   // 【便CG 2026-10-09 統括の裁定】広告の帯を始めてよいか(adsAllowed)。(a) ⑱ が済んだ (b) 2回目以降の起動。見本は見本の finish だけ。読めない起動は今までどおり
   check("BX.3 【便CG】adsAllowed の式(見本は finish だけ・読み込み前は始めない・読めない起動は始める・finish か起動の最初の onboardingShown)・鍵は onboardingShown",
@@ -33861,7 +33867,8 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
   check("BX.3 【便CG】OnboardingCoach の onShown: 測り終えて見えているカード(view.measured・溶けていない)で、部品の間に1回だけ",
     // 【便CJ】外押しで飛ばした段の知らせ onDismiss を足した
     // 【便CO】カードがあるかの知らせ onPresence を足した
-    /export function OnboardingCoach\(\{ candidates, done, hidden, onMark = null, onShown = null, onDismiss = null, onPresence = null \}\) \{/.test(ob)
+    // 【便DH】末尾に nickname = null(案内の文の「〇〇さん」)
+    /export function OnboardingCoach\(\{ candidates, done, hidden, onMark = null, onShown = null, onDismiss = null, onPresence = null, nickname = null \}\) \{/.test(ob)
     && /const visibleNow = Boolean\(view\?\.measured && !view\.leaving\);\n  useEffect\(\(\) => \{\n    if \(!visibleNow \|\| shownOnceRef\.current\) return;\n    shownOnceRef\.current = true;\n    onShownRef\.current\?\.\(\);\n  \}, \[visibleNow\]\);/.test(ob));
   // 【便BZ 審査 統括の裁定】覆いは1つ目の穴(下部タブなど)にかかるボタンだけ(帯の箱 = 2つ目の穴の上には置かない)・穴と重なる所だけに切る
   check("BZ.8 浮かせるボタンの覆い: floatingCovers に渡す穴は [hole] だけ・覆いは clipPath で穴と重なる所に切る",
@@ -33947,7 +33954,8 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
       && /if \(phase === "notJoined"\) \{\n    return \(\n      <JoinIntro/.test(commDC));
     check("DE.2 【便DE】サインインの元の呼び出しは1つだけ持つ(rawSignInRef。裏・保存の直前・再試行が同じ呼び出しを待つ。片付いたら成功でも失敗でも手放し、onDelete でも手放す)。失敗はフォームの上の「もう一度試す」(設定の欠落だけ失敗の画面へ)",
       /if \(!rawSignInRef\.current\) \{\n      const raw = Promise\.resolve\(ensureSignedIn\(\)\);\n      rawSignInRef\.current = raw;\n      const release = \(\) => \{ if \(rawSignInRef\.current === raw\) rawSignInRef\.current = null; \};\n      raw\.then\(release, release\);\n    \}\n    const id = await withinActionLimit\(rawSignInRef\.current\);/.test(commDC)
-      && /setProfile\(null\); setUid\(null\);\n\s*rawSignInRef\.current = null;/.test(commDC)
+      // 【便DH】削除のあと、案内の文のニックネームも手放す(onNicknameRef.current?.(null))── 間に1行入った
+      && /setProfile\(null\); setUid\(null\);\n\s*onNicknameRef\.current\?\.\(null\);[^\n]*\n\s*rawSignInRef\.current = null;/.test(commDC)
       && /if \(firstScene && connectErrorOf\(e\) !== CONFIG_ERROR\) \{ setBgError\(connectErrorOf\(e\)\); return; \}/.test(commDC)
       && /\{firstScene && bgError \? \(/.test(commDC) && /data-join-retry=""/.test(commDC)
       && (commDC.match(/ensureSignedIn\(\)/g) || []).length === 1);
@@ -34525,6 +34533,111 @@ console.log("========== 検証CI: 便CI 参加のカードは見出しと1行だ
     check("CL.10 正典 D2-SPEC に便CL の決まりが書かれている(D-2 の向きの凍結の解除・⇄・散布図・秒・問い)",
       /便CL/.test(ds2) && /2026-10-11/.test(ds2) && ds2.includes("⇄") && ds2.includes("散布図") && ds2.includes("20秒未満") && ds2.includes("問い"));
   }
+  console.log("  -> done");
+}
+
+// ------------------------------------------------------------------
+// 【便DH 2026-10-26 本人の指示】はじめの案内の文言の差し替え・「(ニックネーム)さん」・カードの折り返し。綴りだけを見る
+// (描いて押す検査は src/onboarding.test.jsx の【便DH】/ src/coachPhrase.test.js / src/community/nicknameReport.test.jsx / src/idealSeenFlow.test.jsx)。
+// 【守っていないもの】実際の折り返しの位置(幅 × 字の幅で決まる。jsdom は持たない)・iOS の WebView の折り返し(実機待ち)。
+// ------------------------------------------------------------------
+{
+  console.log("\n[便DH] はじめの案内の文言・呼び名・折り返し");
+  const rdDH = (p) => { try { return readFileSync(join(__dirname, "..", p), "utf8").replace(/\r\n/g, "\n"); } catch { return ""; } };
+  const obDH = codeOf(rdDH("src/onboarding.jsx"));
+  const stepsDH = (/export const COACH_STEPS = \{([\s\S]*?)\n\};/.exec(obDH) || [])[1] || "";
+  const stepDH = (id) => (new RegExp(`\\n  ${id}: \\{([\\s\\S]*?)\\n  \\},`).exec(stepsDH + "\n") || [])[1] || "";
+
+  // --- DH.1 古い文が、どこにも残っていない(綴りは2つに割って書く = この検査自身が古い文を持たない) -------------------
+  const OLD_DH = [
+    ["メトロノームも", "使えます"], ["テンポを決めて", "練習できます"], ["♩=n を押すと", "拍子も変えられます"],
+    ["使っているリードを登録して、", "計測に紐づけます"], ["次は", "リードを登録しよう"],
+    ["チューナーとメトロノームを使って、", "あなたのデータを貯めよう！"], ["はじめの案内は", "これで終わりです"],
+    ["参加した人の計測データと、", "みんなの平均が見られます"],
+  ].map((p) => p.join(""));
+  const TEXT_EXT_DH = /\.(?:jsx?|mjs|cjs|css|md|html|json|txt|webmanifest|svg|yaml|yml)$/;
+  const filesDH = ["src", "scripts", "design", "public"].flatMap((d) => {
+    try {
+      return readdirSync(join(__dirname, "..", d), { recursive: true, withFileTypes: true })
+        .filter((e) => e.isFile() && TEXT_EXT_DH.test(e.name) && !/node_modules/.test(e.parentPath ?? e.path ?? ""))
+        .map((e) => join(e.parentPath ?? e.path, e.name));
+    } catch { return []; }
+  });
+  const leftDH = [];
+  for (const f of filesDH) {
+    let t = ""; try { t = _readFileSyncRaw(f, "utf8"); } catch { continue; }
+    for (const o of OLD_DH) if (t.includes(o)) leftDH.push(`${f.split(/[\\/]/).slice(-2).join("/")}: ${o}`);
+  }
+  check("DH.1 古い文(8つ)が src・scripts・design・public のどこにも残っていない(走査したファイルが100を超える = 空振りでない)",
+    filesDH.length > 100 && OLD_DH.length === 8 && OLD_DH.every((o) => o.length >= 8) && leftDH.length === 0, `${filesDH.length}ファイル / ${leftDH.join(" | ")}`);
+
+  // --- DH.2 新しい文(段の表) -------------------------------------------------------------------------------
+  check("DH.2 metronome = 「メトロノームを使ってみよう」・1行 null / metroTempo の1行 = 「下のテンポ表示から拍子の変更もできます」 / goReeds = 「リードを登録しよう」・1行 null",
+    /title: "メトロノームを使ってみよう", line: null,/.test(stepDH("metronome"))
+    && /title: "テンポを決めよう", line: "下のテンポ表示から拍子の変更もできます",/.test(stepDH("metroTempo"))
+    && /title: "リードを登録しよう", line: null,/.test(stepDH("goReeds")));
+  check("DH.2 変えていない段: reeds(⑥)は「使っているリードを登録しよう / 登録したリードは計測に紐づけることができます」のまま・arriveReeds の見出し・tuner の文",
+    /title: "使っているリードを登録しよう", line: "登録したリードは計測に紐づけることができます",/.test(stepDH("reeds"))
+    && /title: "ここはリードタブ", line: "自分のリードを管理できます",/.test(stepDH("arriveReeds"))
+    && /title: "まずは吹いてみよう", line: "音程がリアルタイムで表示されます",/.test(stepDH("tuner")));
+  check("DH.2 {call} を持つ文は2つだけ(finish の見出し・arriveCommunity の1行)。段の数・順・的・パッドは触っていない(段は24・arrival は4)",
+    (stepsDH.match(/\{call\}/g) || []).length === 2 && /Ficusで\{call\}の音を分析しよう！/.test(stepDH("finish")) && /見て\{call\}のデータと/.test(stepDH("arriveCommunity"))
+    && [...stepsDH.matchAll(/\n  ([A-Za-z]+): \{/g)].length === 24 && (stepsDH.match(/arrival: true/g) || []).length === 4);
+
+  // --- DH.3 呼び名は1つの関数(写しを作らない) ---------------------------------------------------------------
+  const profDH = codeOf(rdDH("src/community/profile.js"));
+  const scrDH = codeOf(rdDH("src/community/screens.jsx"));
+  check("DH.3 callNameOf の本体は profile.js に1つ(「ニックネーム + さん」/ 無ければ「あなた」)。screens.jsx は import して再 export し、自分では定義しない",
+    /export function callNameOf\(nickname\) \{\n  return typeof nickname === "string" && nickname\.trim\(\) !== "" \? `\$\{nickname\}さん` : "あなた";\n\}/.test(profDH)
+    && /positionLabel, callNameOf \} from "\.\/profile\.js";/.test(scrDH) && /\nexport \{ callNameOf \};/.test(scrDH) && !/function callNameOf/.test(scrDH));
+  const srcFilesDH = filesDH.filter((f) => /[\\/]src[\\/]/.test(f) && /\.jsx?$/.test(f) && !/\.test\./.test(f) && !/testutil/.test(f));
+  const sanDH = srcFilesDH.filter((f) => { let t = ""; try { t = codeOf(_readFileSyncRaw(f, "utf8")); } catch { return false; } return /\$\{[^}]*(?:nickname|nick)[^}]*\}さん/.test(t); });
+  check("DH.3 「ニックネーム + さん」を組み立てる式は profile.js の1か所だけ(onboarding.jsx・App.jsx・CommunityTab.jsx に写しが無い)",
+    sanDH.length === 1 && /profile\.js$/.test(sanDH[0]), sanDH.join(","));
+  check("DH.3 onboarding.jsx は callNameOf を profile.js から読み(screens.jsx からではない = App.jsx との循環を作らない)、描くたびに nickname から導く(状態を持たない)",
+    /import \{ callNameOf \} from "\.\/community\/profile\.js";/.test(obDH) && !/community\/screens/.test(obDH)
+    && /const call = callNameOf\(nickname\);/.test(obDH) && !/useState\([^)]*nickname/.test(obDH));
+
+  // --- DH.4 配線: コミュニティタブ → App → 案内 -------------------------------------------------------------
+  const appDH = codeOf(src);
+  const commDH = codeOf(rdDH("src/community/CommunityTab.jsx"));
+  check("DH.4 App.jsx は coachNickname をメモリだけで持ち(useState(null)・保存しない)、CommunityTab へ onNickname・OnboardingCoach へ nickname で渡す",
+    /const \[coachNickname, setCoachNickname\] = useState\(null\);/.test(appDH)
+    && /onNickname=\{setCoachNickname\}/.test(appDH) && /nickname=\{coachNickname\}/.test(appDH)
+    && !/usePersistedState\("coachNickname"/.test(appDH) && !/coachNickname[^\n]*(?:localStorage|idbSet|setOnboardingRaw)/.test(appDH));
+  check("DH.4 CommunityTabBody: profile.nickname が文字列のときだけ知らせる(読み込み中・参加前は知らせない = 開き直しで「あなた」へ戻さない)。削除でだけ null",
+    /const nicknameNow = typeof profile\?\.nickname === "string" \? profile\.nickname : null;\n\s*useEffect\(\(\) => \{ if \(nicknameNow !== null\) onNicknameRef\.current\?\.\(nicknameNow\); \}, \[nicknameNow\]\);/.test(commDH)
+    && (commDH.match(/onNicknameRef\.current\?\.\(null\)/g) || []).length === 1);
+
+  // --- DH.5 折り返し ----------------------------------------------------------------------------------------
+  const cssDH = rdDH("src/index.css");
+  const cssCode = codeOf(cssDH);
+  check("DH.5 index.css: .coach-text { word-break: keep-all; overflow-wrap: anywhere; text-wrap: balance; } が1つ。auto-phrase は使わない(Chrome だけ)。.coach-title / .coach-line の規則は1文字も変えていない",
+    (cssCode.match(/\n\.coach-text \{ word-break: keep-all; overflow-wrap: anywhere; text-wrap: balance; \}/g) || []).length === 1
+    && !/auto-phrase/.test(cssCode)
+    && cssCode.includes("\n.coach-title { font-size: var(--fs-lg); font-weight: 700; line-height: var(--lh-tight); color: var(--c-ink); }")
+    && cssCode.includes("\n.coach-line { font-size: var(--fs-sm); line-height: var(--lh-loose); color: var(--c-ink-2); }"));
+  check("DH.5 .coach-text の規則は .coach-* の塊(@keyframes coach-out 〜 .coach-live)の外 = 塊の固定(BW.7)を動かしていない。値は新しい長さ・色を持たない",
+    (() => { const a = cssDH.indexOf("@keyframes coach-out"); const b = cssDH.indexOf("}", cssDH.indexOf(".coach-live {")) + 1; const i = cssDH.indexOf("\n.coach-text {"); return a >= 0 && b > a && i > b; })());
+  check("DH.5 CoachText: 文節の切れ目に <wbr />(文字を足さない)・className に coach-text を足す・coachPhrasesOf で切る。参加の画面のカード・同意の画面には付けない",
+    /function CoachText\(\{ className, text, call \}\) \{\n  const phrases = coachPhrasesOf\(text, call\);\n  return \(\n    <div className=\{`\$\{className\} coach-text`\}>\n      \{phrases\.map\(\(ph, i\) => \(i === 0 \? ph : <React\.Fragment key=\{i\}><wbr \/>\{ph\}<\/React\.Fragment>\)\)\}\n    <\/div>/.test(obDH)
+    && !/coach-text/.test(commDH) && !/coach-text/.test(codeOf(rdDH("src/ConsentScreen.jsx"))));
+  const phDH = rdDH("src/coachPhrase.js");
+  check("DH.5 coachPhrase.js は何も import しない純関数(CALL_SLOT = \"{call}\"・助詞・て・読点の直後で切る・「でき」「やす」「もう」「にく」は助詞にしない)",
+    !/^import /m.test(codeOf(phDH)) && /export const CALL_SLOT = "\{call\}";/.test(phDH)
+    && /const PARTICLES = \["から", "まで", "より", "は", "が", "を", "に", "で", "と", "の", "も", "へ", "や"\];/.test(phDH)
+    && /const NOT_PARTICLE = \["でき", "やす", "もう", "にく"\];/.test(phDH) && /export function coachPhrasesOf\(text, call = "あなた"\)/.test(phDH));
+
+  // --- DH.6 書類 ---------------------------------------------------------------------------------------------
+  const dsDH = rdDH("design/DESIGN-SYSTEM.md");
+  check("DH.6 DESIGN-SYSTEM §4.5b: 折り返し(.coach-text)・呼び名({call})の行と、6段の新しい文がある / COACH2・COACH3 の段の表も新しい文",
+    /\| 折り返し \| 【便DH/.test(dsDH) && /\| 呼び名（`\{call\}`） \| 【便DH/.test(dsDH)
+    && dsDH.includes("Ficusで{call}の音を分析しよう！") && dsDH.includes("他の奏者のデータを見て{call}のデータと比較できます")
+    && dsDH.includes("メトロノームを使ってみよう") && dsDH.includes("下のテンポ表示から拍子の変更もできます") && dsDH.includes("| リードを登録しよう / （なし）")
+    && dsDH.includes("自分のリードを管理できます")
+    && rdDH("design/COACH3-SPEC.md").includes("| Ficusで{call}の音を分析しよう！ | null |") && rdDH("design/COACH2-SPEC.md").includes("| リードを登録しよう | null |"));
+  check("DH.6 SUBMISSION.md(審査メモ・説明文)は案内の文を引いていない = 実際の画面と食い違う文が無い(「はじめの案内の間は広告を出さない」の一般的な言及だけ)",
+    !rdDH("design/SUBMISSION.md").includes("音を分析しよう") && !rdDH("design/SUBMISSION.md").includes("リードを管理できます") && rdDH("design/SUBMISSION.md").includes("はじめの案内の間は表示しません"));
   console.log("  -> done");
 }
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from "react";
-import { SAX_TYPES, SAX_LABELS, GENRES, POSITIONS, AVATAR_ICONS, AVATAR_COLOR_MIN, positionLabel } from "./profile.js";
+import { SAX_TYPES, SAX_LABELS, GENRES, POSITIONS, AVATAR_ICONS, AVATAR_COLOR_MIN, positionLabel, callNameOf } from "./profile.js";
 import { listPublicUsers, filterUsers, isFiltered, isFilteredBy, ANY, DIRECTORY_LIMIT } from "./directory.js";
 // 【便CJ】名簿の1往復を待つ上限(返ってこなければ失敗として扱い、輪を止めない)
 import { withinLoadLimit } from "./loadLimit.js";
@@ -1076,9 +1076,8 @@ const COMPARE_SERIES = { color: "var(--c-ink-3)", dash: "4 3", hollow: true };
 // ニックネームは画面がすでに持っている自分のプロフィール(JoinedView の profile.nickname)を渡すだけで、新しく読まない。
 // 綴りはプロフィールの表示(マイページの「ニックネーム」の行・一覧の名前)と同じく、保存された値をそのまま出す
 // (保存の時点で前後の空白は落としてある ── profile.js の validateNickname)。空白だけ・文字列でない値は「無い」と扱う。
-export function callNameOf(nickname) {
-  return typeof nickname === "string" && nickname.trim() !== "" ? `${nickname}さん` : "あなた";
-}
+// 【便DH】callNameOf の本体は profile.js へ移した(はじめの案内も同じ関数を読む)。ここは import して再 export する(読み口は変わらない)。
+export { callNameOf };
 export const mineWaitingNoteOf = (nickname) => `${callNameOf(nickname)}の計測データもお待ちしています`;
 const MINE_SERIES = { color: "var(--c-accent)", dash: null, hollow: false };
 

@@ -957,6 +957,15 @@ body {
   position: fixed; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0;
   overflow: hidden; clip-path: inset(50%); white-space: nowrap; pointer-events: none;
 }
+/* 【便DH 2026-10-26 本人の指示「カードの文の不自然な改行を直す」】案内のカード(onboarding.jsx の CoachText)の見出しと1行の折り返し。
+   日本語は何もしないと文字と文字の間のどこでも折り返され、助詞や語の途中で切れる(1行に 16〜18 字しか入らない見出しで目立つ)。
+   ・word-break: keep-all … CJK の字と字の間では折り返さない。切れ目は CoachText が置く <wbr>(文節の切れ目。src/coachPhrase.js)と空白だけ。
+     Safari 相当の iOS の WebView で効く(word-break: auto-phrase は Chrome だけ)
+   ・overflow-wrap: anywhere … 文節 1 つが行に収まらないとき(20 字のニックネームなど)だけ最後の手段で字の間でも折る(溢れさせない)
+   ・text-wrap: balance … 2 行以上になるとき行の長さをそろえ、「よう！」だけの行を作らない。未対応の WebView(iOS 17.5 より前)では無視され、
+     <wbr> の切れ目だけで折り返す(文節の途中では切れない)
+   新しい値は無い(長さ・色は持たない)。.coach-title / .coach-line の規則には触れていない(クラスを足しただけ)。参加の画面のカードは .coach-text を付けないので変わらない。 */
+.coach-text { word-break: keep-all; overflow-wrap: anywhere; text-wrap: balance; }
 /* 動きを減らす設定では溶けもしない(onboarding.jsx も同じ設定を見て、溶かさずに即座に消す)。 */
 @media (prefers-reduced-motion: reduce) {
   .coach-layer[data-leaving="true"] { animation: none; }

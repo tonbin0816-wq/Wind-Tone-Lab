@@ -344,8 +344,8 @@ describe("【便BX】⑮ → ⑰ 計測タブに戻ろう → ⑱ 終わり(穴�
     expect(document.querySelector('[role="dialog"][aria-label="エラー"]')).toBe(null);   // マイクはまだ取れていない(エラーでもない)
     expect(layer().querySelector(".coach-hole")).toBe(null);
     expect(layer().querySelectorAll(".coach-dim")).toHaveLength(1);
-    expect(layer().querySelector(".coach-title").textContent).toBe("チューナーとメトロノームを使って、あなたのデータを貯めよう！");
-    expect(layer().querySelector(".coach-line").textContent).toBe("はじめの案内はこれで終わりです");
+    expect(layer().querySelector(".coach-title").textContent).toBe("Ficusでじぶんさんの音を分析しよう！");   // 【便DH】この流れでコミュニティのプロフィール(ニックネーム「じぶん」)を読み込んだ → 計測タブの ⑱ にも「じぶんさん」
+    expect(layer().querySelector(".coach-line")).toBe(null);   // 【便DH】1行は削除
     expect(layer().querySelector(".coach-progress")).toBe(null);   // 【便CG】目印は外した
     expect(layer().querySelector(".coach-card").firstElementChild.className).toBe("coach-icon");   // 【便CG】カードの最初の子はアイコン
     await click(hit());
@@ -367,7 +367,8 @@ describe("【便BX】コミュニティの到着・⑭' → コミュニティ",
     await click(nav("コミュニティ"));
     await waitFor(() => layerId() === "arriveCommunity", "到着");
     expect(layer().querySelector(".coach-title").textContent).toBe("ここはコミュニティ");
-    expect(layer().querySelector(".coach-line").textContent).toBe("参加した人の計測データと、みんなの平均が見られます");
+    // 【便DH】プロフィールを読み込む前は「あなた」、読み込めたら「じぶんさん」(ニックネーム「じぶん」)。どちらが先かは読み込みの速さ次第なので、読み込めたあとの文を待って見る
+    await waitFor(() => layer()?.querySelector(".coach-line")?.textContent === "他の奏者のデータを見てじぶんさんのデータと比較できます", "到着の1行に「じぶんさん」");
     expect(layer().querySelector(".coach-hole")).toBe(null);
     expect(layer().querySelector(".coach-progress")).toBe(null);   // 【便CG】目印は外した
     await click(layer().querySelector(".coach-card"));

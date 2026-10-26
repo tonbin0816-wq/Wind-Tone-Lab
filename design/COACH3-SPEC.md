@@ -76,7 +76,7 @@
 4章 データ   [到着: ここはデータタブ] ⑫ ⑬ (詳細) ⑭ ⑭' みんなのデータも見てみよう ──(本人が下部タブ「コミュニティ」)──▶
 5章 コミュニティ (参加の画面 = JoinIntro。段ではない) → 参加・プロフィール → [到着: ここはコミュニティ] ⑯ 目安に ──(帯「見る」)──▶
 6章 データ   ⑮ みんなの平均を目安にしました → ⑰ 計測タブに戻ろう ──(本人が下部タブ「計測」)──▶
-終わり 計測  ⑱ チューナーとメトロノームを使って、あなたのデータを貯めよう！(穴なし・押したら終わり)
+終わり 計測  ⑱ Ficusで(ニックネーム)さんの音を分析しよう！(穴なし・押したら終わり。【便DH】)
 ```
 
 番号は便BW の番号を引き継ぐ(⑪ = データタブの計測なし。流れの外)。新しい段の id: `arriveReeds` / `arriveData` / `arriveCommunity` / `goCommunity`(⑭')/ `goMeasure`(⑰)/ `finish`(⑱)。
@@ -87,12 +87,12 @@
 
 | # | id | flag | 章 | 出る条件 | 的(穴) | 見出し / 1行 | 済む条件 | 群 |
 |---|---|---|---|---|---|---|---|---|
-| ⑱ **新・到着** | `finish` | `finish` | 計測 | `done.goMeasure && done.measure && done.goData && !done.finish`。**マイクの門・面の分岐より前**(穴なしなのでマイクを待たない) | **穴なし**(画面いっぱいの暗幕) | チューナーとメトロノームを使って、あなたのデータを貯めよう！ / はじめの案内はこれで終わりです | **どこを押しても済**(外・カード。印 `finish`) | なし |
+| ⑱ **新・到着** | `finish` | `finish` | 計測 | `done.goMeasure && done.measure && done.goData && !done.finish`。**マイクの門・面の分岐より前**(穴なしなのでマイクを待たない) | **穴なし**(画面いっぱいの暗幕) | Ficusで{call}の音を分析しよう！ / (1行なし)(【便DH 2026-10-26 本人の指示】見出しを替え、1行を削除。{call} = コミュニティの「ニックネーム + さん」(callNameOf)・取れないときは「あなた」) | **どこを押しても済**(外・カード。印 `finish`) | なし |
 | ① | `tuner` | `tuner` | 計測 | 既存 | 既存 | 既存 | 既存 | `MEASURE_TAB_STEPS` |
 | ② | `metronome` | `metronome` | 計測 | 既存 | 既存 | 既存 | 既存 | 同 |
 | ③ | `metroTempo` | `metroTempo` | 計測 | 既存 | 既存 | 既存 | 既存 | 同 |
 | ④ | `metroStart` | `metroStart` | 計測 | 既存 | 既存 | 既存 | 既存 | 同 |
-| ⑤ | `goReeds` | `goReeds` | 計測 | 既存 | 既存(下部タブ「リード」) | 次はリードを登録しよう / (なし)── **変えない**(到着カードは「ここはリードタブ」= 場所、⑤ は「次にやること」で役が違う。§16 の「決めたもの」) | 既存 | 同 |
+| ⑤ | `goReeds` | `goReeds` | 計測 | 既存 | 既存(下部タブ「リード」) | リードを登録しよう(【便DH】見出しを替えた) / (なし)── **変えない**(到着カードは「ここはリードタブ」= 場所、⑤ は「次にやること」で役が違う。§16 の「決めたもの」) | 既存 | 同 |
 | ⑧ | `reedLinked` | `reedLinked` | 計測 | 既存 | 既存 | 既存(1行は作業ツリーの「計測データに選択したリードが紐づきます」) | 押す=済 | なし |
 | ⑨ | `measureReed` / `measure` | `measure` | 計測 | 既存 | 既存 | 既存 | 既存 | `MEASURE_TAB_STEPS` |
 | ⑩ **改** | `goData` | `goData` | 計測 | 既存(`hasSessions && !done.goData`)。**保存の帯が出ている間も出す**(§7) | 下部タブ「データ」の絵柄(既存)+ **2つ目の穴 `also`: 帯の箱 `[data-action-notice]`(rect・pad 0)**。帯が無ければ1つ目だけ | 計測の記録を見てみよう / (なし) | 既存(計測があるときにデータタブへ移った) | `MEASURE_TAB_STEPS` |
@@ -101,7 +101,7 @@
 
 | # | id | flag | 章 | 出る条件 | 的 | 見出し / 1行 | 済む条件 | 群 |
 |---|---|---|---|---|---|---|---|---|
-| **新・到着** | `arriveReeds` | `arriveReeds` | リード | `!done.arriveReeds`(⑥⑦ より先) | 穴なし | ここはリードタブ / 使っているリードを登録して、計測に紐づけます | どこを押しても済 | なし |
+| **新・到着** | `arriveReeds` | `arriveReeds` | リード | `!done.arriveReeds`(⑥⑦ より先) | 穴なし | ここはリードタブ / 自分のリードを管理できます(【便DH】1行を替えた) | どこを押しても済 | なし |
 | ⑥ | `reeds` | `reeds` | リード | 既存 | 既存(FAB + 楽器種別の行) | 既存(作業ツリーの文) | 既存 | なし |
 | ⑦ | `reedsMeasure` | `reedsMeasure` | リード | 既存 | 既存 | 既存 | 既存 | なし |
 
@@ -125,7 +125,7 @@
 | # | id | flag | 章 | 出る条件 | 的 | 見出し / 1行 | 済む条件 | 群 |
 |---|---|---|---|---|---|---|---|---|
 | ─ | (参加の画面 `JoinIntro`) | ─ | ─ | 参加していない(phase notJoined)。段ではない(既存) | ─ | コミュニティに参加しよう / みんなの計測データが見られます(既存) | 参加する → プロフィールを作る | ─ |
-| **新・到着** | `arriveCommunity` | `arriveCommunity` | コミュニティ | `done.join && !done.arriveCommunity`(⑯ より先)。`join` は phase が profile になった描画で立つ(CommunityTab.jsx:534-536)= プロフィールを作った直後・参加済みの人がタブを開いた直後 | 穴なし | ここはコミュニティ / 参加した人の計測データと、みんなの平均が見られます | どこを押しても済 | なし |
+| **新・到着** | `arriveCommunity` | `arriveCommunity` | コミュニティ | `done.join && !done.arriveCommunity`(⑯ より先)。`join` は phase が profile になった描画で立つ(CommunityTab.jsx:534-536)= プロフィールを作った直後・参加済みの人がタブを開いた直後 | 穴なし | ここはコミュニティ / 他の奏者のデータを見て{call}のデータと比較できます(【便DH】1行を替えた。{call} は ⑱ と同じ呼び名) | どこを押しても済 | なし |
 | ⑯ | `adoptAverage` | `adoptAverage` | コミュニティ | 既存(`done.join && !done.adoptAverage`) | 既存(平均カード) | 既存 | 既存 | なし |
 
 ### 2.3 文言の表(一字一句。`onboarding.test.jsx` の「文言」の節がこの表を固定する。既存17段 + 新6段 = 23段)
@@ -133,16 +133,16 @@
 | id | icon | chapter | title | line |
 |---|---|---|---|---|
 | tuner | tuner | measure | まずは吹いてみよう | 音程がリアルタイムで表示されます |
-| metronome | metro | measure | メトロノームも使えます | テンポを決めて練習できます |
-| metroTempo | metro | measure | テンポを決めよう | ♩=n を押すと拍子も変えられます |
+| metronome | metro | measure | メトロノームを使ってみよう | null |
+| metroTempo | metro | measure | テンポを決めよう | 下のテンポ表示から拍子の変更もできます |
 | metroStart | metro | measure | タップでスタート | もう一度押すと止まります |
-| goReeds | reeds | measure | 次はリードを登録しよう | null |
+| goReeds | reeds | measure | リードを登録しよう | null |
 | reedLinked | reeds | measure | 選んだリードが紐づいています | 計測データに選択したリードが紐づきます |
 | measureReed | mic | measure | このリードで計測してみよう | ボタンタップで計測スタート |
 | measure | mic | measure | 最初の計測を記録しよう | ボタンタップで計測スタート |
 | goData | data | measure | 計測の記録を見てみよう | null |
-| **finish** | tuner | measure | チューナーとメトロノームを使って、あなたのデータを貯めよう！ | はじめの案内はこれで終わりです |
-| **arriveReeds** | reeds | reeds | ここはリードタブ | 使っているリードを登録して、計測に紐づけます |
+| **finish** | tuner | measure | Ficusで{call}の音を分析しよう！ | null |
+| **arriveReeds** | reeds | reeds | ここはリードタブ | 自分のリードを管理できます |
 | reeds | reeds | reeds | 楽器を選択してリードを登録しよう | 計測に登録したリードを紐づけることができます |
 | reedsMeasure | measure | reeds | このリードで計測してみよう | null |
 | data | data | data | 計測を始めると、ここに貯まります | 計測タブから計測してみよう |
@@ -153,7 +153,7 @@
 | **goCommunity** | community | data | みんなのデータも見てみよう | null |
 | idealSeen | target | data | みんなの平均を目安にしました | my平均と目安を重ねて見られます |
 | **goMeasure** | measure | data | 計測タブに戻ろう | null |
-| **arriveCommunity** | community | community | ここはコミュニティ | 参加した人の計測データと、みんなの平均が見られます |
+| **arriveCommunity** | community | community | ここはコミュニティ | 他の奏者のデータを見て{call}のデータと比較できます |
 | adoptAverage | target | community | みんなの平均を目安にしてみよう | 目安に設定すると自分の音と比べられます |
 
 - `chapter` は各段の **`flag: …, icon: …` の行の末尾**に書く(例 `flag: "tuner", icon: "tuner", chapter: "measure",`)。`target: …` の行には足さない ── pitch-test BW.1 が tuner(32989)と idealSeen(32992)の `target:` の行を**行ごと**正規表現で見ているため。
@@ -794,7 +794,7 @@ export function migrateOnboardingDone(prev, { sessions = [], reeds = [], idealPr
   4. データタブ: **到着「ここはデータタブ」** → ⑫ 今日のマス → ⑬ 先頭の行 → 詳細 → `< 一覧` → ⑭ 傾向カード(自動で見える所まで)→ 押す → **⑭'「みんなのデータも見てみよう」**(下部タブ「コミュニティ」)。
   5. コミュニティ: 本人は参加済みなので参加の画面は出ない → **到着「ここはコミュニティ」** → ⑯ 平均カード → 目安に設定(本物の目安が1つ増える)→ 帯「目安に設定しました **見る**」→ 押す。
   6. データタブ: ⑮ 傾向カード → 押す → **⑰「計測タブに戻ろう」**(下部タブ「計測」)→ 押す。
-  7. 計測タブ: **⑱「チューナーとメトロノームを使って、あなたのデータを貯めよう！ / はじめの案内はこれで終わりです」**(穴なし)→ 押す → 終わり(以後どのタブでも出ない)。
+  7. 計測タブ: **⑱「Ficusで(ニックネーム)さんの音を分析しよう！」**(穴なし)→ 押す → 終わり(以後どのタブでも出ない)。
   8. 見本をやめる: `…/?tutorialpreview=0`。見本の「済んだ」は Safari の localStorage に残るので途中でやめても続きから。最初からは `=1`。
   - 枚数: ①②③④⑤(5)+ 到着(1)+ ⑥⑦(2)+ ⑧⑨⑩(3)+ 到着(1)+ ⑫⑬⑭⑭'(4)+ 到着(1)+ ⑯(1)+ ⑮⑰(2)+ ⑱(1)= **21 枚**。
 - **参加の画面(D1)と「ここはコミュニティ」の参加直後**: 本人の端末では見られない(参加済み)。実装役が dev サーバ(`ficus-dev`・375×812)で未参加のモックを使って撮ったスクショを報告に添える。コミュニティは dev では Firebase に繋がらないので、vitest(参加済み・未参加のモック)のスクショ代わりに DOM の確認で代える(メモリ「dev サーバ実測の罠」)。

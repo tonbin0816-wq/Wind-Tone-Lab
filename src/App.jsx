@@ -5585,6 +5585,11 @@ export default function WindToneLabPhaseMode({ startOnJoin = false } = {}) {
       return add.length ? Object.freeze([...prev, ...add]) : prev;
     });
   }, []);
+  // 【便DH 2026-10-26 本人の指示】案内の文に入れる自分のニックネーム(⑱「Ficusで〇〇さんの音を分析しよう！」・コミュニティの到着カードの1行)。
+  // 持ち主はコミュニティタブの自分のプロフィール(CommunityTab が読み込めた・保存した・変えたときに onNickname で知らせる)。ここは**写しをメモリに持つだけ**で、
+  // 保存しない・新しく読まない(Firebase に触らない)。コミュニティタブを離れても残る(計測タブの ⑱ が読む)。アカウントを消したら null。
+  // 取れていない間(この起動でコミュニティのプロフィールをまだ読んでいない)は null = 案内の文は「あなた」(onboarding.jsx の OnboardingCoach が callNameOf で読む)
+  const [coachNickname, setCoachNickname] = useState(null);
   // 【便CJ】この起動で、案内の間(印が読めてから ⑱ まで)に開いたタブ。⑱ の条件(finishReady)が読む。保存しない
   // (開いたことはリード = goReeds・コミュニティ = goCommunity・計測があるときのデータ = goData の印にも残る。上の effect)
   const [coachSeenTabs, setCoachSeenTabs] = useState(NO_COACH);
@@ -5926,6 +5931,8 @@ export default function WindToneLabPhaseMode({ startOnJoin = false } = {}) {
               onJoinCard={setJoinCardShown}
               /* 【便DD 審査】参加が不可能と分かった(設定の欠落)ら参加の場面を畳む(下部タブを出す。join の印は書かない)。 */
               onJoinBlocked={foldJoinScene}
+              /* 【便DH】自分のニックネームを案内の文へ(⑱・到着カードの「〇〇さん」)。 */
+              onNickname={setCoachNickname}
               /* 【便DE】初回の参加の場面では、読み込み画面も参加のカード(JoinIntro)も出さず、すぐプロフィールの入力を出す(コミュニティタブの firstScene)。 */
               joinFirst={joinSceneNow}
               /* 【便BV 2026-10-04 本人裁定(案B)】広い(iPad)なら、データ・順位は2ペイン(左 = 一覧・右 = 人物のページ)・
@@ -5980,6 +5987,7 @@ export default function WindToneLabPhaseMode({ startOnJoin = false } = {}) {
         onShown={markCoachShown}
         onDismiss={markCoachDismissed}
         onPresence={setCoachPresent}
+        nickname={coachNickname}
       />
     </div>
   );
@@ -9635,7 +9643,7 @@ function MeasureView(props) {
   }, []);
   const showMetroPanel = metroPanelStartsClosed ? previewMetroPanel : showMetroPanelSaved;
   const setShowMetroPanel = metroPanelStartsClosed ? setPreviewMetroPanel : setShowMetroPanelSaved;
-  // 【便BS 2026-10-03 本人裁定】はじめの一手(計測タブの2段目「メトロノームも使えます」)は、面を開いたら済み。
+  // 【便BS 2026-10-03 本人裁定】はじめの一手(計測タブの2段目「メトロノームを使ってみよう」)は、面を開いたら済み。
   // 口(onMetroPanelShown)が後から渡された(印が読めた)ときも、開いていればそこで知らせる。
   useEffect(() => {
     if (showMetroPanel) onMetroPanelShown?.();

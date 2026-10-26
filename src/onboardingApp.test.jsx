@@ -943,7 +943,7 @@ describe("【便BW】計測タブ: ① 帯 → ② メトロノーム →(面の
     expect(row.className).toBe("tap-through");
     expect([...row.querySelectorAll("button")].map((b) => b.getAttribute("aria-label"))).toEqual(["テンポを下げる", "テンポと拍子", "テンポを上げる"]);
     expect(layer().querySelector(".coach-title").textContent).toBe("テンポを決めよう");
-    expect(layer().querySelector(".coach-line").textContent).toBe("♩=n を押すと拍子も変えられます");
+    expect(layer().querySelector(".coach-line").textContent).toBe("下のテンポ表示から拍子の変更もできます");
     expect(kv("onboardingDone").metroTempo).toBeUndefined();
     await click(document.querySelector('button[aria-label="テンポを下げる"]'));
     await waitFor(() => kv("onboardingDone")?.metroTempo === true, "metroTempo の印");
@@ -965,7 +965,7 @@ describe("【便BW】計測タブ: ① 帯 → ② メトロノーム →(面の
     expect(layerBtn.getAttribute("aria-pressed")).toBe("false");
     await waitFor(() => layerId() === "goReeds", "⑤ 下部タブ「リード」");
     expect(holeOf()).toEqual(["103.75px", "760px", "83.75px", "44px", "var(--r-2)"]);
-    expect(layer().querySelector(".coach-title").textContent).toBe("次はリードを登録しよう");
+    expect(layer().querySelector(".coach-title").textContent).toBe("リードを登録しよう");
     // ⑤: 下部タブ「リード」を押す → goReeds・リードタブで ⑥(既存)
     await click(nav("リード"));
     await waitFor(() => kv("onboardingDone")?.goReeds === true, "goReeds の印");

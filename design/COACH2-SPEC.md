@@ -67,10 +67,10 @@
 | # | id | flag | 出る条件(前の段が済んでいることに加えて) | 的(穴) | 見出し / 1行 | 済む条件 | 外を押したら |
 |---|---|---|---|---|---|---|---|
 | ① | `tuner` | `tuner`(既存) | マイクが動いている(`micReady`) | `[data-coach="tuner"]` = **チューナーの帯**(App.jsx:9585 の `<div style={{ position: "relative", flexShrink: 0 }}>`。環 + 音量 + 折れ線。面が開いていれば環 + 振り子 + テンポ行)。rect・pad 0 | まずは吹いてみよう / 音程がリアルタイムで表示されます(既存のまま) | 音名が1秒続けて出た(既存 `useSustained`) | 消える(計測タブ群) |
-| ② | `metronome` | `metronome`(既存) | ①済 | `[data-coach="metronome"]` 右上のアイコン(既存。circle・pad 0) | メトロノームも使えます / テンポを決めて練習できます(既存のまま) | 面を開いた(既存 `onMetroPanelShown`) | 同上 |
-| ③ | `metroTempo` | `metroTempo`(新) | ②済・**面が開いている** | `[data-coach="metroTempo"]` = テンポ行の箱(App.jsx:9683 付近 `<div className="tap-through" style={{ position: "relative", zIndex: 1, display: "flex", … gap: METRO_PM_GAP_CSS }}>`)。pill・pad 6 | テンポを決めよう / ♩=n を押すと拍子も変えられます | − か ＋ を押した / ♩=n(テンポと拍子のシート)を開いた / **鳴らし始めた**(飛ばして始めた人も済み) | 同上 |
+| ② | `metronome` | `metronome`(既存) | ①済 | `[data-coach="metronome"]` 右上のアイコン(既存。circle・pad 0) | メトロノームを使ってみよう / (1行なし)(【便DH 2026-10-26 本人の指示】見出しを替え、1行を削除) | 面を開いた(既存 `onMetroPanelShown`) | 同上 |
+| ③ | `metroTempo` | `metroTempo`(新) | ②済・**面が開いている** | `[data-coach="metroTempo"]` = テンポ行の箱(App.jsx:9683 付近 `<div className="tap-through" style={{ position: "relative", zIndex: 1, display: "flex", … gap: METRO_PM_GAP_CSS }}>`)。pill・pad 6 | テンポを決めよう / 下のテンポ表示から拍子の変更もできます(【便DH】1行を替えた) | − か ＋ を押した / ♩=n(テンポと拍子のシート)を開いた / **鳴らし始めた**(飛ばして始めた人も済み) | 同上 |
 | ④ | `metroStart` | `metroStart`(新) | ③済・面が開いている・まだ鳴っていない | `[data-coach="tuner"]`(帯。①と同じ要素。面が開いているので環 + 振り子 + テンポ行が1枚の穴) rect・pad 0 | タップでスタート / もう一度押すと止まります | 鳴り始めた(`metronomeOn` が true。新しい口 `onMetronomeStarted`) | 同上 |
-| ⑤ | `goReeds` | `goReeds`(新) | ②済・(面が開いていれば ④済)・リードをまだ登録していない(`!done.reeds`) | `[data-coach="nav-reeds"] svg` 下部タブ「リード」の絵柄(circle・pad 11。データの段と同じ 30 + 11×2 = 52) | 次はリードを登録しよう / (1行なし) | リードタブへ移った(`topTab === "reeds"`) | 同上 |
+| ⑤ | `goReeds` | `goReeds`(新) | ②済・(面が開いていれば ④済)・リードをまだ登録していない(`!done.reeds`) | `[data-coach="nav-reeds"] svg` 下部タブ「リード」の絵柄(circle・pad 11。データの段と同じ 30 + 11×2 = 52) | リードを登録しよう / (1行なし)(【便DH】見出しを替えた) | リードタブへ移った(`topTab === "reeds"`) | 同上 |
 | ⑧ | `reedLinked` | `reedLinked`(新) | 面が閉じている・⑤を抜けた(`done.goReeds || done.reeds`)・**リードが選ばれている**(`hasSelectedReed`。§7.1) | `[data-coach="reedChip"]` = 2行目のリードの枠の包み(App.jsx:9439 `<div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>`。点 + メーカー + 厚さ + 開封日 + #n)。pill・pad 6 | 選んだリードが紐づいています / 計測の記録にこのリードが残ります | **押す=済**(外でもカードでも)。計測を保存しても済み | 押す=済 |
 | ⑨ | `measureReed` / `measure` | `measure`(既存。**同じ印で文が2つ**。data / dataSeen が同じ印を分け合っていたのと同じ型) | 面が閉じている・⑧を抜けた | `[data-coach="measure"]` 録音ボタン(既存。circle・pad 14) | リードあり(`measureReed`): **このリードで計測してみよう** / ボタンタップで計測スタート。リードなし(`measure`): 最初の計測を記録しよう / ボタンタップで計測スタート(既存のまま) | 計測が1件保存された(既存) | 同上 |
 | ⑩ | `goData` | `goData`(新) | 面が閉じている・計測がある(`hasSessions`) | `[data-coach="nav-analysis"] svg` 下部タブ「データ」の絵柄(circle・pad 11) | 計測の記録を見てみよう / (1行なし) | データタブへ移った(`topTab === "analysis"` かつ計測がある) | 同上 |
@@ -124,10 +124,10 @@
 | id | icon | title | line |
 |---|---|---|---|
 | tuner | tuner | まずは吹いてみよう | 音程がリアルタイムで表示されます |
-| metronome | metro | メトロノームも使えます | テンポを決めて練習できます |
-| metroTempo | metro | テンポを決めよう | ♩=n を押すと拍子も変えられます |
+| metronome | metro | メトロノームを使ってみよう | null |
+| metroTempo | metro | テンポを決めよう | 下のテンポ表示から拍子の変更もできます |
 | metroStart | metro | タップでスタート | もう一度押すと止まります |
-| goReeds | reeds | 次はリードを登録しよう | null |
+| goReeds | reeds | リードを登録しよう | null |
 | reeds | reeds | 使っているリードを登録しよう | 計測に登録したリードを紐づけることができます |
 | reedsMeasure | measure | このリードで計測してみよう | null |
 | reedLinked | reeds | 選んだリードが紐づいています | 計測の記録にこのリードが残ります |
@@ -555,7 +555,7 @@ export function migrateOnboardingDone(prev, { sessions = [], reeds = [], idealPr
 - 聞く理由: 便BS のときは「既存の人にも1回」を選んでいた。
 
 **(3) 「表示の変更」の読み(§0 の 2・段③)**
-- 既定 **ア**: ♩=n を押して開く「テンポと拍子」のシート(拍子・1拍の分割・拍グループ・小節アクセント)のこと。③の1行は「♩=n を押すと拍子も変えられます」。
+- 既定 **ア**: ♩=n を押して開く「テンポと拍子」のシート(拍子・1拍の分割・拍グループ・小節アクセント)のこと。③の1行は「下のテンポ表示から拍子の変更もできます」(【便DH 2026-10-26 本人の指示】で言い換えた)。
 - イ: 振り子(拍の●・拍子表示)のこと。③の的を振り子まで広げる(帯ごと照らす = ④と同じ穴になる)。1行は「− ＋ でテンポ、♩=n で拍子」。
 - 聞く理由: 原文の「表示」が何を指すか読めない。
 

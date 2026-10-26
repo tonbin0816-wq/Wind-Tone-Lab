@@ -164,7 +164,7 @@ const DELETE_PARTIAL_NOTICE =
 // 【便BV 2026-10-04 本人裁定(案B)】wide = iPad の「広い」画面か(App の useWideLayout)。参加後の画面(JoinedView)と参加前の見本
 // (JoinIntro)へ配るだけ。渡されない(false)ときは今までの木のまま(iPhone は1文字も変わらない)。
 // 【便CO 2026-10-12】onJoinCard(shown) = 参加の画面のカード(JoinIntro)が出ているかの知らせ(App.jsx が広告の帯を止める。渡さなければ何も起きない)。
-export default function CommunityTab({ sessions, tuningHz, onAdoptIdeal, landTab = null, onLanded = null, onOnboarding = null, onJoinCard = null, onJoinBlocked = null, joinFirst = false, wide = false }) {
+export default function CommunityTab({ sessions, tuningHz, onAdoptIdeal, landTab = null, onLanded = null, onOnboarding = null, onJoinCard = null, onJoinBlocked = null, onNickname = null, joinFirst = false, wide = false }) {
   // 【便CK】このタブの間だけ <html> に印を立て、index.css がページの overscroll-behavior-y を止める
   // (iPhone の Safari の「ページごと再読み込み」と、こちらの引っ張って更新を二重にしない)。離れたら外す(ほかのタブは今までどおり)。
   useEffect(() => {
@@ -175,7 +175,7 @@ export default function CommunityTab({ sessions, tuningHz, onAdoptIdeal, landTab
   return (
     <>
       <AvatarSprite />
-      <CommunityTabBody sessions={sessions} tuningHz={tuningHz} onAdoptIdeal={onAdoptIdeal} landTab={landTab} onLanded={onLanded} onOnboarding={onOnboarding} onJoinCard={onJoinCard} onJoinBlocked={onJoinBlocked} joinFirst={joinFirst} wide={wide} />
+      <CommunityTabBody sessions={sessions} tuningHz={tuningHz} onAdoptIdeal={onAdoptIdeal} landTab={landTab} onLanded={onLanded} onOnboarding={onOnboarding} onJoinCard={onJoinCard} onJoinBlocked={onJoinBlocked} onNickname={onNickname} joinFirst={joinFirst} wide={wide} />
     </>
   );
 }
@@ -536,7 +536,7 @@ export function BackupSheet({ onClose }) {
 //  【便CE 2026-10-08】参加しない選択肢が無くなったので部品(DeviceTransferPanel.jsx)ごと消した)
 
 // 【便BV 2026-10-04】wide = iPad の「広い」画面(CommunityTab から)。参加前の見本(JoinIntro)と参加後の画面(JoinedView)へ配るだけ。
-function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRequest = null, onLanded = null, onOnboarding = null, onJoinCard = null, onJoinBlocked = null, joinFirst = false, wide = false }) {
+function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRequest = null, onLanded = null, onOnboarding = null, onJoinCard = null, onJoinBlocked = null, onNickname = null, joinFirst = false, wide = false }) {
   // 【便DE 2026-10-25 本人「規約同意のあと、いきなりプロフィール入力画面」】joinFirst = 初回の参加の場面(App.jsx の joinSceneNow)。**マウントしたときの値だけ**読む
   // (設定の欠落で App が場面を畳んでも、この部品の画面は変えない)。true の間:
   //   ・読み込み画面(輪と %)も参加のカード(JoinIntro)も出さず、**すぐプロフィールの入力(ProfileForm)を出す**(phase の初期値が "form")
@@ -595,6 +595,14 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRe
   useEffect(() => {
     if (phase === "profile") onOnboarding?.("join");
   }, [phase, onOnboarding]);
+  // 【便DH 2026-10-26 本人の指示】自分のニックネームを App へ知らせる(はじめの案内の文「〇〇さん」。App.jsx の coachNickname)。
+  // 読み込めた・保存した・編集で変えたとき(profile.nickname が変わるたび)。ニックネームが無い間(読み込み中・参加前)は知らせない ──
+  // タブを開き直した直後に、前に知らせた名前を null で消して案内の文を「あなた」へ一瞬戻さないため。アカウントを消したときだけ onDelete が null を知らせる。
+  // 新しく読まない(この画面がすでに持っている profile を渡すだけ。Firebase に触らない)。
+  const onNicknameRef = useRef(onNickname);
+  onNicknameRef.current = onNickname;
+  const nicknameNow = typeof profile?.nickname === "string" ? profile.nickname : null;
+  useEffect(() => { if (nicknameNow !== null) onNicknameRef.current?.(nicknameNow); }, [nicknameNow]);
   // 【便CO 2026-10-12 審査のあとの統括の決定(A案)】参加の画面のカード(JoinIntro。phase が notJoined の間はいつも暗幕とカードを出す)が
   // 出ているかを App へ知らせる(広告の帯を止める (d))。描く前(layout)に知らせ、タブを離れて部品が外れたら下ろす。
   const onJoinCardRef = useRef(onJoinCard);
@@ -867,6 +875,7 @@ function CommunityTabBody({ sessions, tuningHz, onAdoptIdeal, landTab: landTabRe
         // ProfileView は「押し直せば続きから完了できる」と言う(DELETE_ERROR)。
         const r = await deleteAccount();
         setProfile(null); setUid(null);
+        onNicknameRef.current?.(null);   // 【便DH】消したアカウントのニックネームを案内の文に残さない(「あなた」に戻る)
         rawSignInRef.current = null;   // 【便DE 審査】削除のあと「すぐ入り直す」で削除済みの uid を使わない(次の ensureUid が新しくサインインする)
         // 資格情報まで消せたかどうかで、未参加画面に出す説明を切り替える。
         setNotice(r?.credentialRemoved === false ? DELETE_PARTIAL_NOTICE : null);

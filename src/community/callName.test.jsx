@@ -76,6 +76,11 @@ async function collectLines(profile) {
 }
 
 describe("呼び名(callNameOf)", () => {
+  // 【便DH 2026-10-26】はじめの案内(onboarding.jsx)も同じ呼び名を読む。本体は profile.js の1つの関数で、screens.jsx は再 export(写しではない)
+  it("callNameOf は profile.js の1つの関数そのもの(screens.jsx の読み口と同一)", async () => {
+    const prof = await import("./profile.js");
+    expect(callNameOf).toBe(prof.callNameOf);
+  });
   it("ニックネームがあれば「ニックネーム + さん」(全角の「さん」をそのまま付ける。中の空白は保存された綴りのまま)", () => {
     expect(callNameOf("たろう")).toBe("たろうさん");
     expect(callNameOf("Taro")).toBe("Taroさん");

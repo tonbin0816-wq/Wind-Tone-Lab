@@ -191,6 +191,14 @@ export function validateNickname(raw) {
   return { value };
 }
 
+// 【便CP 2026-10-12 本人指示】利用者の呼び方は「自分のニックネーム + さん」(例「たろうさん」)。ニックネームが無いとき
+// (参加前・プロフィール作成前・読み込み中・削除後。空白だけ・文字列でない値も「無い」)は「あなた」。
+// 【便DH】はじめの案内(onboarding.jsx)も同じ呼び方を読むので、置き場所を screens.jsx(App.jsx を import する向き = 案内からは読めない)から
+// ここ(Firebase も App.jsx も読まない軽いモジュール)へ移した。screens.jsx は import して再 export する = 関数は1つだけ(写しを作らない)。
+export function callNameOf(nickname) {
+  return typeof nickname === "string" && nickname.trim() !== "" ? `${nickname}さん` : "あなた";
+}
+
 // 【殻 S1】殻の中の iPad は WKWebView が Mac を名乗る(Safari の既定と同じ)ので、UA だけだと "pc" と記録されていた。
 // 殻では Capacitor の getPlatform()(shellPlatform)が UA に依らず "ios" を返すので、それを先に見る。
 // Web では shellPlatform() が "web" を返し、下の UA の判定へ落ちる(今までと1文字も変わらない結果)。

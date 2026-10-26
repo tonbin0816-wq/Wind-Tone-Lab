@@ -1,5 +1,8 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+// 【便DH】呼び名はコミュニティと同じ関数(profile.js は Firebase も App.jsx も読まない軽いモジュール。screens.jsx は App.jsx を読む向きなので案内からは読めない)
+import { callNameOf } from "./community/profile.js";
+import { coachPhrasesOf, resolveCoachText } from "./coachPhrase.js";
 
 // ------------------------------------------------------------------
 // 【便BP 2026-10-03 本人裁定】はじめの一手(最初に開いたときの案内)。
@@ -169,13 +172,15 @@ export const COACH_STEPS = {
   // 【便BS】計測タブ2段目。的は右上のメトロノームのアイコンのボタン(44 角)。版の .spot の pad 0 で丸く囲む。
   metronome: {
     flag: "metronome", icon: "metro",
-    title: "メトロノームも使えます", line: "テンポを決めて練習できます",
+    // 【便DH 2026-10-26 本人の指示】見出しを「メトロノームを使ってみよう」に。1行は削除(見出しだけ)。
+    title: "メトロノームを使ってみよう", line: null,
     target: '[data-coach="metronome"]', pad: 0, shape: "circle",
   },
   // 【便BW 本人の要望2】メトロノームの面の中の2段。③ テンポ行(− ♩=n ＋)。♩=n を押すと拍子・分割のシート(本人裁定 ア)。
   metroTempo: {
     flag: "metroTempo", icon: "metro",
-    title: "テンポを決めよう", line: "♩=n を押すと拍子も変えられます",
+    // 【便DH 本人の指示】1行を「下のテンポ表示から拍子の変更もできます」に。
+    title: "テンポを決めよう", line: "下のテンポ表示から拍子の変更もできます",
     target: '[data-coach="metroTempo"]', pad: 6, shape: "pill",
   },
   // ④ 帯のどこを押しても開始(A-1 の背面レイヤ)。的は①と同じ環の箱(環は当たり判定を持たないので、押すと背面レイヤに届いて鳴る)。
@@ -187,7 +192,8 @@ export const COACH_STEPS = {
   // 【便BW 本人の要望3】⑤ 下部タブ「リード」。自動では移さない(押してもらうのを待つ)。【便BZ】的はボタンの箱(絵柄 + 名前)・pad 0・角丸の矩形。
   goReeds: {
     flag: "goReeds", icon: "reeds",
-    title: "次はリードを登録しよう", line: null,
+    // 【便DH 本人の指示】見出しを「リードを登録しよう」に(⑥ reeds の「使っているリードを登録しよう」は指示が無いので変えない)。
+    title: "リードを登録しよう", line: null,
     target: '[data-coach="nav-reeds"]', pad: 0, shape: "rect",
   },
   // 【便BW 本人の要望5】⑧ 左上のリードの枠(点 + メーカー + 厚さ + 開封日 + #n)。押す=済(外でもカードでも)。
@@ -224,13 +230,16 @@ export const COACH_STEPS = {
   // ⑱ 終わり。⑮ を見て計測タブへ戻ったら(goMeasure)。穴なしなのでマイクも面の開閉も待たない
   finish: {
     flag: "finish", icon: "measure",
-    title: "チューナーとメトロノームを使って、あなたのデータを貯めよう！", line: "はじめの案内はこれで終わりです",
+    // 【便DH 本人の指示】見出しを「Ficusで(ニックネーム)さんの音を分析しよう！」に。1行は削除(見出しだけ)。
+    // {call} = コミュニティの呼び方(callNameOf = 「ニックネーム + さん」/ 取れないときは「あなた」)。OnboardingCoach が描くときに差し替える。
+    title: "Ficusで{call}の音を分析しよう！", line: null,
     arrival: true,
   },
   // リードタブに着いた(⑥⑦ より先)
   arriveReeds: {
     flag: "arriveReeds", icon: "reeds",
-    title: "ここはリードタブ", line: "使っているリードを登録して、計測に紐づけます",
+    // 【便DH 本人の指示】1行を「自分のリードを管理できます」に。
+    title: "ここはリードタブ", line: "自分のリードを管理できます",
     arrival: true,
   },
   // データタブに着いた(計測があるときだけ。⑫⑬⑭ より先。計測が無いときは ⑪ の文が場所を言っている)
@@ -242,7 +251,8 @@ export const COACH_STEPS = {
   // コミュニティに着いた(参加した直後・参加済みの人がタブを開いた直後。⑯ より先)。「タブ」を付けない(モックのまま)
   arriveCommunity: {
     flag: "arriveCommunity", icon: "community",
-    title: "ここはコミュニティ", line: "参加した人の計測データと、みんなの平均が見られます",
+    // 【便DH 本人の指示】1行を「他の奏者のデータを見て(ニックネーム)さんのデータと比較できます」に。{call} は ⑱ と同じ呼び方。
+    title: "ここはコミュニティ", line: "他の奏者のデータを見て{call}のデータと比較できます",
     arrival: true,
   },
   // 【便BX 本人の決定 C】⑭' データ → コミュニティの橋。下部タブ「コミュニティ」(【便BZ】ボタンの箱・pad 0・角丸の矩形)。参加済みの人には出さない
@@ -324,9 +334,20 @@ export const COACH_STEPS = {
     target: '[data-coach="adoptAverage"]', pad: 0, shape: "rect",
   },
 };
-// 読み上げる文(見出しと1行。1行が無ければ見出しだけ)。
-export function coachSpeech(step) {
-  return step.line ? `${step.title}。${step.line}` : step.title;
+// 読み上げる文(見出しと1行。1行が無ければ見出しだけ)。【便DH】文の {call} は呼び名(callNameOf。既定は取れないときの「あなた」)に差し替える。
+export function coachSpeech(step, call = callNameOf(null)) {
+  const title = resolveCoachText(step.title, call);
+  return step.line ? `${title}。${resolveCoachText(step.line, call)}` : title;
+}
+
+// 【便DH】カードの見出し・1行。文節の切れ目に <wbr> を置く(切れ目は文字を足さない = textContent は文そのまま)。折り返しの規則は index.css の .coach-text。
+function CoachText({ className, text, call }) {
+  const phrases = coachPhrasesOf(text, call);
+  return (
+    <div className={`${className} coach-text`}>
+      {phrases.map((ph, i) => (i === 0 ? ph : <React.Fragment key={i}><wbr />{ph}</React.Fragment>))}
+    </div>
+  );
 }
 
 const isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
@@ -914,7 +935,7 @@ function hitRects(hole, vw, vh, band = null) {
 // 【便BX】also を持つ段(【便BY】⑩ goData だけ。保存の帯が出ているとき)は穴が2つ。画面を2つの穴の間の線(holesSplit)で上下に分け、穴ごとに自分の帯の中だけ
 //   影(暗幕)を落とし(clip-path)、受けも帯の中に4枚ずつ置く。穴の影が1つなので、穴を広げずに離れた2か所を照らせる。
 // ------------------------------------------------------------------
-export function OnboardingCoach({ candidates, done, hidden, onMark = null, onShown = null, onDismiss = null, onPresence = null }) {
+export function OnboardingCoach({ candidates, done, hidden, onMark = null, onShown = null, onDismiss = null, onPresence = null, nickname = null }) {
   const [view, setView] = useState(null);
   const [announcedId, setAnnouncedId] = useState(null);
   const viewRef = useRef(null);
@@ -1128,6 +1149,9 @@ export function OnboardingCoach({ candidates, done, hidden, onMark = null, onSho
 
   const said = announcedId ? COACH_STEPS[announcedId] : null;
   const step = view ? COACH_STEPS[view.id] : null;
+  // 【便DH 本人の指示】文の中の呼び名。コミュニティの「ニックネーム + さん」(callNameOf)と同じ関数で読む(写しを作らない)。ニックネームが取れていなければ「あなた」。
+  // 描くたびに読む = 参加済みの人がニックネームを変えたら次の描画で案内の文も変わる(保存はしない・状態を持たない)
+  const call = callNameOf(nickname);
   // 【便CO】カードがあるか。描く前(layout)に知らせる ── 呼び手は同じ描画のうちに <html data-ad-hold> を付けられる(帯の高さが 0 の画面でカードを置く)
   const present = view !== null;
   useLayoutEffect(() => { onPresenceRef.current?.(present); }, [present]);
@@ -1141,7 +1165,7 @@ export function OnboardingCoach({ candidates, done, hidden, onMark = null, onSho
   return createPortal(
     <>
       {/* 読み上げの入れ物は常に1つ(空のときも在る)。文だけを差し替える。 */}
-      <div className="coach-live" role="status" data-coach-live="">{said ? coachSpeech(said) : ""}</div>
+      <div className="coach-live" role="status" data-coach-live="">{said ? coachSpeech(said, call) : ""}</div>
       {view ? (
         <div
           ref={layerRef}
@@ -1212,8 +1236,8 @@ export function OnboardingCoach({ candidates, done, hidden, onMark = null, onSho
             onClick={view.arrival ? advance : dismiss}
           >
             <CoachIcon name={step.icon} />
-            <div className="coach-title">{step.title}</div>
-            {step.line ? <div className="coach-line">{step.line}</div> : null}
+            <CoachText className="coach-title" text={step.title} call={call} />
+            {step.line ? <CoachText className="coach-line" text={step.line} call={call} /> : null}
           </div>
         </div>
       ) : null}

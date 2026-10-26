@@ -54,11 +54,11 @@ describe("文言(凍結仕様の表と本人の指示のとおり、一字一句
     adoptAverage: ["みんなの平均を目安にしてみよう", "目安に設定すると自分の音と比べられます", "target"],
     // 【便BS 2026-10-03 本人裁定(ficus-tutorial2.html の表)】計測タブの1段目・2段目
     tuner: ["まずは吹いてみよう", "音程がリアルタイムで表示されます", "measure"],
-    metronome: ["メトロノームも使えます", "テンポを決めて練習できます", "metro"],
+    metronome: ["メトロノームを使ってみよう", null, "metro"],   // 【便DH 2026-10-26 本人の指示】見出しを替え、1行は削除
     // 【便BW 2026-10-06 凍結仕様 §2.6】
-    metroTempo: ["テンポを決めよう", "♩=n を押すと拍子も変えられます", "metro"],
+    metroTempo: ["テンポを決めよう", "下のテンポ表示から拍子の変更もできます", "metro"],   // 【便DH】1行を替えた
     metroStart: ["タップでスタート", "もう一度押すと止まります", "metro"],
-    goReeds: ["次はリードを登録しよう", null, "reeds"],
+    goReeds: ["リードを登録しよう", null, "reeds"],   // 【便DH】見出しを替えた
     reedLinked: ["選んだリードが紐づいています", null, "reeds"],   // 【便BX】1行を本人の指示で替えた
     measureReed: ["このリードで計測してみよう", "ボタンタップで計測スタート", "mic"],
     goData: ["計測の記録を見てみよう", null, "data"],
@@ -68,12 +68,13 @@ describe("文言(凍結仕様の表と本人の指示のとおり、一字一句
     // 【便BW 本人裁定 2026-10-06】⑮ はデータタブの音の傾向カード
     idealSeen: ["みんなの平均を目安にしました", "my平均と目安を重ねて見られます", "target"],
     // 【便BX 2026-10-06 凍結仕様 §2.3】到着4つ・⑭'・⑰(「！」は全角・「ここはコミュニティ」に「タブ」を付けない)
-    finish: ["チューナーとメトロノームを使って、あなたのデータを貯めよう！", "はじめの案内はこれで終わりです", "measure"],
-    arriveReeds: ["ここはリードタブ", "使っているリードを登録して、計測に紐づけます", "reeds"],
+    // 【便DH】見出しは「Ficusで(ニックネーム)さんの音を分析しよう！」({call} = コミュニティの呼び方)・1行は削除
+    finish: ["Ficusで{call}の音を分析しよう！", null, "measure"],
+    arriveReeds: ["ここはリードタブ", "自分のリードを管理できます", "reeds"],
     arriveData: ["ここはデータタブ", "計測の記録はここに貯まります", "data"],
     goCommunity: ["みんなのデータも見てみよう", null, "community"],
     goMeasure: ["計測タブに戻ろう", null, "measure"],
-    arriveCommunity: ["ここはコミュニティ", "参加した人の計測データと、みんなの平均が見られます", "community"],
+    arriveCommunity: ["ここはコミュニティ", "他の奏者のデータを見て{call}のデータと比較できます", "community"],   // 【便DH】1行を替えた
     // 【便BZ 2026-10-07 統括の裁定】⑯ の次(見出しは短く・1行は無し。行き先の下部タブ「データ」と同じ絵)
     goCompare: ["目安と比べてみよう", null, "data"],
   };
@@ -949,8 +950,8 @@ describe("【便BW】環の箱・メトロノームの的", () => {
     expect(layerId()).toBe("metronome");
     expect(holeBox()).toEqual(["317px", "30px", "44px", "44px", "50%"]);
     const card = layer().querySelector(".coach-card");
-    expect(card.querySelector(".coach-title").textContent).toBe("メトロノームも使えます");
-    expect(card.querySelector(".coach-line").textContent).toBe("テンポを決めて練習できます");
+    expect(card.querySelector(".coach-title").textContent).toBe("メトロノームを使ってみよう");
+    expect(card.querySelector(".coach-line")).toBe(null);   // 【便DH】1行は削除(見出しだけ)
     const svg = card.querySelector(".coach-icon svg");
     expect(svg.getAttribute("stroke-width")).toBe("1.6");
     expect(svg.querySelector("path").getAttribute("d")).toBe("M8 20h8l-2-14h-4z");
@@ -1797,8 +1798,8 @@ describe("【便BX】到着カード(穴なし・どこを押しても次へ・�
     expect(parseFloat(card.style.top)).toBe(CENTER);
     expect(card.getAttribute("data-coach-side")).toBe("center");
     expect(card.querySelector(".coach-title").textContent).toBe("ここはリードタブ");
-    expect(card.querySelector(".coach-line").textContent).toBe("使っているリードを登録して、計測に紐づけます");
-    expect(live().textContent).toBe("ここはリードタブ。使っているリードを登録して、計測に紐づけます");
+    expect(card.querySelector(".coach-line").textContent).toBe("自分のリードを管理できます");   // 【便DH】
+    expect(live().textContent).toBe("ここはリードタブ。自分のリードを管理できます");
     // 受けは下部タブ(765〜812)も覆う(重なり順 55 > 下部タブ 30)。到着の間の下部タブの1回は「次へ」になる(仕様 §2.5)
     expect(Number(L.style.zIndex)).toBe(55);
     expect(parseFloat(hits[0].style.top) + parseFloat(hits[0].style.height)).toBeGreaterThanOrEqual(NAV_TOP + 47);
@@ -1846,9 +1847,10 @@ describe("【便BX】到着カード(穴なし・どこを押しても次へ・�
   });
   it("4つの到着の文とアイコン(⑱ は計測タブと同じ絵・コミュニティは参加のカードと同じ絵)", async () => {
     const W4 = {
-      finish: ["チューナーとメトロノームを使って、あなたのデータを貯めよう！", "はじめの案内はこれで終わりです", "m12 14 4-4"],
+      // 【便DH】ニックネームを渡していないので呼び名は「あなた」(「あなたさん」にならない)。1行は削除
+      finish: ["Ficusであなたの音を分析しよう！", null, "m12 14 4-4"],
       arriveData: ["ここはデータタブ", "計測の記録はここに貯まります", "M16 16L16 8"],
-      arriveCommunity: ["ここはコミュニティ", "参加した人の計測データと、みんなの平均が見られます", null],
+      arriveCommunity: ["ここはコミュニティ", "他の奏者のデータを見てあなたのデータと比較できます", null],
     };
     for (const [id, [title, line, d0]] of Object.entries(W4)) {
       act(() => root.unmount());
@@ -1857,7 +1859,8 @@ describe("【便BX】到着カード(穴なし・どこを押しても次へ・�
       await frames();
       expect(layerId(), id).toBe(id);
       expect(layer().querySelector(".coach-title").textContent, id).toBe(title);
-      expect(layer().querySelector(".coach-line").textContent, id).toBe(line);
+      if (line === null) expect(layer().querySelector(".coach-line"), id).toBe(null);
+      else expect(layer().querySelector(".coach-line").textContent, id).toBe(line);
       if (d0) expect(layer().querySelector(".coach-icon svg path").getAttribute("d"), id).toBe(d0);
       else expect(layer().querySelector(".coach-icon svg circle").getAttribute("cx"), id).toBe("9");
     }
@@ -1878,13 +1881,13 @@ describe("【便CG】目印が無い(カードの最初の子はアイコン)", 
     await drawBS(["goData"], { done: doneWith("goReeds"), extra: MEASURE_PAGE });
     await frames();
     expect(layerId()).toBe("goData");
-    expect(kids()).toEqual(["coach-icon", "coach-title"]);
+    expect(kids()).toEqual(["coach-icon", "coach-title coach-text"]);   // 【便DH】見出し・1行は折り返しの規則 .coach-text を足した
     expect(layer().querySelector(".coach-progress")).toBe(null);
     expect(card().querySelector('[role="img"]')).toBe(null);
     expect(card().textContent.includes("案内")).toBe(false);
     expect(live().textContent).toBe("計測の記録を見てみよう");
   });
-  it("① / リードの到着 / コミュニティの到着 / ⑱(何も済んでいなくても・全部済んでいても): 子はアイコン・見出し・1行の3つ。目印は無い", async () => {
+  it("① / リードの到着 / コミュニティの到着 / ⑱(何も済んでいなくても・全部済んでいても): 子はアイコン・見出し・1行の3つ(【便DH】⑱ は1行が無いので2つ)。目印は無い", async () => {
     const CASES = [
       ["tuner", ALL_FALSE, <Band key="b" />],
       ["arriveReeds", ALL_FALSE, null],
@@ -1898,7 +1901,8 @@ describe("【便CG】目印が無い(カードの最初の子はアイコン)", 
       await drawBS([id], { done, extra });
       await frames();
       expect(layerId(), id).toBe(id);
-      expect(kids(), id).toEqual(["coach-icon", "coach-title", "coach-line"]);
+      // 【便DH】⑱ は1行が削除されたので子はアイコン・見出しの2つ。見出し・1行は折り返しの規則 .coach-text を足した
+      expect(kids(), id).toEqual(id === "finish" ? ["coach-icon", "coach-title coach-text"] : ["coach-icon", "coach-title coach-text", "coach-line coach-text"]);
       expect(layer().querySelector(".coach-progress, .coach-progress b"), id).toBe(null);
     }
   });
@@ -2196,5 +2200,152 @@ describe("【便BZ】③ 目安と比べてみよう(goCompare)の判定", () =>
     expect([hs[0].style.width, hs[0].style.height, hs[0].style.borderRadius]).toEqual(["83.75px", "44px", "var(--r-2)"]);
     expect(layer().querySelector(".coach-title").textContent).toBe("目安と比べてみよう");
     expect(layer().querySelector(".coach-line")).toBe(null);
+  });
+});
+
+// ------------------------------------------------------------------
+// 【便DH 2026-10-26 本人の指示】案内の文言の差し替え・「(ニックネーム)さん」・カードの折り返し。
+//   ・文言: 8か所(metronome / metroTempo / arriveReeds / goReeds / finish / arriveCommunity。1行を削除する段は metronome / finish)
+//   ・呼び名: コミュニティの「ニックネーム + さん」(callNameOf。profile.js の1つの関数)。ニックネームが無ければ「あなた」。「あなたさん」にならない
+//   ・折り返し: 文節の切れ目に <wbr> を置く(textContent は文そのまま)+ index.css の .coach-text(keep-all / anywhere / balance)
+// 期待値は本人の指示の文と、文節の切れ目(日本語として自然な区切り)から**手で書いた**(実装の関数から逆算していない)。
+// 【守っていないもの】実際の折り返しの位置(jsdom は文字の幅を持たない)。Chrome の実測は報告の表。iOS の WebView(WKWebView)の折り返しは実機待ち。
+// ------------------------------------------------------------------
+describe("【便DH】呼び名({call})= コミュニティの「ニックネーム + さん」と同じ関数", () => {
+  const drawNick = (candidates, nickname, { done = ALL_FALSE } = {}) => act(async () => {
+    root.render(<><Nav /><OnboardingCoach candidates={candidates} done={done} hidden={false} nickname={nickname} /></>);
+  });
+  const title = () => layer().querySelector(".coach-title").textContent;
+  const line = () => layer().querySelector(".coach-line")?.textContent ?? null;
+
+  it("ニックネームがあれば「〇〇さん」: ⑱ の見出し・コミュニティの到着の1行・読み上げ", async () => {
+    await drawNick(["finish"], "たろう");
+    await frames();
+    expect(layerId()).toBe("finish");
+    expect(title()).toBe("Ficusでたろうさんの音を分析しよう！");
+    expect(line()).toBe(null);   // 1行は削除
+    expect(live().textContent).toBe("Ficusでたろうさんの音を分析しよう！");
+    act(() => root.unmount());
+    root = createRoot(host);
+    await drawNick(["arriveCommunity"], "たろう");
+    await frames();
+    expect(title()).toBe("ここはコミュニティ");
+    expect(line()).toBe("他の奏者のデータを見てたろうさんのデータと比較できます");
+    expect(live().textContent).toBe("ここはコミュニティ。他の奏者のデータを見てたろうさんのデータと比較できます");
+  });
+  it("綴りは保存された値のまま(英字・空白を含む・絵文字)", async () => {
+    for (const [nick, who] of [["Taro", "Taroさん"], ["た ろう", "た ろうさん"], ["ねこ🐱", "ねこ🐱さん"]]) {
+      act(() => root.unmount());
+      root = createRoot(host);
+      await drawNick(["finish"], nick);
+      await frames();
+      expect(title(), nick).toBe(`Ficusで${who}の音を分析しよう！`);
+    }
+  });
+  it("ニックネームが無い(null・未定義・空・空白だけ・文字列でない)ときは「あなた」。「あなたさん」にならない", async () => {
+    for (const nick of [null, undefined, "", " ", "　", 0, {}, []]) {
+      act(() => root.unmount());
+      root = createRoot(host);
+      await drawNick(["finish"], nick);
+      await frames();
+      expect(title(), String(nick)).toBe("Ficusであなたの音を分析しよう！");
+      expect(live().textContent, String(nick)).toBe("Ficusであなたの音を分析しよう！");
+      act(() => root.unmount());
+      root = createRoot(host);
+      await drawNick(["arriveCommunity"], nick);
+      await frames();
+      expect(line(), String(nick)).toBe("他の奏者のデータを見てあなたのデータと比較できます");
+      expect(document.body.textContent.includes("あなたさん")).toBe(false);
+    }
+  });
+  it("ニックネームを変えたら次の描画で案内の文も変わる(見出し・読み上げ。カードは作り直さない)。無くなれば「あなた」に戻る", async () => {
+    await drawNick(["finish"], "たろう");
+    await frames();
+    const card = layer().querySelector(".coach-card");
+    expect(title()).toBe("Ficusでたろうさんの音を分析しよう！");
+    await drawNick(["finish"], "はなこ");
+    expect(layer().querySelector(".coach-card")).toBe(card);
+    expect(title()).toBe("Ficusではなこさんの音を分析しよう！");
+    expect(live().textContent).toBe("Ficusではなこさんの音を分析しよう！");
+    await drawNick(["finish"], null);
+    expect(title()).toBe("Ficusであなたの音を分析しよう！");
+    expect(live().textContent).toBe("Ficusであなたの音を分析しよう！");
+  });
+  it("呼び名の入る文は2つだけ(finish の見出し・arriveCommunity の1行)。ほかの段の文には {call} が入らない", () => {
+    const withCall = Object.entries(COACH_STEPS).flatMap(([id, s]) => [["title", s.title], ["line", s.line]].filter(([, t]) => typeof t === "string" && t.includes("{call}")).map(([k]) => `${id}.${k}`));
+    expect(withCall.sort()).toEqual(["arriveCommunity.line", "finish.title"]);
+  });
+});
+
+describe("【便DH】文言(本人の指示の表)", () => {
+  it("1行が null の段: 今回 metronome と finish が増えた(見出しだけのカード)。ほかは前のまま", () => {
+    const noLine = Object.entries(COACH_STEPS).filter(([, s]) => s.line === null).map(([id]) => id).sort();
+    expect(noLine).toEqual(["calendarDay", "daySession", "finish", "goCommunity", "goCompare", "goData", "goMeasure", "goReeds", "metronome", "reedLinked", "reedsMeasure", "trend"]);
+  });
+  it("見出しだけのカード(metronome)は1行の入れ物(.coach-line)を持たず、測った高さで見える範囲に収まる", async () => {
+    cardH = 100;
+    await drawBS(["metronome"], { extra: <MetroBtn /> });
+    await frames();
+    const card = layer().querySelector(".coach-card");
+    expect([...card.children].map((c) => c.className)).toEqual(["coach-icon", "coach-title coach-text"]);
+    expect(card.style.visibility).toBe("visible");
+    const top = parseFloat(card.style.top);
+    expect(top).toBeGreaterThanOrEqual(22);
+    expect(top + 100).toBeLessThanOrEqual(760);   // 下部タブの上端(760)より上
+  });
+});
+
+describe("【便DH】カードの文を文節で折り返す(<wbr> と .coach-text)", () => {
+  const drawNick = (candidates, nickname) => act(async () => {
+    root.render(<><Nav /><OnboardingCoach candidates={candidates} done={ALL_FALSE} hidden={false} nickname={nickname} /></>);
+  });
+  it("⑱ の見出しは「Ficusで|たろうさんの|音を|分析しよう！」の切れ目に <wbr>。textContent は文そのまま(文字を足さない)", async () => {
+    await drawNick(["finish"], "たろう");
+    await frames();
+    const t = layer().querySelector(".coach-title");
+    expect(t.className).toBe("coach-title coach-text");
+    expect(t.innerHTML).toBe("Ficusで<wbr>たろうさんの<wbr>音を<wbr>分析しよう！");
+    expect(t.textContent).toBe("Ficusでたろうさんの音を分析しよう！");
+  });
+  it("コミュニティの到着の1行は「他の|奏者の|データを|見て|たろうさんの|データと|比較できます」", async () => {
+    await drawNick(["arriveCommunity"], "たろう");
+    await frames();
+    expect(layer().querySelector(".coach-line").innerHTML).toBe("他の<wbr>奏者の<wbr>データを<wbr>見て<wbr>たろうさんの<wbr>データと<wbr>比較できます");
+  });
+  it("長いニックネーム(20字)は1つの塊のまま運ぶ(中に <wbr> を置かない = 呼び名の途中の助詞では切らない)。「あなた」のときも同じ形", async () => {
+    const long = "山の上のうさぎの太郎と花子の会のひとびと";   // 20 字。中に の・と を含む
+    expect([...long]).toHaveLength(20);
+    await drawNick(["finish"], long);
+    await frames();
+    expect(layer().querySelector(".coach-title").innerHTML).toBe(`Ficusで<wbr>${long}さんの<wbr>音を<wbr>分析しよう！`);
+    await drawNick(["finish"], null);
+    expect(layer().querySelector(".coach-title").innerHTML).toBe("Ficusで<wbr>あなたの<wbr>音を<wbr>分析しよう！");
+  });
+  it("ニックネームの中の < や & は文字のまま(要素にならない)。<wbr> は文節の切れ目だけ", async () => {
+    await drawNick(["finish"], "<b>&x");
+    await frames();
+    const t = layer().querySelector(".coach-title");
+    expect(t.querySelector("b")).toBe(null);
+    expect(t.textContent).toBe("Ficusで<b>&xさんの音を分析しよう！");
+    expect(t.querySelectorAll("wbr")).toHaveLength(3);
+  });
+  it("index.css: .coach-text は keep-all(文節の切れ目と空白でだけ折り返す)・anywhere(1つの塊が行に収まらないときの最後の手段)・balance。.coach-title / .coach-line の規則には触れていない", () => {
+    const css = readFileSync(join(process.cwd(), "src", "index.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(/\n\.coach-text \{ word-break: keep-all; overflow-wrap: anywhere; text-wrap: balance; \}/.test(css)).toBe(true);
+    expect(css.includes("\n.coach-title { font-size: var(--fs-lg); font-weight: 700; line-height: var(--lh-tight); color: var(--c-ink); }")).toBe(true);
+    expect(css.includes("\n.coach-line { font-size: var(--fs-sm); line-height: var(--lh-loose); color: var(--c-ink-2); }")).toBe(true);
+  });
+  it("jsdom が CSS を読めている: カードの見出し・1行は word-break: keep-all の規則を受ける", async () => {
+    await drawNick(["arriveCommunity"], "たろう");
+    await frames();
+    for (const sel of [".coach-title", ".coach-line"]) {
+      const cs = getComputedStyle(layer().querySelector(sel));
+      expect(cs.wordBreak, sel).toBe("keep-all");
+    }
+  });
+  it("参加の画面のカード・同意の画面(.coach-title / .coach-line を使う別の部品)には .coach-text を付けていない(この便の外)", () => {
+    for (const f of ["src/community/CommunityTab.jsx", "src/ConsentScreen.jsx"]) {
+      expect(readFileSync(join(process.cwd(), f), "utf8").includes("coach-text"), f).toBe(false);
+    }
   });
 });
