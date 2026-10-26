@@ -49,7 +49,7 @@ import { MEASURE_STEPS_MIGRATED, TUNER_SUSTAIN_MS, useSustained } from "./onboar
 // 【便BW 2026-10-06】新しい段の移行の印(3つ目の門)。【便BX】4つ目の門。
 import { COACH2_MIGRATED, COACH3_MIGRATED } from "./onboarding.jsx";
 // 【便BZ 2026-10-07】5つ目の門(goCompare の移行)・帯と同時に出してよい段の決まり・「目安と比べてみよう」から来たかの判定。
-import { COACH4_MIGRATED, coachDuringNotice, coachCameFromCompare } from "./onboarding.jsx";
+import { COACH4_MIGRATED, coachDuringNotice, coachCameFromCompare, noticeActionHidden } from "./onboarding.jsx";
 // 【リードの番手の正は community/profile.js】綴りを2箇所に持たない。
 // profile.js は firebase を読まない(カタログとNGワードだけ)ので、
 // ここから import しても計測タブの起動が重くならない。
@@ -3830,7 +3830,8 @@ function useActionNoticeStore() {
 // 下部ナビの直上に置く(top は1つも持たない)。
 // 【読み上げ】文だけ aria-live="polite"。残り秒数に role="status" を付けると
 // 1秒ごとに読み上げるので aria-hidden にする。
-function ActionNotice({ notice, onAction, onLeaveEnd }) {
+// 【便DI 2026-10-26】hideAction = 操作ボタン(「開く」)を描かない(はじめの案内の ⑩ が出ている間の保存の帯。onboarding.jsx の noticeActionHidden)。文は残す。
+function ActionNotice({ notice, onAction, onLeaveEnd, hideAction = false }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!notice || !notice.countdown || notice.leaving) return undefined;
@@ -3865,7 +3866,7 @@ function ActionNotice({ notice, onAction, onLeaveEnd }) {
           <span aria-hidden="true" style={{ color: "var(--c-good)", fontSize: "var(--fs-sm)", fontWeight: 700, flexShrink: 0 }}>✓</span>
         ) : null}
         <span className="sans" aria-live="polite" style={{ flex: 1, minWidth: 0, fontSize: "var(--fs-sm)", color: "var(--c-ink)" }}>{notice.text}</span>
-        {notice.actionLabel ? (
+        {notice.actionLabel && !hideAction ? (
           <button
             type="button"
             onClick={() => onAction(notice)}
@@ -4420,7 +4421,7 @@ export default function WindToneLabPhaseMode({ startOnJoin = false } = {}) {
         done: true,
         actionLabel: "開く",
         onAction: () => openSessionFromNotice(pendingSession.id),
-        // 【便BX 2026-10-06 本人の決定 C】この帯と同時に ⑩(下部タブ「データ」)を出す。帯は2つ目の穴で明るく残す(「開く」は押せる)
+        // 【便BX 2026-10-06 本人の決定 C】この帯と同時に ⑩(下部タブ「データ」)を出す。【便DI】⑩ が出ている間はこの「開く」を描かない(押す所を下部タブ「データ」の1つにする。ActionNotice の hideAction)
         // 【便BZ】帯が名乗るのはタブの名前(計測タブにいる間だけ)
         coach: "measure",
       });
@@ -5949,7 +5950,7 @@ export default function WindToneLabPhaseMode({ startOnJoin = false } = {}) {
           .surf-card の中に入れると、transform を持つ祖先が position:fixed の
           包含ブロックになり、帯がその箱の中に貼り付く(人物紹介で踏んだ)。
           タブを移っても時間は止まらない(この要素はタブの外に居るので消えない)。 */}
-      <ActionNotice notice={notice} onAction={runNoticeAction} onLeaveEnd={finishLeave} />
+      <ActionNotice notice={notice} onAction={runNoticeAction} onLeaveEnd={finishLeave} hideAction={noticeActionHidden({ notice, topTab, candidates: coachWithNotice.candidates })} />
 
       {/* 画面下部の固定タブナビ(Claude Designに準拠)。録音中はタブ移動を無効化する。 */}
       {/* 【便DD】参加の場面の間は下部タブを描かない(見送りの道をなくす)。場所は CSS の余白(--nav-h)がそのまま空けてある */}

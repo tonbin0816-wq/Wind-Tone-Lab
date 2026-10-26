@@ -1384,7 +1384,10 @@ async function recordAndSave() {
   await click([...saveDialog().querySelectorAll("button")].find((b) => b.textContent.trim() === "登録"));
 }
 
-describe("【便BX】保存の帯と同時に ⑩(帯は2つ目の穴)", () => {
+// 【便DI 2026-10-26 本人「⑩ が出ているとき、下部タブの『データ』と帯の『開く』のどちらを押せばいいか迷う」】
+//   ⑩ が出ている間、保存の帯の「開く」は描かない(帯の文は残る)。⑩ の穴は下部タブ「データ」の1枚だけ(便BX の2つ目の穴 = 帯の箱は外した)。
+//   ⑩ が済んだ・外押しで飛ばした・出ない人には「開く」が出る。期待値は本人の指示の文から手で書いた。
+describe("【便DI】保存の帯と同時に ⑩(帯の「開く」は描かない・穴は下部タブ1枚)", () => {
   afterEach(() => removeFakeMic());
   let realRect2;
   beforeEach(() => {
@@ -1401,41 +1404,72 @@ describe("【便BX】保存の帯と同時に ⑩(帯は2つ目の穴)", () => {
   });
   afterEach(() => { window.Element.prototype.getBoundingClientRect = realRect2; });
 
-  it("⑨ 録音 → 保存の確認で「登録」: 帯と同じ描画で ⑩。穴は2枚(データの絵柄 + 帯の箱)。帯の「開く」を押すと詳細が開き、案内は消え goData・daySession", async () => {
+  it("⑨ 録音 → 保存の確認で「登録」: 帯と同じ描画で ⑩。帯は文だけで「開く」が無い(一度も描かれない)。穴は下部タブ「データ」の1枚。「データ」を押すと済み、帯が残っていれば「開く」が出る", async () => {
     installToneMic();
     mod = await loadApp(fake);
     // 入れたて(⑤⑧ まで済み・⑨ から)。リードは選んでいない
     await seed({ kvEntries: { onboardingDone: { ...GATES, tuner: true, metronome: true, goReeds: true } } });
     await render();
     await waitFor(() => layerId() === "measure", "⑨");
+    // 帯の中に「開く」のボタンが1度でも描かれたらここに溜まる(出てから消す形でも見逃さない)
+    const opens = [];
+    const mo = new MutationObserver(() => { for (const b of document.querySelectorAll(".action-notice button")) if (b.textContent.includes("開く")) opens.push(b.textContent); });
+    mo.observe(document.body, { childList: true, subtree: true, characterData: true });
     await recordAndSave();
     // 帯が出ている同じ描画で ⑩
     await waitFor(() => noticeText() !== null, "保存の帯");
-    expect(noticeText()).toMatch(/^✓\d\d:\d\d の計測を保存しました開く$/);
+    expect(noticeText()).toMatch(/^✓\d\d:\d\d の計測を保存しました$/);
     await waitFor(() => layerId() === "goData", "帯と同時に ⑩");
-    expect(noticeText()).not.toBe(null);
+    expect(noticeText()).toMatch(/^✓\d\d:\d\d の計測を保存しました$/);
+    expect(buttonText("開く")).toBe(null);
     await waitFor(() => kv("onboardingDone")?.measure === true, "measure の印(保存)");
-    expect(noticeText()).not.toBe(null);
-    const holes = [...layer().querySelectorAll(".coach-hole")];
-    expect(holes.map((h) => [h.style.left, h.style.top, h.style.width, h.style.height, h.style.borderRadius, h.getAttribute("data-coach-hole")])).toEqual([
-      ["271.25px", "760px", "83.75px", "44px", "var(--r-2)", null], ["14px", "685px", "347px", "68px", "var(--r-2)", "also"],
-    ]);
     expect(document.querySelectorAll("[data-action-notice]")).toHaveLength(1);
     expect(document.querySelector("[data-action-notice]").className).toBe("action-notice");
-    // 帯の箱の中に受けは無い(「開く」は押せる)
-    const hitsOver = [...layer().querySelectorAll(".coach-hit")].filter((h) => {
-      const t = parseFloat(h.style.top); const hh = parseFloat(h.style.height);
-      return t < 753 && t + hh > 685 && parseFloat(h.style.width) > 0;
-    });
-    expect(hitsOver.map((h) => h.getAttribute("data-coach-hit")).sort()).toEqual(["xl", "xr"]);   // 帯の左右(画面の縁 14px)だけ
-    // 帯の「開く」→ 詳細(既存の openSessionFromNotice)。タブが変わるので ⑩ は消え、goData・daySession が立つ
-    await click(buttonText("開く"));
-    await waitFor(() => backToList(), "計測の詳細");
-    await waitFor(() => kv("onboardingDone")?.goData === true && kv("onboardingDone")?.daySession === true, "goData・daySession の印");
-    expect(layerId()).not.toBe("goData");
+    const holes = [...layer().querySelectorAll(".coach-hole")];
+    expect(holes.map((h) => [h.style.left, h.style.top, h.style.width, h.style.height, h.style.borderRadius, h.getAttribute("data-coach-hole")])).toEqual([
+      ["271.25px", "760px", "83.75px", "44px", "var(--r-2)", null],
+    ]);
+    expect(opens).toEqual([]);
+    // 「データ」を押す: 済み(goData)・帯が残っていれば「開く」が元どおり出る
+    await click(nav("データ"));
+    await waitFor(() => kv("onboardingDone")?.goData === true, "goData の印");
+    await waitFor(() => buttonText("開く") !== null, "⑩ が済んだ後は「開く」が出る");
+    mo.disconnect();
   }, 40000);
 
-  it("帯が消えても ⑩ は残る(穴は1枚に戻る)", async () => {
+  it("帯の本体(暗幕の下)を押すと外押し: ⑩ だけ飛ばし、詳細は開かず、帯に「開く」が出る。流れ(goData の印)は立たない", async () => {
+    installToneMic();
+    mod = await loadApp(fake);
+    await seed({ kvEntries: { onboardingDone: { ...GATES, tuner: true, metronome: true, goReeds: true } } });
+    await render();
+    await waitFor(() => layerId() === "measure", "⑨");
+    await recordAndSave();
+    await waitFor(() => layerId() === "goData", "⑩");
+    expect(buttonText("開く")).toBe(null);
+    // 帯の位置は暗幕の受けの下(帯の穴が無い)。受け(上)を押す = 外押し
+    await click(layer().querySelector('[data-coach-hit="t"]'));
+    await waitFor(() => layer() === null, "⑩ が消える");
+    await waitFor(() => buttonText("開く") !== null, "⑩ を飛ばしたあとは「開く」が出る");
+    expect(noticeText()).toMatch(/^✓\d\d:\d\d の計測を保存しました開く$/);
+    expect(kv("onboardingDone")?.goData).toBeUndefined();
+    expect(backToList()).toBe(null);   // 詳細は開いていない
+  }, 40000);
+
+  it("⑩ を出さない人(goData が済み)には、保存の帯に「開く」が出る。押すと詳細が開く(今までどおり)", async () => {
+    installToneMic();
+    mod = await loadApp(fake);
+    await seed({ kvEntries: { onboardingDone: { ...GATES, tuner: true, metronome: true, goReeds: true, goData: true } } });
+    await render();
+    await waitFor(() => layerId() === "measure", "⑨");
+    await recordAndSave();
+    await waitFor(() => noticeText() !== null, "保存の帯");
+    expect(noticeText()).toMatch(/^✓\d\d:\d\d の計測を保存しました開く$/);
+    expect(layerId()).not.toBe("goData");
+    await click(buttonText("開く"));
+    await waitFor(() => backToList(), "計測の詳細");
+  }, 40000);
+
+  it("帯が消えても ⑩ は残る(穴は1枚のまま)", async () => {
     preferReducedMotion();   // 帯が5秒で溶けずに外れる(jsdom は animationend を出さない)
     installToneMic();
     mod = await loadApp(fake);
@@ -1443,9 +1477,10 @@ describe("【便BX】保存の帯と同時に ⑩(帯は2つ目の穴)", () => {
     await render();
     await waitFor(() => layerId() === "measure", "⑨");
     await recordAndSave();
-    await waitFor(() => layerId() === "goData" && layer().querySelectorAll(".coach-hole").length === 2, "帯と同時に ⑩");
+    await waitFor(() => layerId() === "goData" && noticeText() !== null, "帯と同時に ⑩");
+    expect(layer().querySelectorAll(".coach-hole")).toHaveLength(1);
     await waitFor(() => noticeText() === null, "帯が消える", 8000);
-    await waitFor(() => layer()?.querySelectorAll(".coach-hole").length === 1, "穴は1枚");
+    expect(layer()?.querySelectorAll(".coach-hole").length).toBe(1);
     expect(layerId()).toBe("goData");
   }, 40000);
 

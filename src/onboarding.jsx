@@ -159,7 +159,7 @@ export const COACH_EDGE_PX = 22;
 //   scrollIntoView … 的が見える範囲(上端 〜 下部タブ・広告の帯の上端)に収まっていなければ、この起動で1回だけ送る(【便BW】音の傾向カード。【便BZ】判定は coachScrollPlan)
 //   also … 【便BX】2つ目の穴({ target, pad, shape })。的(1つ目)が見えているときだけ探し、画面にまるごと見えていて
 //          1つ目と縦に重ならなければ一緒に明るく残す(見えていなければ1つ目だけ)。カードの位置は1つ目で決める
-//          (【便BY】⑥ の楽器種別の行の穴は外した。持つのは ⑩ goData(保存の帯の箱)と【便BZ】goCompare(目安の帯の箱))
+//          (【便BY】⑥ の楽器種別の行の穴は外した。【便DI】⑩ goData の帯の箱も外した。持つのは【便BZ】goCompare(目安の帯の箱)だけ)
 export const COACH_STEPS = {
   // 【便BW 2026-10-06 本人の要望1】計測タブ1段目。的は環の箱(環と音名。吹いて動く所)。
   // 【便BW 審査 統括の裁定】最初はチューナーの帯(環 + 折れ線)全体だったが、カードが帯の中央に重なって環を覆った(広告あり・iPad 横)ので環に絞った。
@@ -221,9 +221,11 @@ export const COACH_STEPS = {
     flag: "goData", icon: "data",
     title: "計測の記録を見てみよう", line: null,
     target: '[data-coach="nav-analysis"]', pad: 0, shape: "rect",
-    // 【便BX 2026-10-06 本人の決定 C】保存の帯(「HH:mm の計測を保存しました」+「開く」)と同時に出す。帯の箱(App.jsx の ActionNotice の内箱が
-    // data-action-notice で名乗る)を2つ目の穴で明るく残す(穴の中には受けを置かないので「開く」は押せる)。帯が無ければ1つ目だけ(今までどおり)
-    also: { target: "[data-action-notice]", pad: 0, shape: "rect" },
+    // 【便BX 2026-10-06 本人の決定 C】保存の帯(「HH:mm の計測を保存しました」)と同時に出す(coachDuringNotice)。
+    // 【便DI 2026-10-26 本人「下部タブの『データ』と帯の『開く』のどちらを押せばいいか迷う」】この段が出ている間は、帯の「開く」を描かない
+    // (noticeActionHidden。App.jsx の ActionNotice)ので、押す所は下部タブ「データ」の1つだけ。便BX の2つ目の穴(帯の箱 also)は外した ──
+    // 「開く」が無い帯を明るく残す意味が無くなった。帯は暗幕の下に残る(「HH:mm の計測を保存しました」は事実の知らせ)。
+    // この段が済んだ・外押しで飛ばした・出なくなったら「開く」は元どおり出る。
   },
   // 【便BX 2026-10-06 本人の決定 B1】到着カード(穴なし・どこを押しても次へ = 印を立てる・群なし)。章が変わってタブに着いた直後に1枚。
   // target を持たない(的を探さない)。pad / shape / dismissWith / markOnDismiss / scrollIntoView / also も持たない。
@@ -537,6 +539,14 @@ export function coachCameFromCompare({ from, to, done }) {
 //   コミュニティ(目安の帯) … goCompare だけ
 // 違うタブ(帯の間にタブを移った)では出さない ── 着いた先の段(到着・⑮ など)が帯の「開く」「見る」を覆わない(便BX の罠)。
 export const COACH_WITH_NOTICE = Object.freeze({ measure: Object.freeze(["goData"]), community: Object.freeze(["goCompare"]) });
+// 【便DI 2026-10-26 本人「⑩ が出ているとき、下部タブの『データ』と帯の『開く』のどちらを押せばいいか迷う」】
+// 保存の帯(notice.coach === "measure")の操作ボタン(「開く」)を描かないか。⑩ goData が**いま出し得る一手**(coachDuringNotice を通した候補)の
+// 間だけ true。帯そのもの(「HH:mm の計測を保存しました」)は残す。⑩ が済んだ(タブを移った)・外押しで飛ばした(候補から外れる)・
+// 別のタブにいる・案内が済んでいる(候補が無い)・別の帯(削除の「元に戻す」・目安の「見る」)のときは false = 今までどおり出す。
+// 目安の帯(goCompare)は対象外(「見る」を押してもデータタブへ着き、下部タブ「データ」と同じ結果になる = 迷っても流れは壊れない)。
+export function noticeActionHidden({ notice, topTab, candidates }) {
+  return Boolean(notice) && notice.coach === "measure" && topTab === "measure" && (candidates ?? []).includes("goData");
+}
 export function coachDuringNotice({ candidates, notice, topTab }) {
   if (!notice) return { candidates, hidden: false };
   if (!notice.coach || notice.coach !== topTab || !(topTab in COACH_WITH_NOTICE)) return { candidates, hidden: true };
@@ -932,7 +942,7 @@ function hitRects(hole, vw, vh, band = null) {
 // 【便BX】到着カード(穴なし・どこを押しても次へ)だけが暗幕を画面いっぱいに敷く(.coach-dim と受け1枚)。他の段は穴と受け4枚。
 //   到着の受け・カードを押すと advance(印を立てる)。外押しではないので dismissedRef に入れない(群も消さない)。
 //   scrollIntoView の段は、的が見える範囲に収まっていなければ(【便BZ】coachScrollPlan)、この起動で1回だけ送る(scrolledRef)。
-// 【便BX】also を持つ段(【便BY】⑩ goData だけ。保存の帯が出ているとき)は穴が2つ。画面を2つの穴の間の線(holesSplit)で上下に分け、穴ごとに自分の帯の中だけ
+// 【便BX】also を持つ段(【便DI】goCompare だけ。目安の帯が出ているとき。便BY〜便DH は ⑩ goData も持っていた)は穴が2つ。画面を2つの穴の間の線(holesSplit)で上下に分け、穴ごとに自分の帯の中だけ
 //   影(暗幕)を落とし(clip-path)、受けも帯の中に4枚ずつ置く。穴の影が1つなので、穴を広げずに離れた2か所を照らせる。
 // ------------------------------------------------------------------
 export function OnboardingCoach({ candidates, done, hidden, onMark = null, onShown = null, onDismiss = null, onPresence = null, nickname = null }) {

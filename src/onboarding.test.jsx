@@ -12,7 +12,7 @@ import {
   finishReady, resumeCountsAsRelaunch, RELAUNCH_AFTER_HIDDEN_MS, MEASURE_STEP_TEXTS, CALENDAR_STEP_CHAIN,
   COACH2_MIGRATED, MEASURE_TAB_STEPS_LEGACY, DATA_TAB_STEPS, MEASURE_CHAPTER_FLAGS,
   COACH3_MIGRATED, adsAllowed, ONBOARDING_SHOWN_KEY,
-  COACH4_MIGRATED, coachScrollPlan, floatingCovers, goCompareOpen, coachCameFromCompare, coachDuringNotice, COACH_WITH_NOTICE,
+  COACH4_MIGRATED, coachScrollPlan, floatingCovers, goCompareOpen, coachCameFromCompare, coachDuringNotice, COACH_WITH_NOTICE, noticeActionHidden,
 } from "./onboarding.jsx";
 // 【便CF】4本の棒の作り(COACH_TABS)が無いことを見るため、名前の一覧も読む。【便CG】目印の作り(COACH_ORDER / coachProgress / COACH_SKIPPED)が無いことも
 import * as onboardingModule from "./onboarding.jsx";
@@ -1321,11 +1321,13 @@ describe("【便BY】⑥ リード登録: 穴は「リードを追加」の1つ(
     expect(layer()).toBe(null);
     expect(marks).toEqual([]);
   });
-  // 【便BX 本人の決定 C】⑩ goData の2つ目の穴(保存の帯の箱)は残る(下の【便BX】⑩ の節)。【便BZ】goCompare も帯の箱(⑩ と同じ値)
-  it("2つ目の穴を持つのは ⑩ と【便BZ】goCompare だけ(⑥ は持たない)", () => {
-    expect(Object.entries(COACH_STEPS).filter(([, s]) => s.also).map(([id]) => id)).toEqual(["goData", "goCompare"]);
+  // 【便BX 本人の決定 C】⑩ goData の2つ目の穴(保存の帯の箱)は【便DI 2026-10-26】で外した(⑩ が出ている間は帯の「開く」を描かないので、押す所は下部タブ「データ」の1つ)。
+  // 【便BZ】goCompare は帯の箱を2つ目の穴に持つまま
+  it("2つ目の穴を持つのは【便BZ】goCompare だけ(【便DI】⑩ goData は持たない・⑥ も持たない)。⑩ の的は下部タブ「データ」の箱のまま", () => {
+    expect(Object.entries(COACH_STEPS).filter(([, s]) => s.also).map(([id]) => id)).toEqual(["goCompare"]);
     expect("also" in COACH_STEPS.reeds).toBe(false);
-    expect(COACH_STEPS.goData.also).toEqual({ target: "[data-action-notice]", pad: 0, shape: "rect" });
+    expect("also" in COACH_STEPS.goData).toBe(false);
+    expect([COACH_STEPS.goData.target, COACH_STEPS.goData.pad, COACH_STEPS.goData.shape]).toEqual(['[data-coach="nav-analysis"]', 0, "rect"]);
     expect(COACH_STEPS.goCompare.also).toEqual({ target: "[data-action-notice]", pad: 0, shape: "rect" });
     expect([COACH_STEPS.goCompare.target, COACH_STEPS.goCompare.pad, COACH_STEPS.goCompare.shape]).toEqual(['[data-coach="nav-analysis"]', 0, "rect"]);
   });
@@ -1968,50 +1970,74 @@ const NoticeBox = ({ r = "14,685,347,68", onOpen }) => (
 );
 // 【便BZ】下部タブ「データ」のボタンの箱(760〜804)。帯 685〜753 との間の線は round((753 + 760) / 2) = 757(変わらない)
 const DataNav = () => <span data-coach="nav-analysis" data-r="271.25,760,83.75,44"><svg data-r="298.1,767,30,30" /></span>;
-describe("【便BX】⑩ と保存の帯(2つ目の穴)", () => {
-  it("holesSplit の実寸: 帯 685〜753 と下部タブの穴 761〜813 の間の線は 757(null ではない)", () => {
+describe("【便DI】⑩ と保存の帯(2つ目の穴は外した)", () => {
+  it("holesSplit の実寸: 帯 685〜753 と下部タブの穴 761〜813 の間の線は 757(goCompare がこの計算を使い続ける)", () => {
     expect(holesSplit({ left: 287.1, top: 761, width: 52, height: 52 }, { left: 14, top: 685, width: 347, height: 68 })).toBe(757);
   });
-  it("穴は2枚(1つ目 = データの絵柄の丸・2つ目 = 帯の矩形 pad 0 角丸 --r-2)。帯の中にも下部タブの穴の中にも受けは無い。「開く」は押せる", async () => {
+  it("帯が画面に在っても ⑩ の穴は1枚(下部タブ「データ」の箱だけ)・clip-path なし・受けは4枚。帯の中心も覆われる(押すと外押し = ⑩ を飛ばすだけ)", async () => {
     let opened = 0;
     await drawBS(["goData"], { extra: <><DataNav /><NoticeBox onOpen={() => { opened += 1; }} /></> });
     await frames();
     expect(layerId()).toBe("goData");
-    const hs = holeStyles();
-    expect(hs.map((h) => [h.box, h.also])).toEqual([
-      [["271.25px", "760px", "83.75px", "44px", "var(--r-2)"], null],
-      [["14px", "685px", "347px", "68px", "var(--r-2)"], "also"],
-    ]);
-    // 帯の中心・「開く」の中心・下部タブの絵柄の中心を覆う受け・カードは無い
-    const v = (el, k, d) => (el.style[k] === "" ? d : parseFloat(el.style[k]));
-    for (const [x, y] of [[187.5, 719], [320, 719], [313.1, 787]]) {
-      const covering = [...layer().querySelectorAll(".coach-hit, .coach-card")].filter((el) => {
-        const b = { l: v(el, "left", 22), t: v(el, "top", 0), w: v(el, "width", 331), h: v(el, "height", 146) };
-        return x >= b.l && x <= b.l + b.w && y >= b.t && y <= b.t + b.h;
-      });
-      expect(covering, `${x},${y}`).toEqual([]);
-    }
-    // 受けは帯ごとに4枚(線 757 で分ける)
-    expect(hitBoxes().map((h) => h[0])).toEqual(["t", "b", "l", "r", "xt", "xb", "xl", "xr"]);
-    expect(hitBoxes().find((h) => h[0] === "t").slice(1)).toEqual([0, 757, 375, 3]);
-    expect(hitBoxes().find((h) => h[0] === "xb").slice(1)).toEqual([0, 753, 375, 4]);
-    // カードは中央(帯にも下部タブにもかからない)
-    const top = parseFloat(layer().querySelector(".coach-card").style.top);
-    expect(top).toBe(CENTER);
-    expect(top + 146).toBeLessThan(685);
-    await clickOn([...document.querySelectorAll("button")].find((b) => b.textContent === "開く"));
-    expect(opened).toBe(1);
-    expect(layerId()).toBe("goData");   // 外押しになっていない
+    expect(holeStyles()).toEqual([{ box: ["271.25px", "760px", "83.75px", "44px", "var(--r-2)"], clip: null, also: null }]);
+    expect(hitBoxes().map((h) => h[0])).toEqual(["t", "b", "l", "r"]);
+    expect(layer().querySelector('[data-coach-hole="also"]')).toBe(null);
+    // 帯の中心(187.5,719)は上の受け(0〜760)に覆われる。下部タブの絵柄の中心(313.1,787)は穴の中 = 何も覆わない
+    const covers = (x, y) => [...layer().querySelectorAll(".coach-hit")].filter((el) => {
+      const b = { l: parseFloat(el.style.left), t: parseFloat(el.style.top), w: parseFloat(el.style.width), h: parseFloat(el.style.height) };
+      return x >= b.l && x <= b.l + b.w && y >= b.t && y <= b.t + b.h;
+    }).map((el) => el.getAttribute("data-coach-hit"));
+    expect(covers(187.5, 719)).toEqual(["t"]);
+    expect(covers(313.1, 787)).toEqual([]);
+    // 帯の本体を押す(外押し): ⑩ はこの起動では飛ばされる。帯の「開く」は押されない(受けが取る)
+    await clickOn(layer().querySelector('[data-coach-hit="t"]'));
+    expect(layer()).toBe(null);
+    expect(opened).toBe(0);
   });
-  it("帯が無ければ穴は1枚(今までどおり)。帯が消えると2枚 → 1枚に戻る", async () => {
-    await drawBS(["goData"], { extra: <><DataNav /><NoticeBox /></> });
-    await frames();
-    expect(holeStyles()).toHaveLength(2);
+  it("帯が無くても穴は1枚(今までどおり)", async () => {
     await drawBS(["goData"], { extra: <><DataNav /></> });
     await frames();
     expect(holeStyles()).toHaveLength(1);
     expect(holeStyles()[0].clip).toBe(null);
     expect(hitBoxes().map((h) => h[0])).toEqual(["t", "b", "l", "r"]);
+  });
+});
+
+// ------------------------------------------------------------------
+// 【便DI 2026-10-26 本人「⑩ のとき、下部タブの『データ』と帯の『開く』のどちらを押せばいいか迷う」】
+// ⑩ goData がいま出し得る一手の間だけ、保存の帯の「開く」を描かない(noticeActionHidden)。期待値は本人の指示の文から手で書いた。
+// 【守っていないもの】本物の画面(App.jsx の ActionNotice)で「開く」が消えること → onboardingApp.test.jsx【便DI】
+// ------------------------------------------------------------------
+describe("【便DI】noticeActionHidden(⑩ が出ている間だけ保存の帯の「開く」を描かない)", () => {
+  const SAVED = { coach: "measure", actionLabel: "開く" };
+  it("保存の帯・計測タブ・⑩ が候補にあるときだけ true", () => {
+    expect(noticeActionHidden({ notice: SAVED, topTab: "measure", candidates: ["goData"] })).toBe(true);
+  });
+  it("⑩ が済んだ・外押しで飛ばした・出ない(候補が空)ときは false = 「開く」を出す", () => {
+    expect(noticeActionHidden({ notice: SAVED, topTab: "measure", candidates: [] })).toBe(false);
+    expect(noticeActionHidden({ notice: SAVED, topTab: "measure", candidates: undefined })).toBe(false);
+    expect(noticeActionHidden({ notice: SAVED, topTab: "measure", candidates: null })).toBe(false);
+    // 候補は coachDuringNotice を通した後の並び。⑩ 以外(⑱ など)は帯の間は残らないが、残ったとしても ⑩ でなければ隠さない
+    expect(noticeActionHidden({ notice: SAVED, topTab: "measure", candidates: ["finish"] })).toBe(false);
+  });
+  it("別のタブにいる・別の帯(削除の「元に戻す」= coach なし・目安の「見る」= coach community)・帯が無いときは false", () => {
+    expect(noticeActionHidden({ notice: SAVED, topTab: "analysis", candidates: ["goData"] })).toBe(false);
+    expect(noticeActionHidden({ notice: SAVED, topTab: "community", candidates: ["goData"] })).toBe(false);
+    expect(noticeActionHidden({ notice: { coach: null, actionLabel: "元に戻す" }, topTab: "measure", candidates: ["goData"] })).toBe(false);
+    expect(noticeActionHidden({ notice: { coach: "community", actionLabel: "見る" }, topTab: "measure", candidates: ["goData"] })).toBe(false);
+    expect(noticeActionHidden({ notice: { coach: "community", actionLabel: "見る" }, topTab: "community", candidates: ["goCompare"] })).toBe(false);   // goCompare は対象外
+    expect(noticeActionHidden({ notice: null, topTab: "measure", candidates: ["goData"] })).toBe(false);
+  });
+  it("coachDuringNotice を通した本物の候補で: 保存の帯の間は ⑩ だけ残る → true。違うタブでは候補ごと隠れる → false", () => {
+    const pass = (candidates, topTab) => coachDuringNotice({ candidates, notice: SAVED, topTab });
+    const m = pass(["goData"], "measure");
+    expect(noticeActionHidden({ notice: SAVED, topTab: "measure", candidates: m.candidates })).toBe(true);
+    const x = pass(["goData", "finish"], "measure");
+    expect(x.candidates).toEqual(["goData"]);
+    expect(noticeActionHidden({ notice: SAVED, topTab: "measure", candidates: x.candidates })).toBe(true);
+    const o = pass(["arriveData"], "analysis");
+    expect(o.hidden).toBe(true);
+    expect(noticeActionHidden({ notice: SAVED, topTab: "analysis", candidates: o.candidates })).toBe(false);
   });
 });
 

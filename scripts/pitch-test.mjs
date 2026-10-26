@@ -33807,10 +33807,12 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     && !/nav-[a-z]+"\] svg'/.test(stepsBlk));
   // 【便BY 2026-10-07 本人の指示】⑥ の楽器種別の行の2つ目の穴を外した(2つ目の穴は ⑩ だけ)。行の的の綴り reedsSax はどこにも無い
   // 【便BZ】goCompare も帯の箱を2つ目の穴に持つ(⑩ と同じ値・同じ型)
-  check("BX.1 ⑩ goData に also: { target: \"[data-action-notice]\", pad: 0, shape: \"rect\" }(【便BY】2つ目の穴は ⑩ の1つだけ【便BZ】+ goCompare・reedsSax はどこにも無い)",
-    /also: \{ target: "\[data-action-notice\]", pad: 0, shape: "rect" \},/.test(stepOf("goData"))
+  // 【便DI 2026-10-26 本人の指示】⑩ goData の2つ目の穴(保存の帯の箱)は外した(⑩ の間は帯の「開く」を描かない)。2つ目の穴は goCompare の1つだけ
+  check("BX.1 ⑩ goData は also を持たない・的は下部タブ「データ」の箱(【便DI】)。2つ目の穴は【便BZ】goCompare の1つだけ・reedsSax はどこにも無い",
+    !/\balso\b/.test(stepOf("goData"))
+    && /flag: "goData", icon: "data",\n\s*title: "計測の記録を見てみよう", line: null,\n\s*target: '\[data-coach="nav-analysis"\]', pad: 0, shape: "rect",\n\s*\},?/.test(stepOf("goData") + "\n  }")
     && /flag: "goCompare", icon: "data",\n\s*title: "目安と比べてみよう", line: null,\n\s*target: '\[data-coach="nav-analysis"\]', pad: 0, shape: "rect",\n\s*also: \{ target: "\[data-action-notice\]", pad: 0, shape: "rect" \},/.test(stepOf("goCompare"))
-    && (stepsBlk.match(/\balso: \{/g) || []).length === 2 && !/\balso:/.test(stepOf("reeds"))
+    && (stepsBlk.match(/\balso: \{/g) || []).length === 1 && !/\balso:/.test(stepOf("reeds"))
     && !/reedsSax/.test(obRaw) && !/reedsSax/.test(src));
 
   // --- BX.2 coachCandidates の分岐 ----------------------------------------------------------------------
@@ -34638,6 +34640,33 @@ console.log("========== 検証CI: 便CI 参加のカードは見出しと1行だ
     && rdDH("design/COACH3-SPEC.md").includes("| Ficusで{call}の音を分析しよう！ | null |") && rdDH("design/COACH2-SPEC.md").includes("| リードを登録しよう | null |"));
   check("DH.6 SUBMISSION.md(審査メモ・説明文)は案内の文を引いていない = 実際の画面と食い違う文が無い(「はじめの案内の間は広告を出さない」の一般的な言及だけ)",
     !rdDH("design/SUBMISSION.md").includes("音を分析しよう") && !rdDH("design/SUBMISSION.md").includes("リードを管理できます") && rdDH("design/SUBMISSION.md").includes("はじめの案内の間は表示しません"));
+  console.log("  -> done");
+}
+
+// ------------------------------------------------------------------
+// 【便DI 2026-10-26 本人「⑩ のとき、下部タブの『データ』と帯の『開く』のどちらを押せばいいか迷う」】
+// ⑩ goData が出ている間、保存の帯の「開く」を描かない。綴りだけを見る(描いて押す検査は src/onboarding.test.jsx の【便DI】/ src/onboardingApp.test.jsx の【便DI】)。
+// 【守っていないもの】実機の見え方(暗幕の下の帯の濃さ)。
+// ------------------------------------------------------------------
+{
+  console.log("\n[便DI] ⑩ の間は保存の帯の「開く」を描かない");
+  const rdDI = (p) => { try { return readFileSync(join(__dirname, "..", p), "utf8").replace(/\r\n/g, "\n"); } catch { return ""; } };
+  const obDI = codeOf(rdDI("src/onboarding.jsx"));
+  const appDI = codeOf(src);
+  check("DI.1 noticeActionHidden = 保存の帯(coach === \"measure\")・計測タブ・候補に goData があるときだけ true(1か所。App.jsx は写さず import して使う)",
+    /export function noticeActionHidden\(\{ notice, topTab, candidates \}\) \{\n  return Boolean\(notice\) && notice\.coach === "measure" && topTab === "measure" && \(candidates \?\? \[\]\)\.includes\("goData"\);\n\}/.test(obDI)
+    && /import \{[^}]*\bnoticeActionHidden\b[^}]*\} from "\.\/onboarding\.jsx";/.test(appDI) && (appDI.match(/noticeActionHidden/g) || []).length === 2);
+  check("DI.2 ActionNotice は hideAction(既定 false)のとき操作ボタンを描かない(文・✓ は残す)。根の1か所が coachWithNotice.candidates(帯を通した後の候補)で決める",
+    /function ActionNotice\(\{ notice, onAction, onLeaveEnd, hideAction = false \}\) \{/.test(appDI)
+    && /\{notice\.actionLabel && !hideAction \? \(\n\s*<button/.test(appDI)
+    && /<ActionNotice notice=\{notice\} onAction=\{runNoticeAction\} onLeaveEnd=\{finishLeave\} hideAction=\{noticeActionHidden\(\{ notice, topTab, candidates: coachWithNotice\.candidates \}\)\} \/>/.test(appDI)
+    && (appDI.match(/<ActionNotice /g) || []).length === 1);
+  check("DI.3 保存の帯の「開く」・onAction・coach: \"measure\" の渡し方は変えていない(帯の見た目・チュートリアルが無いときの動きは今までどおり)",
+    /actionLabel: "開く",\n\s*onAction: \(\) => openSessionFromNotice\(pendingSession\.id\),/.test(appDI) && /coach: "measure",\n\s*\}\);/.test(appDI));
+  const dsDI = rdDI("design/DESIGN-SYSTEM.md");
+  const c3DI = rdDI("design/COACH3-SPEC.md");
+  check("DI.4 書類: DESIGN-SYSTEM §4.5b と COACH3-SPEC の ⑩ に【便DI】(「開く」を描かない・2つ目の穴を外した・goCompare は触らない)",
+    /【便DI/.test(dsDI) && dsDI.includes("「開く」を描かない") && /【便DI/.test(c3DI) && c3DI.includes("「開く」を描かない"));
   console.log("  -> done");
 }
 
