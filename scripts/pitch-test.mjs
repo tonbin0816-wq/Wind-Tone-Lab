@@ -33793,7 +33793,7 @@ console.log("========== 検証89: 便BC 平均カード・用語の説明・順�
     && !/\bchapter:/.test(stepsBlk), `${stepIds.length}段`);
   check("BX.1 ⑱ finish の文(一字一句)・アイコン tuner・章 measure",
     // 【便DH 2026-10-26 本人の指示】見出しは「Ficusで{call}の音を分析しよう！」({call} = コミュニティの呼び名)・1行は削除
-    /flag: "finish", icon: "measure",\n\s*title: "Ficusで\{call\}の音を分析しよう！", line: null,/.test(stepOf("finish")));
+    /flag: "finish", icon: "measure",\n\s*title: "Ficusで\{call\}の音を分析しよう！", line: "これでチュートリアルは終了です",/.test(stepOf("finish")));   // 【便DJ】見出しの下に補足文
   check("BX.1 到着3つ・⑭'・⑰ の文(一字一句)",
     // 【便DH】arriveReeds の1行・arriveCommunity の1行を替えた
     /title: "ここはリードタブ", line: "自分のリードを管理できます",/.test(stepOf("arriveReeds"))
@@ -34625,10 +34625,10 @@ console.log("========== 検証CI: 便CI 参加のカードは見出しと1行だ
     /function CoachText\(\{ className, text, call \}\) \{\n  const phrases = coachPhrasesOf\(text, call\);\n  return \(\n    <div className=\{`\$\{className\} coach-text`\}>\n      \{phrases\.map\(\(ph, i\) => \(i === 0 \? ph : <React\.Fragment key=\{i\}><wbr \/>\{ph\}<\/React\.Fragment>\)\)\}\n    <\/div>/.test(obDH)
     && !/coach-text/.test(commDH) && !/coach-text/.test(codeOf(rdDH("src/ConsentScreen.jsx"))));
   const phDH = rdDH("src/coachPhrase.js");
-  check("DH.5 coachPhrase.js は何も import しない純関数(CALL_SLOT = \"{call}\"・助詞・て・読点の直後で切る・「でき」「やす」「もう」「にく」は助詞にしない)",
+  check("DH.5 coachPhrase.js は何も import しない純関数(CALL_SLOT = \"{call}\"・助詞・て・読点の直後で切る・「でき」「やす」「もう」「にく」「です」「でし」は助詞にしない)",
     !/^import /m.test(codeOf(phDH)) && /export const CALL_SLOT = "\{call\}";/.test(phDH)
     && /const PARTICLES = \["から", "まで", "より", "は", "が", "を", "に", "で", "と", "の", "も", "へ", "や"\];/.test(phDH)
-    && /const NOT_PARTICLE = \["でき", "やす", "もう", "にく"\];/.test(phDH) && /export function coachPhrasesOf\(text, call = "あなた"\)/.test(phDH));
+    && /const NOT_PARTICLE = \["でき", "やす", "もう", "にく", "です", "でし"\];/.test(phDH) && /export function coachPhrasesOf\(text, call = "あなた"\)/.test(phDH));
 
   // --- DH.6 書類 ---------------------------------------------------------------------------------------------
   const dsDH = rdDH("design/DESIGN-SYSTEM.md");
@@ -34637,7 +34637,7 @@ console.log("========== 検証CI: 便CI 参加のカードは見出しと1行だ
     && dsDH.includes("Ficusで{call}の音を分析しよう！") && dsDH.includes("他の奏者のデータを見て{call}のデータと比較できます")
     && dsDH.includes("メトロノームを使ってみよう") && dsDH.includes("下のテンポ表示から拍子の変更もできます") && dsDH.includes("| リードを登録しよう / （なし）")
     && dsDH.includes("自分のリードを管理できます")
-    && rdDH("design/COACH3-SPEC.md").includes("| Ficusで{call}の音を分析しよう！ | null |") && rdDH("design/COACH2-SPEC.md").includes("| リードを登録しよう | null |"));
+    && rdDH("design/COACH3-SPEC.md").includes("| Ficusで{call}の音を分析しよう！ | これでチュートリアルは終了です |") && rdDH("design/COACH2-SPEC.md").includes("| リードを登録しよう | null |"));
   check("DH.6 SUBMISSION.md(審査メモ・説明文)は案内の文を引いていない = 実際の画面と食い違う文が無い(「はじめの案内の間は広告を出さない」の一般的な言及だけ)",
     !rdDH("design/SUBMISSION.md").includes("音を分析しよう") && !rdDH("design/SUBMISSION.md").includes("リードを管理できます") && rdDH("design/SUBMISSION.md").includes("はじめの案内の間は表示しません"));
   console.log("  -> done");
@@ -34667,6 +34667,26 @@ console.log("========== 検証CI: 便CI 参加のカードは見出しと1行だ
   const c3DI = rdDI("design/COACH3-SPEC.md");
   check("DI.4 書類: DESIGN-SYSTEM §4.5b と COACH3-SPEC の ⑩ に【便DI】(「開く」を描かない・2つ目の穴を外した・goCompare は触らない)",
     /【便DI/.test(dsDI) && dsDI.includes("「開く」を描かない") && /【便DI/.test(c3DI) && c3DI.includes("「開く」を描かない"));
+  console.log("  -> done");
+}
+
+// ------------------------------------------------------------------
+// 【便DJ 2026-10-26 本人の指示】⑱ finish の見出しの下に補足文「これでチュートリアルは終了です」。綴りだけを見る
+// (描いて見る検査は src/onboarding.test.jsx の【便DJ】/ src/coachPhrase.test.js / src/idealSeenFlow.test.jsx)。
+// ------------------------------------------------------------------
+{
+  console.log("\n[便DJ] ⑱ の補足文");
+  const rdDJ = (p) => { try { return readFileSync(join(__dirname, "..", p), "utf8").replace(/\r\n/g, "\n"); } catch { return ""; } };
+  const obDJ = codeOf(rdDJ("src/onboarding.jsx"));
+  const finDJ = (/\n  finish: \{([\s\S]*?)\n  \},/.exec(obDJ) || [])[1] || "";
+  check("DJ.1 COACH_STEPS.finish = 見出し「Ficusで{call}の音を分析しよう！」+ 1行「これでチュートリアルは終了です」・arrival: true のまま(的を持たない)",
+    /title: "Ficusで\{call\}の音を分析しよう！", line: "これでチュートリアルは終了です",/.test(finDJ) && /arrival: true,/.test(finDJ) && !/\btarget\b/.test(finDJ));
+  check("DJ.2 カードは見出しも1行も CoachText で描く(finish だけ別扱いにしない)・ほかの段の文は触っていない(1行が null の段は11)",
+    /<CoachText className="coach-title" text=\{step\.title\} call=\{call\} \/>\n\s*\{step\.line \? <CoachText className="coach-line" text=\{step\.line\} call=\{call\} \/> : null\}/.test(obDJ)
+    && ((/export const COACH_STEPS = \{([\s\S]*?)\n\};/.exec(obDJ) || [])[1] || "").split("\n").filter((l) => /line: null,/.test(l)).length === 11);
+  check("DJ.3 「です」「でし」は助詞にしない(「終了で|す」にならない)・書類(DESIGN-SYSTEM §4.5b・COACH3-SPEC)の ⑱ に補足文",
+    /const NOT_PARTICLE = \["でき", "やす", "もう", "にく", "です", "でし"\];/.test(rdDJ("src/coachPhrase.js"))
+    && rdDJ("design/DESIGN-SYSTEM.md").includes("Ficusで{call}の音を分析しよう！ / これでチュートリアルは終了です") && rdDJ("design/COACH3-SPEC.md").includes("Ficusで{call}の音を分析しよう！ / これでチュートリアルは終了です"));
   console.log("  -> done");
 }
 

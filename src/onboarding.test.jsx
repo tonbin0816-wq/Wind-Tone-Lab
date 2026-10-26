@@ -69,7 +69,7 @@ describe("文言(凍結仕様の表と本人の指示のとおり、一字一句
     idealSeen: ["みんなの平均を目安にしました", "my平均と目安を重ねて見られます", "target"],
     // 【便BX 2026-10-06 凍結仕様 §2.3】到着4つ・⑭'・⑰(「！」は全角・「ここはコミュニティ」に「タブ」を付けない)
     // 【便DH】見出しは「Ficusで(ニックネーム)さんの音を分析しよう！」({call} = コミュニティの呼び方)・1行は削除
-    finish: ["Ficusで{call}の音を分析しよう！", null, "measure"],
+    finish: ["Ficusで{call}の音を分析しよう！", "これでチュートリアルは終了です", "measure"],   // 【便DJ】見出しの下に補足文
     arriveReeds: ["ここはリードタブ", "自分のリードを管理できます", "reeds"],
     arriveData: ["ここはデータタブ", "計測の記録はここに貯まります", "data"],
     goCommunity: ["みんなのデータも見てみよう", null, "community"],
@@ -1849,8 +1849,8 @@ describe("【便BX】到着カード(穴なし・どこを押しても次へ・�
   });
   it("4つの到着の文とアイコン(⑱ は計測タブと同じ絵・コミュニティは参加のカードと同じ絵)", async () => {
     const W4 = {
-      // 【便DH】ニックネームを渡していないので呼び名は「あなた」(「あなたさん」にならない)。1行は削除
-      finish: ["Ficusであなたの音を分析しよう！", null, "m12 14 4-4"],
+      // 【便DH】ニックネームを渡していないので呼び名は「あなた」(「あなたさん」にならない)。【便DJ】1行は「これでチュートリアルは終了です」
+      finish: ["Ficusであなたの音を分析しよう！", "これでチュートリアルは終了です", "m12 14 4-4"],
       arriveData: ["ここはデータタブ", "計測の記録はここに貯まります", "M16 16L16 8"],
       arriveCommunity: ["ここはコミュニティ", "他の奏者のデータを見てあなたのデータと比較できます", null],
     };
@@ -1903,8 +1903,8 @@ describe("【便CG】目印が無い(カードの最初の子はアイコン)", 
       await drawBS([id], { done, extra });
       await frames();
       expect(layerId(), id).toBe(id);
-      // 【便DH】⑱ は1行が削除されたので子はアイコン・見出しの2つ。見出し・1行は折り返しの規則 .coach-text を足した
-      expect(kids(), id).toEqual(id === "finish" ? ["coach-icon", "coach-title coach-text"] : ["coach-icon", "coach-title coach-text", "coach-line coach-text"]);
+      // 【便DH】見出し・1行は折り返しの規則 .coach-text を足した。【便DJ】⑱ にも1行(補足文)があるので、4つとも子はアイコン・見出し・1行の3つ
+      expect(kids(), id).toEqual(["coach-icon", "coach-title coach-text", "coach-line coach-text"]);
       expect(layer().querySelector(".coach-progress, .coach-progress b"), id).toBe(null);
     }
   });
@@ -2249,8 +2249,8 @@ describe("【便DH】呼び名({call})= コミュニティの「ニックネー�
     await frames();
     expect(layerId()).toBe("finish");
     expect(title()).toBe("Ficusでたろうさんの音を分析しよう！");
-    expect(line()).toBe(null);   // 1行は削除
-    expect(live().textContent).toBe("Ficusでたろうさんの音を分析しよう！");
+    expect(line()).toBe("これでチュートリアルは終了です");   // 【便DJ】見出しの下の補足文
+    expect(live().textContent).toBe("Ficusでたろうさんの音を分析しよう！。これでチュートリアルは終了です");
     act(() => root.unmount());
     root = createRoot(host);
     await drawNick(["arriveCommunity"], "たろう");
@@ -2275,7 +2275,8 @@ describe("【便DH】呼び名({call})= コミュニティの「ニックネー�
       await drawNick(["finish"], nick);
       await frames();
       expect(title(), String(nick)).toBe("Ficusであなたの音を分析しよう！");
-      expect(live().textContent, String(nick)).toBe("Ficusであなたの音を分析しよう！");
+      expect(line(), String(nick)).toBe("これでチュートリアルは終了です");
+      expect(live().textContent, String(nick)).toBe("Ficusであなたの音を分析しよう！。これでチュートリアルは終了です");
       act(() => root.unmount());
       root = createRoot(host);
       await drawNick(["arriveCommunity"], nick);
@@ -2292,10 +2293,10 @@ describe("【便DH】呼び名({call})= コミュニティの「ニックネー�
     await drawNick(["finish"], "はなこ");
     expect(layer().querySelector(".coach-card")).toBe(card);
     expect(title()).toBe("Ficusではなこさんの音を分析しよう！");
-    expect(live().textContent).toBe("Ficusではなこさんの音を分析しよう！");
+    expect(live().textContent).toBe("Ficusではなこさんの音を分析しよう！。これでチュートリアルは終了です");
     await drawNick(["finish"], null);
     expect(title()).toBe("Ficusであなたの音を分析しよう！");
-    expect(live().textContent).toBe("Ficusであなたの音を分析しよう！");
+    expect(live().textContent).toBe("Ficusであなたの音を分析しよう！。これでチュートリアルは終了です");
   });
   it("呼び名の入る文は2つだけ(finish の見出し・arriveCommunity の1行)。ほかの段の文には {call} が入らない", () => {
     const withCall = Object.entries(COACH_STEPS).flatMap(([id, s]) => [["title", s.title], ["line", s.line]].filter(([, t]) => typeof t === "string" && t.includes("{call}")).map(([k]) => `${id}.${k}`));
@@ -2304,9 +2305,9 @@ describe("【便DH】呼び名({call})= コミュニティの「ニックネー�
 });
 
 describe("【便DH】文言(本人の指示の表)", () => {
-  it("1行が null の段: 今回 metronome と finish が増えた(見出しだけのカード)。ほかは前のまま", () => {
+  it("1行が null の段: 【便DH】metronome が増えた(見出しだけのカード)。【便DJ】finish は補足文が付いたので外れた。ほかは前のまま", () => {
     const noLine = Object.entries(COACH_STEPS).filter(([, s]) => s.line === null).map(([id]) => id).sort();
-    expect(noLine).toEqual(["calendarDay", "daySession", "finish", "goCommunity", "goCompare", "goData", "goMeasure", "goReeds", "metronome", "reedLinked", "reedsMeasure", "trend"]);
+    expect(noLine).toEqual(["calendarDay", "daySession", "goCommunity", "goCompare", "goData", "goMeasure", "goReeds", "metronome", "reedLinked", "reedsMeasure", "trend"]);
   });
   it("見出しだけのカード(metronome)は1行の入れ物(.coach-line)を持たず、測った高さで見える範囲に収まる", async () => {
     cardH = 100;
@@ -2318,6 +2319,43 @@ describe("【便DH】文言(本人の指示の表)", () => {
     const top = parseFloat(card.style.top);
     expect(top).toBeGreaterThanOrEqual(22);
     expect(top + 100).toBeLessThanOrEqual(760);   // 下部タブの上端(760)より上
+  });
+});
+
+// ------------------------------------------------------------------
+// 【便DJ 2026-10-26 本人の指示】⑱ finish の見出しの下に補足文「これでチュートリアルは終了です」。1行ありのカードの前例(arriveReeds など)と同じ道を通る。
+// 期待値は本人の指示の文と、文節の切れ目(これで|チュートリアルは|終了です)から手で書いた。
+// ------------------------------------------------------------------
+describe("【便DJ】⑱ の補足文「これでチュートリアルは終了です」", () => {
+  const drawFinish = (nickname) => act(async () => {
+    root.render(<><Nav /><OnboardingCoach candidates={["finish"]} done={ALL_FALSE} hidden={false} nickname={nickname} /></>);
+  });
+  it("見出しの下に1行が出る(ニックネームの有無に依らず同じ文)。見出し・1行とも CoachText(.coach-text・文節の切れ目の <wbr>)", async () => {
+    for (const nick of ["たろう", null]) {
+      act(() => root.unmount());
+      root = createRoot(host);
+      await drawFinish(nick);
+      await frames();
+      const card = layer().querySelector(".coach-card");
+      expect([...card.children].map((c) => c.className)).toEqual(["coach-icon", "coach-title coach-text", "coach-line coach-text"]);
+      expect(card.querySelector(".coach-title").textContent).toBe(nick ? "Ficusでたろうさんの音を分析しよう！" : "Ficusであなたの音を分析しよう！");
+      expect(card.querySelector(".coach-line").textContent).toBe("これでチュートリアルは終了です");
+      expect(card.querySelector(".coach-line").innerHTML).toBe("これで<wbr>チュートリアルは<wbr>終了です");
+    }
+  });
+  it("カードの高さ・位置: 1行ありの前例と同じ道(測った高さで見える範囲の縦の中央)。穴なし・受けは画面いっぱい1枚", async () => {
+    cardH = 146;   // 1行ありのカードの測った高さ(arriveReeds の前例と同じ)
+    await drawFinish("たろう");
+    await frames();
+    const L = layer();
+    expect(L.querySelector(".coach-hole")).toBe(null);
+    expect(L.querySelectorAll(".coach-hit")).toHaveLength(1);
+    const card = L.querySelector(".coach-card");
+    expect(card.style.visibility).toBe("visible");
+    expect(parseFloat(card.style.top)).toBe(CENTER);
+    expect(card.getAttribute("data-coach-side")).toBe("center");
+    // 読み上げは見出し + 補足文
+    expect(live().textContent).toBe("Ficusでたろうさんの音を分析しよう！。これでチュートリアルは終了です");
   });
 });
 
