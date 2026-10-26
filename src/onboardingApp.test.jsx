@@ -1430,10 +1430,12 @@ describe("【便DI】保存の帯と同時に ⑩(帯の「開く」は描かな
       ["271.25px", "760px", "83.75px", "44px", "var(--r-2)", null],
     ]);
     expect(opens).toEqual([]);
-    // 「データ」を押す: 済み(goData)・帯が残っていれば「開く」が元どおり出る
+    // 「データ」を押す: 済み(goData)。【便DK】保存の帯は計測タブを離れた時点で即座に片付く(戻ったときに見えない)ので、「開く」が後から出ることも無い
     await click(nav("データ"));
     await waitFor(() => kv("onboardingDone")?.goData === true, "goData の印");
-    await waitFor(() => buttonText("開く") !== null, "⑩ が済んだ後は「開く」が出る");
+    expect(noticeText()).toBe(null);
+    await tick(300);
+    expect(opens).toEqual([]);
     mo.disconnect();
   }, 40000);
 
@@ -1500,8 +1502,8 @@ describe("【便DI】保存の帯と同時に ⑩(帯の「開く」は描かな
     await waitFor(() => layerId() === "measure", "⑱ のあとも残りの計測タブの段(⑨)は出る");
   }, 40000);
 
-  it("帯の間に「データ」を押すと: データタブの段(到着)は帯が消えてから出る(帯の「開く」を覆わない)", async () => {
-    preferReducedMotion();
+  // 【便DK 2026-10-26 本人の答え】保存の帯は計測タブを離れた時点で即座に片付く。便BX〜便DI の「データタブの到着は帯が消えてから出る」は、帯が無いので待たずに出る
+  it("【便DK】⑩ で「データ」を押す: 保存の帯が即座に片付き(5秒待たない)、データタブの到着カード(arriveData)がすぐ出る", async () => {
     installToneMic();
     mod = await loadApp(fake);
     await seed({ kvEntries: { onboardingDone: { ...GATES, tuner: true, metronome: true, goReeds: true } } });
@@ -1509,14 +1511,59 @@ describe("【便DI】保存の帯と同時に ⑩(帯の「開く」は描かな
     await waitFor(() => layerId() === "measure", "⑨");
     await recordAndSave();
     await waitFor(() => layerId() === "goData", "⑩");
+    expect(noticeText()).not.toBe(null);
     await click(nav("データ"));
     await waitFor(() => kv("onboardingDone")?.goData === true, "goData の印");
-    await tick(300);
-    expect(noticeText()).not.toBe(null);
-    expect(layer()).toBe(null);                               // 帯が出ている間は到着も出さない
-    expect(buttonText("開く")).not.toBe(null);
-    await waitFor(() => noticeText() === null, "帯が消える", 8000);
-    await waitFor(() => layerId() === "arriveData", "帯が消えたら到着");
+    expect(noticeText()).toBe(null);                          // 帯は即座に消えた(フェードもしない = .is-leaving も無い)
+    expect(document.querySelector(".action-notice")).toBe(null);
+    await waitFor(() => layerId() === "arriveData", "帯を待たずに到着", 3000);   // 帯の5秒より十分に早い
+    expect(layer().querySelector(".coach-title").textContent).toBe("ここはデータタブ");
+  }, 40000);
+
+  it("【便DK】計測を保存した直後に データ・リード へ移り、計測タブへ戻っても、保存の帯は一度も描かれない(戻った瞬間にも)", async () => {
+    installToneMic();
+    mod = await loadApp(fake);
+    // ⑩ を出さない人(goData が済み)でも同じ。帯の「開く」が出る普通の人の場面
+    await seed({ kvEntries: { onboardingDone: { ...GATES, tuner: true, metronome: true, goReeds: true, goData: true, arriveData: true, arriveReeds: true } } });
+    await render();
+    await waitFor(() => layerId() === "measure", "⑨");
+    await recordAndSave();
+    await waitFor(() => noticeText() !== null, "保存の帯");
+    expect(noticeText()).toMatch(/^✓\d\d:\d\d の計測を保存しました開く$/);
+    for (const leave of ["データ", "リード"]) {
+      // 離れた瞬間から戻ったあとまで、帯が1度でも描かれたら溜まる
+      const seen = [];
+      const mo = new MutationObserver(() => { const n = noticeText(); if (n !== null) seen.push(n); });
+      mo.observe(document.body, { childList: true, subtree: true, characterData: true });
+      await click(nav(leave));
+      expect(noticeText(), `${leave}: 離れた直後`).toBe(null);
+      await tick(100);
+      await click(nav("計測"));
+      expect(noticeText(), `${leave}: 戻った直後`).toBe(null);
+      await tick(300);
+      mo.disconnect();
+      expect(seen, leave).toEqual([]);
+      expect(document.querySelector(".action-notice"), leave).toBe(null);
+      if (leave === "データ") {
+        // 次の周回のために、もう一度保存して帯を出す
+        await recordAndSave();
+        await waitFor(() => noticeText() !== null, "2回目の保存の帯");
+      }
+    }
+  }, 60000);
+
+  it("【便DK】計測タブにいる間は、保存の帯は今までどおり出て5秒で消える(「開く」も出る)", async () => {
+    preferReducedMotion();   // 帯が5秒で溶けずに外れる(jsdom は animationend を出さない)
+    installToneMic();
+    mod = await loadApp(fake);
+    await seed({ kvEntries: { onboardingDone: { ...GATES, tuner: true, metronome: true, goReeds: true, goData: true } } });
+    await render();
+    await waitFor(() => layerId() === "measure", "⑨");
+    await recordAndSave();
+    await waitFor(() => noticeText() !== null, "保存の帯");
+    await tick(1500);
+    expect(noticeText()).toMatch(/^✓\d\d:\d\d の計測を保存しました開く$/);   // 1.5 秒後もまだ出ている(早く消えていない)
+    await waitFor(() => noticeText() === null, "5秒で消える", 8000);
   }, 40000);
 });
 

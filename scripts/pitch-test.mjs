@@ -34690,6 +34690,28 @@ console.log("========== 検証CI: 便CI 参加のカードは見出しと1行だ
   console.log("  -> done");
 }
 
+// ------------------------------------------------------------------
+// 【便DK 2026-10-26 本人の答え「計測を保存した直後(5秒以内)に他のタブから計測タブへ戻ったとき」】保存の帯は計測タブを離れた時点で即座に片付ける。
+// 綴りだけを見る(描いて見る検査は src/onboardingApp.test.jsx の【便DK】/ src/onboarding.test.jsx の【便DK】)。
+// ------------------------------------------------------------------
+{
+  console.log("\n[便DK] 保存の帯は計測タブを離れたら片付ける");
+  const rdDK = (p) => { try { return readFileSync(join(__dirname, "..", p), "utf8").replace(/\r\n/g, "\n"); } catch { return ""; } };
+  const obDK = codeOf(rdDK("src/onboarding.jsx"));
+  const appDK = codeOf(src);
+  check("DK.1 noticeEndsOnTabLeave = 保存の帯(coach === \"measure\")かつ計測以外のタブ、のときだけ true(1か所。App.jsx は写さず import して使う)",
+    /export function noticeEndsOnTabLeave\(\{ notice, topTab \}\) \{\n  return Boolean\(notice\) && notice\.coach === "measure" && topTab !== "measure";\n\}/.test(obDK)
+    && /import \{[^}]*\bnoticeEndsOnTabLeave\b[^}]*\} from "\.\/onboarding\.jsx";/.test(appDK) && (appDK.match(/noticeEndsOnTabLeave/g) || []).length === 2);
+  check("DK.2 App.jsx の根の1か所: topTab / notice が変わるたび、条件に合う帯だけ clearNoticeWhere で即座に外す(フェードを待たない・退避も捨てる)。ほかの帯には触らない",
+    /useEffect\(\(\) => \{\n\s*clearNoticeWhere\(\(n\) => noticeEndsOnTabLeave\(\{ notice: n, topTab \}\)\);\n\s*\}, \[topTab, notice, clearNoticeWhere\]\);/.test(appDK)
+    && /const clearNoticeWhere = useCallback\(\(match\) => \{\n\s*const n = noticeRef\.current;\n\s*if \(!n \|\| !match\(n\)\) return;\n\s*stash\.drop\(\);\n\s*setNotice\(null\);\n\s*\}, \[stash\]\);/.test(appDK)
+    && (appDK.match(/clearNoticeWhere\(/g) || []).length === 1);
+  check("DK.3 保存の帯の渡し方(文・「開く」・coach: \"measure\")と ActionNotice の見た目は変えていない / 書類(DESIGN-SYSTEM §4.5b・COACH3-SPEC §7)に【便DK】",
+    /actionLabel: "開く",\n\s*onAction: \(\) => openSessionFromNotice\(pendingSession\.id\),/.test(appDK) && /coach: "measure",\n\s*\}\);/.test(appDK)
+    && /【便DK/.test(rdDK("design/DESIGN-SYSTEM.md")) && /【便DK/.test(rdDK("design/COACH3-SPEC.md")));
+  console.log("  -> done");
+}
+
 console.log("\n========== 結果 ==========");
 console.log(`PASS: ${pass}  FAIL: ${fail}`);
 if (failures.length) {

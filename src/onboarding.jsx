@@ -225,7 +225,7 @@ export const COACH_STEPS = {
     // 【便DI 2026-10-26 本人「下部タブの『データ』と帯の『開く』のどちらを押せばいいか迷う」】この段が出ている間は、帯の「開く」を描かない
     // (noticeActionHidden。App.jsx の ActionNotice)ので、押す所は下部タブ「データ」の1つだけ。便BX の2つ目の穴(帯の箱 also)は外した ──
     // 「開く」が無い帯を明るく残す意味が無くなった。帯は暗幕の下に残る(「HH:mm の計測を保存しました」は事実の知らせ)。
-    // この段が済んだ・外押しで飛ばした・出なくなったら「開く」は元どおり出る。
+    // 外押しで飛ばした・出なくなったら、計測タブにいる間の帯に「開く」は元どおり出る(【便DK】この段が済む = 「データ」を押す と、帯は計測タブを離れた時点で片付く)。
   },
   // 【便BX 2026-10-06 本人の決定 B1】到着カード(穴なし・どこを押しても次へ = 印を立てる・群なし)。章が変わってタブに着いた直後に1枚。
   // target を持たない(的を探さない)。pad / shape / dismissWith / markOnDismiss / scrollIntoView / also も持たない。
@@ -542,9 +542,16 @@ export function coachCameFromCompare({ from, to, done }) {
 export const COACH_WITH_NOTICE = Object.freeze({ measure: Object.freeze(["goData"]), community: Object.freeze(["goCompare"]) });
 // 【便DI 2026-10-26 本人「⑩ が出ているとき、下部タブの『データ』と帯の『開く』のどちらを押せばいいか迷う」】
 // 保存の帯(notice.coach === "measure")の操作ボタン(「開く」)を描かないか。⑩ goData が**いま出し得る一手**(coachDuringNotice を通した候補)の
-// 間だけ true。帯そのもの(「HH:mm の計測を保存しました」)は残す。⑩ が済んだ(タブを移った)・外押しで飛ばした(候補から外れる)・
+// 間だけ true。帯そのもの(「HH:mm の計測を保存しました」)は残す。⑩ が済んだ(タブを移った = 【便DK】帯ごと片付く)・外押しで飛ばした(候補から外れる)・
 // 別のタブにいる・案内が済んでいる(候補が無い)・別の帯(削除の「元に戻す」・目安の「見る」)のときは false = 今までどおり出す。
 // 目安の帯(goCompare)は対象外(「見る」を押してもデータタブへ着き、下部タブ「データ」と同じ結果になる = 迷っても流れは壊れない)。
+// 【便DK 2026-10-26 本人の答え】保存の帯(notice.coach === "measure")は、計測を保存した直後(5秒以内)に他のタブから計測タブへ戻ったとき、
+// 「戻った瞬間に出る」ように見えていた(帯は根に常駐しタブを移っても消えない)。計測タブを離れた時点で片付ける ── 真なら App.jsx が即座に外す。
+// 別の帯(削除の「元に戻す」= coach なし・目安の「見る」= coach community・解析が完了しました = coach なし)は対象外。
+// 帰結: ⑩ goData で「データ」を押すと帯が片付くので、データタブの到着(arriveData)は帯を待たずにすぐ出る。
+export function noticeEndsOnTabLeave({ notice, topTab }) {
+  return Boolean(notice) && notice.coach === "measure" && topTab !== "measure";
+}
 export function noticeActionHidden({ notice, topTab, candidates }) {
   return Boolean(notice) && notice.coach === "measure" && topTab === "measure" && (candidates ?? []).includes("goData");
 }

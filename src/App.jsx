@@ -49,7 +49,7 @@ import { MEASURE_STEPS_MIGRATED, TUNER_SUSTAIN_MS, useSustained } from "./onboar
 // 【便BW 2026-10-06】新しい段の移行の印(3つ目の門)。【便BX】4つ目の門。
 import { COACH2_MIGRATED, COACH3_MIGRATED } from "./onboarding.jsx";
 // 【便BZ 2026-10-07】5つ目の門(goCompare の移行)・帯と同時に出してよい段の決まり・「目安と比べてみよう」から来たかの判定。
-import { COACH4_MIGRATED, coachDuringNotice, coachCameFromCompare, noticeActionHidden } from "./onboarding.jsx";
+import { COACH4_MIGRATED, coachDuringNotice, coachCameFromCompare, noticeActionHidden, noticeEndsOnTabLeave } from "./onboarding.jsx";
 // 【リードの番手の正は community/profile.js】綴りを2箇所に持たない。
 // profile.js は firebase を読まない(カタログとNGワードだけ)ので、
 // ここから import しても計測タブの起動が重くならない。
@@ -3770,6 +3770,9 @@ function createNoticeStash(timers) {
 // 帯の中身を1つだけ持つ。App の根で1度だけ呼ぶ。
 function useActionNoticeStore() {
   const [notice, setNotice] = useState(null);
+  // 【便DK】いまの帯(描画のたびに更新)。clearNoticeWhere が「いま出ている帯」を同期で読むため
+  const noticeRef = useRef(null);
+  noticeRef.current = notice;
   const stashRef = useRef(null);
   if (stashRef.current === null) stashRef.current = createNoticeStash();
   const stash = stashRef.current;
@@ -3818,9 +3821,18 @@ function useActionNoticeStore() {
   // 畳んでいるときだけ外す。
   const finishLeave = useCallback(() => setNotice((prev) => (prev && prev.leaving ? null : prev)), []);
 
+  // 【便DK 2026-10-26 本人「計測を保存した直後に他のタブから計測タブへ戻ると、保存しました が出る」】いま出ている帯が条件に合えば、
+  // **フェードを待たずに即座に**外す(戻ったときに見えないように)。退避(元に戻す)も捨てる。合わなければ何もしない(ほかの帯に触らない)。
+  const clearNoticeWhere = useCallback((match) => {
+    const n = noticeRef.current;
+    if (!n || !match(n)) return;
+    stash.drop();
+    setNotice(null);
+  }, [stash]);
+
   useEffect(() => () => stash.drop(), [stash]);
 
-  return { notice, showNotice, runNoticeAction, finishLeave };
+  return { notice, showNotice, runNoticeAction, finishLeave, clearNoticeWhere };
 }
 
 // 帯そのもの。**App の根のここ1箇所でしか描かない。**
@@ -3968,7 +3980,13 @@ export default function WindToneLabPhaseMode({ startOnJoin = false } = {}) {
   }, []);
   // 【B-0 2026-09-15 本人裁定】操作の合図の帯。**App の根に1つだけ。**
   // 子から呼べるよう showNotice をそのまま props で配る(帯の実体は増やさない)。
-  const { notice, showNotice, runNoticeAction, finishLeave } = useActionNoticeStore();
+  const { notice, showNotice, runNoticeAction, finishLeave, clearNoticeWhere } = useActionNoticeStore();
+  // 【便DK 2026-10-26 本人の答え「計測を保存した直後(5秒以内)に他のタブから計測タブへ戻ったとき」に出る】保存の帯(coach が measure の帯)は計測タブを離れた時点で即座に片付ける。
+  // 判定は onboarding.jsx の noticeEndsOnTabLeave(1か所)。ほかの帯(元に戻す・見る・解析が完了しました)は coach が違うので触らない。
+  // notice も依存に入れる: 離れている間に積まれた帯(通常は無い)も取りこぼさない
+  useEffect(() => {
+    clearNoticeWhere((n) => noticeEndsOnTabLeave({ notice: n, topTab }));
+  }, [topTab, notice, clearNoticeWhere]);
   // 【B-1】帯の「開く」で計測の詳細へ行く。開いている計測(selectedSessionId)は
   // データタブの中の state なので、根からは**開きたい id を渡すだけ**にして、
   // 実際に開くのはあちら側(AnalysisLabView の effect)に任せる。

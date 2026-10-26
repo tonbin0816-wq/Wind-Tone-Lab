@@ -12,7 +12,7 @@ import {
   finishReady, resumeCountsAsRelaunch, RELAUNCH_AFTER_HIDDEN_MS, MEASURE_STEP_TEXTS, CALENDAR_STEP_CHAIN,
   COACH2_MIGRATED, MEASURE_TAB_STEPS_LEGACY, DATA_TAB_STEPS, MEASURE_CHAPTER_FLAGS,
   COACH3_MIGRATED, adsAllowed, ONBOARDING_SHOWN_KEY,
-  COACH4_MIGRATED, coachScrollPlan, floatingCovers, goCompareOpen, coachCameFromCompare, coachDuringNotice, COACH_WITH_NOTICE, noticeActionHidden,
+  COACH4_MIGRATED, coachScrollPlan, floatingCovers, goCompareOpen, coachCameFromCompare, coachDuringNotice, COACH_WITH_NOTICE, noticeActionHidden, noticeEndsOnTabLeave,
 } from "./onboarding.jsx";
 // 【便CF】4本の棒の作り(COACH_TABS)が無いことを見るため、名前の一覧も読む。【便CG】目印の作り(COACH_ORDER / coachProgress / COACH_SKIPPED)が無いことも
 import * as onboardingModule from "./onboarding.jsx";
@@ -2000,6 +2000,27 @@ describe("【便DI】⑩ と保存の帯(2つ目の穴は外した)", () => {
     expect(holeStyles()).toHaveLength(1);
     expect(holeStyles()[0].clip).toBe(null);
     expect(hitBoxes().map((h) => h[0])).toEqual(["t", "b", "l", "r"]);
+  });
+});
+
+// ------------------------------------------------------------------
+// 【便DK 2026-10-26 本人の答え「計測を保存した直後(5秒以内)に他のタブから計測タブへ戻ったとき、保存しました が出る」】
+// 保存の帯(coach === "measure")は計測タブを離れた時点で片付ける(noticeEndsOnTabLeave。App.jsx が即座に外す)。期待値は本人の答えの文から手で書いた。
+// 【守っていないもの】本物の画面で片付くこと → onboardingApp.test.jsx【便DK】
+// ------------------------------------------------------------------
+describe("【便DK】noticeEndsOnTabLeave(保存の帯だけ、計測タブを離れたら片付ける)", () => {
+  const SAVED = { coach: "measure", actionLabel: "開く" };
+  it("保存の帯は計測以外のタブで true(データ・リード・コミュニティ)・計測タブでは false", () => {
+    for (const tab of ["analysis", "reeds", "community"]) expect(noticeEndsOnTabLeave({ notice: SAVED, topTab: tab }), tab).toBe(true);
+    expect(noticeEndsOnTabLeave({ notice: SAVED, topTab: "measure" })).toBe(false);
+  });
+  it("ほかの帯は触らない: 削除の「元に戻す」(coach なし)・解析が完了しました(coach なし)・目安の「見る」(coach community)・帯なし", () => {
+    for (const tab of ["analysis", "reeds", "community", "measure"]) {
+      expect(noticeEndsOnTabLeave({ notice: { coach: null, actionLabel: "元に戻す" }, topTab: tab }), `元に戻す/${tab}`).toBe(false);
+      expect(noticeEndsOnTabLeave({ notice: { coach: null, actionLabel: "開く", text: "解析が完了しました" }, topTab: tab }), `解析/${tab}`).toBe(false);
+      expect(noticeEndsOnTabLeave({ notice: { coach: "community", actionLabel: "見る" }, topTab: tab }), `見る/${tab}`).toBe(false);
+      expect(noticeEndsOnTabLeave({ notice: null, topTab: tab }), `帯なし/${tab}`).toBe(false);
+    }
   });
 });
 
