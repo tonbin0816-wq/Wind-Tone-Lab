@@ -1,5 +1,6 @@
 // 審査用のデモ奏者を本番のコミュニティに入れる(2026-11-03・Guideline 2.1(a) への対応)。
 // 実行: node --env-file=.env.local scripts/seed-review-demo.mjs   (--dry で書かずに中身だけ表示)
+// 2026-11-03 実行済み(本番に6人)。新規作成と練習記録は2段階で書く(アプリと同じ。2本持ちを1回で作ると式の上限1,000を超えて拒否される)。
 // 承認後に消す: Firebase コンソールで users と ideals の「デモ奏者」を削除(出力の uid の一覧が目印)。
 // 書く形は src/community/profile.js の buildProfileDoc・idealDoc.js の buildIdealDoc と firestore.rules に合わせてある。
 import { initializeApp } from "firebase/app";
@@ -82,7 +83,9 @@ const missing = need.filter((k) => !process.env[k]);
 if (missing.length) { console.error("環境変数が足りません:", missing.join(", ")); process.exit(1); }
 
 const uids = [];
+const START = Number(process.env.START ?? 0);
 for (const [i, p] of PLAYERS.entries()) {
+  if (i < START) continue;
   // 1 人ごとに別のアプリ名で初期化する(同じ名前だと同じ匿名アカウントになる)
   const app = initializeApp({
     apiKey: process.env.VITE_FIREBASE_API_KEY, authDomain: process.env.VITE_FIREBASE_AUTH_DOMAIN,
@@ -90,9 +93,9 @@ for (const [i, p] of PLAYERS.entries()) {
   }, `demo-${i}`);
   const { user } = await signInAnonymously(getAuth(app));
   const db = getFirestore(app);
-  await setDoc(doc(db, "users", user.uid), profileOf(p));
+  try { const full = profileOf(p); const { stats, ...base } = full; await setDoc(doc(db, "users", user.uid), base); await setDoc(doc(db, "users", user.uid), full); } catch (e) { console.error("FAIL users", p.nick, user.uid, e.code); process.exit(2); }
   for (const [j, t] of p.saxTypes.entries()) {
-    await setDoc(doc(db, "ideals", `${user.uid}_${t}`), idealOf(user.uid, t, 1000 * (i + 1) + j));
+    try { await setDoc(doc(db, "ideals", `${user.uid}_${t}`), idealOf(user.uid, t, 1000 * (i + 1) + j)); } catch (e) { console.error("FAIL ideals", p.nick, t, user.uid, e.code); process.exit(2); }
   }
   uids.push({ uid: user.uid, nickname: p.nick, saxTypes: p.saxTypes });
   console.log("OK", p.nick, user.uid);
