@@ -99,7 +99,11 @@ export const vetAvatarPhoto = onCall(async (req) => {
   try {
     return await runVetAvatarPhoto({ uid: req.auth?.uid ?? null }, storageDeps());
   } catch (e) {
-    if (e?.kind) throw new HttpsError(CODE_OF[e.kind] ?? "internal", e.message);
+    if (e?.kind) {
+      // 落ちた理由を残す(端末には「使えません」としか返らず、ログに理由が無いと切り分けられない)
+      console.warn("[avatar] 判定で落ちた", e.kind, e.reason);
+      throw new HttpsError(CODE_OF[e.kind] ?? "internal", e.message);
+    }
     console.error("[avatar] 想定外の失敗", e?.message);
     throw new HttpsError("internal", "photo-unavailable: internal");
   }
