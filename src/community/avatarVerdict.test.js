@@ -20,8 +20,13 @@ describe("safeSearchVerdict ── 載せてよいかを決める", () => {
     expect(safeSearchVerdict({ ...CLEAN, violence: "POSSIBLE" }).ok).toBe(true);
   });
 
-  it("LIKELY 以上は落とす(4つのどれでも)", () => {
-    for (const k of ["adult", "violence", "racy", "medical"]) {
+  it("racy は LIKELY でも通す(食べ物の写真が落ちた実機報告 2026-11-09)・VERY_LIKELY で落とす", () => {
+    expect(safeSearchVerdict({ ...CLEAN, racy: "LIKELY" }).ok).toBe(true);
+    expect(safeSearchVerdict({ ...CLEAN, racy: "VERY_LIKELY" })).toEqual({ ok: false, reason: "racy" });
+  });
+
+  it("LIKELY 以上は落とす(racy 以外の3つ)", () => {
+    for (const k of ["adult", "violence", "medical"]) {
       expect(safeSearchVerdict({ ...CLEAN, [k]: "LIKELY" }), k).toEqual({ ok: false, reason: k });
       expect(safeSearchVerdict({ ...CLEAN, [k]: "VERY_LIKELY" }).ok, k).toBe(false);
     }

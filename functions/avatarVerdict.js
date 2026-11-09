@@ -52,6 +52,10 @@ export const avatarPrefixOf = (uid) => `avatars/${uid}/`;
  * 「判定を通っていない写真が載る経路」ができる ── 決定6 が禁じているのはそれ。
  */
 const BLOCK_AT = new Set(["LIKELY", "VERY_LIKELY"]);
+// 【racy だけは VERY_LIKELY で落とす ― 2026-11-09 本人の実機報告】カフェの写真(ドーナツ・枸杞の実・赤い器)が
+// racy の LIKELY で落ちた。食べ物・肌色に近い色・丸い形で racy は誤って立ちやすく、256px に縮めた写真では特に不安定。
+// racy は「きわどい」程度の段で、adult(性的な内容)とは別。adult / violence / medical は従来どおり LIKELY で落とす。
+const BLOCK_AT_BY_KIND = { racy: new Set(["VERY_LIKELY"]) };
 const LOOKED_AT = ["adult", "violence", "racy", "medical"];
 
 export function safeSearchVerdict(annotation) {
@@ -62,7 +66,7 @@ export function safeSearchVerdict(annotation) {
     const v = annotation[k];
     // 【段が読めないものも落とす】未知の綴り・undefined を「安全」と読まない。
     if (typeof v !== "string") return { ok: false, reason: `no-verdict:${k}` };
-    if (BLOCK_AT.has(v)) return { ok: false, reason: k };
+    if ((BLOCK_AT_BY_KIND[k] ?? BLOCK_AT).has(v)) return { ok: false, reason: k };
   }
   return { ok: true, reason: null };
 }
